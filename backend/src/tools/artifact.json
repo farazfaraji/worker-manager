@@ -1,0 +1,922 @@
+{
+  "name": "Artifact",
+  "type": "artifact",
+  "description": "Create, read, update, version, approve and archive durable artifacts (Markdown docs, PRDs, specs, JSON records) with logical identity and bidirectional relations.",
+  "inputs": [
+    {
+      "name": "operation",
+      "label": "Operation",
+      "type": "select",
+      "defaultValue": "create",
+      "options": [
+        {
+          "label": "Create Artifact",
+          "value": "create"
+        },
+        {
+          "label": "Get Artifact",
+          "value": "get"
+        },
+        {
+          "label": "Get Latest Version",
+          "value": "getLatest"
+        },
+        {
+          "label": "List Artifacts",
+          "value": "list"
+        },
+        {
+          "label": "List All Versions",
+          "value": "listVersions"
+        },
+        {
+          "label": "Update / Version",
+          "value": "update"
+        },
+        {
+          "label": "Add Relation",
+          "value": "addRelation"
+        },
+        {
+          "label": "Get Relations",
+          "value": "getRelations"
+        },
+        {
+          "label": "Remove Relation",
+          "value": "removeRelation"
+        },
+        {
+          "label": "Diff Versions",
+          "value": "diff"
+        },
+        {
+          "label": "Approve",
+          "value": "approve"
+        },
+        {
+          "label": "Archive",
+          "value": "archive"
+        }
+      ]
+    },
+    {
+      "name": "projectId",
+      "label": "Namespace",
+      "type": "slug",
+      "placeholder": "e.g. default, customer-portal, checkout-service",
+      "helpText": "Namespace or project slug for organizing and scoping artifacts.",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "list",
+          "get",
+          "getLatest",
+          "listVersions",
+          "getRelations"
+        ]
+      }
+    },
+    {
+      "name": "logicalId",
+      "label": "Logical ID",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. auth-service-prd, spec-core-api",
+      "helpText": "Stable logical artifact identity across all versions. If omitted on create, generated automatically from type and UUID.",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "getLatest",
+          "listVersions",
+          "getRelations"
+        ]
+      }
+    },
+    {
+      "name": "artifactId",
+      "label": "Artifact ID",
+      "type": "valueOrVariable",
+      "defaultValue": "{{uuid}}",
+      "supportsUuid": true,
+      "placeholder": "e.g. prd-{{uuid}}, doc-{{uuid}}, or click 'Generate UUID'",
+      "helpText": "Unique version identifier. Use {{uuid}} for auto-generation (e.g. prd-{{uuid}} or doc-{{uuid}}), enter a custom ID, or click 'Generate UUID'.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "create"
+      }
+    },
+    {
+      "name": "artifactId",
+      "label": "Artifact ID / Target ID",
+      "type": "valueOrVariable",
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/artifacts",
+        "labelKey": "label",
+        "valueKey": "value"
+      },
+      "placeholder": "e.g. faraz-doc-*, doc-123, or choose from list",
+      "helpText": "Target artifact identifier (Artifact ID or Logical ID) to fetch, update, approve, or archive.",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "get",
+          "update",
+          "approve",
+          "archive",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "filterArtifactId",
+      "label": "Artifact ID / Pattern Filter",
+      "type": "valueOrVariable",
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/artifacts",
+        "labelKey": "label",
+        "valueKey": "value"
+      },
+      "placeholder": "e.g. faraz-doc-*, doc-*, or choose from list",
+      "helpText": "Filter artifacts by exact Artifact ID, Logical ID, or wildcard pattern. Supports wildcards (*) or variable references. Leave blank to match all.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "relationId",
+      "label": "Relation ID",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. rel_12345678-...",
+      "helpText": "Identifier of the relation to delete.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "removeRelation"
+      }
+    },
+    {
+      "name": "targetLogicalId",
+      "label": "Target Logical ID",
+      "type": "valueOrVariable",
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/artifacts",
+        "labelKey": "label",
+        "valueKey": "value"
+      },
+      "placeholder": "Select or enter target logical artifact ID...",
+      "helpText": "Logical ID of the target artifact to link via typed bidirectional relation.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "addRelation"
+      }
+    },
+    {
+      "name": "relationType",
+      "label": "Relation Type",
+      "type": "select",
+      "defaultValue": "relates-to",
+      "options": [
+        {
+          "label": "Refines (refined-by)",
+          "value": "refines"
+        },
+        {
+          "label": "Has Tech Spec (techspec-for)",
+          "value": "has-techspec"
+        },
+        {
+          "label": "Decomposes To (decomposed-from)",
+          "value": "decomposes-to"
+        },
+        {
+          "label": "Depends On (required-by)",
+          "value": "depends-on"
+        },
+        {
+          "label": "Constrains (constrained-by)",
+          "value": "constrains"
+        },
+        {
+          "label": "Derived From (source-of)",
+          "value": "derived-from"
+        },
+        {
+          "label": "Conflicts With",
+          "value": "conflicts-with"
+        },
+        {
+          "label": "Relates To",
+          "value": "relates-to"
+        }
+      ],
+      "helpText": "Typed semantic relationship. The inverse relation is automatically created in the opposite direction.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "addRelation"
+      }
+    },
+    {
+      "name": "relationDirection",
+      "label": "Relation Direction",
+      "type": "select",
+      "defaultValue": "both",
+      "options": [
+        {
+          "label": "Both Directions",
+          "value": "both"
+        },
+        {
+          "label": "Outgoing Only",
+          "value": "outgoing"
+        },
+        {
+          "label": "Incoming Only",
+          "value": "incoming"
+        }
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "equals": "getRelations"
+      }
+    },
+    {
+      "name": "relationMetadata",
+      "label": "Relation Metadata",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. { \"confidence\": 0.95, \"notes\": \"Generated by PRD flow\" }",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "addRelation"
+      }
+    },
+    {
+      "name": "latestOnly",
+      "label": "Latest Version Only",
+      "type": "boolean",
+      "defaultValue": true,
+      "helpText": "If true, only returns records that are currently the latest version of their logical chain.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. Product Requirements Document, or {{trigger.input.title}}",
+      "helpText": "Human-readable name for the artifact. Supports literal text or variable reference.",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "type",
+      "label": "Artifact Type",
+      "type": "combobox",
+      "defaultValue": "document",
+      "placeholder": "Select or enter custom type",
+      "helpText": "Canonical category of artifact.",
+      "options": [
+        {
+          "label": "High-Level Concept",
+          "value": "high-level"
+        },
+        {
+          "label": "Product Requirements Document (PRD)",
+          "value": "prd"
+        },
+        {
+          "label": "Technical Specification",
+          "value": "tech-spec"
+        },
+        {
+          "label": "Task / Plan",
+          "value": "task"
+        },
+        {
+          "label": "Human Review Decision",
+          "value": "decision"
+        },
+        {
+          "label": "Change Request",
+          "value": "change"
+        },
+        {
+          "label": "General Document",
+          "value": "document"
+        },
+        {
+          "label": "Code / Patch",
+          "value": "code"
+        }
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "filterType",
+      "label": "Artifact Type Filter",
+      "type": "select",
+      "options": [
+        {
+          "label": "Any type",
+          "value": ""
+        },
+        {
+          "label": "High-Level Concept",
+          "value": "high-level"
+        },
+        {
+          "label": "Product Requirements Document (PRD)",
+          "value": "prd"
+        },
+        {
+          "label": "Technical Specification",
+          "value": "tech-spec"
+        },
+        {
+          "label": "Task / Plan",
+          "value": "task"
+        },
+        {
+          "label": "Human Review Decision",
+          "value": "decision"
+        },
+        {
+          "label": "Change Request",
+          "value": "change"
+        },
+        {
+          "label": "General Document",
+          "value": "document"
+        },
+        {
+          "label": "Code / Patch",
+          "value": "code"
+        }
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "format",
+      "label": "Content Format",
+      "type": "select",
+      "defaultValue": "markdown",
+      "helpText": "Format of the content payload.",
+      "options": [
+        {
+          "label": "Markdown / Rich Text",
+          "value": "markdown"
+        },
+        {
+          "label": "Plain Text",
+          "value": "text"
+        },
+        {
+          "label": "JSON Object / Array",
+          "value": "json"
+        },
+        {
+          "label": "Code / Script",
+          "value": "code"
+        }
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "content",
+      "label": "Content",
+      "type": "valueOrVariable",
+      "multiline": true,
+      "rows": 8,
+      "required": true,
+      "placeholder": "Type or paste content (Markdown, text, or JSON), or switch to 'Variable Reference' to bind upstream output (e.g. {{human_gate_1.value}})",
+      "helpText": "The artifact body. Supports literal text/markdown or direct upstream variable references.",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "keyword",
+      "label": "Keywords",
+      "type": "valueOrVariable",
+      "multiline": true,
+      "rows": 3,
+      "placeholder": "Comma or newline separated keywords (e.g. auth, jwt, security, token rotation)",
+      "helpText": "Keywords for search & semantic retrieval indexing (e.g. Retrieval tool). Enter comma/line-separated text or bind an upstream variable.",
+      "accepts": [
+        "array",
+        "string"
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "schemaVersion",
+      "label": "Schema Version",
+      "type": "number",
+      "defaultValue": 1,
+      "helpText": "Version of the payload schema (defaults to 1).",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "type": "select",
+      "defaultValue": "draft",
+      "options": [
+        {
+          "label": "Draft",
+          "value": "draft"
+        },
+        {
+          "label": "Approved",
+          "value": "approved"
+        },
+        {
+          "label": "Archived",
+          "value": "archived"
+        }
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "filterStatus",
+      "label": "Status Filter",
+      "type": "select",
+      "options": [
+        {
+          "label": "Any status",
+          "value": ""
+        },
+        {
+          "label": "Draft",
+          "value": "draft"
+        },
+        {
+          "label": "Approved",
+          "value": "approved"
+        },
+        {
+          "label": "Archived",
+          "value": "archived"
+        }
+      ],
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "search",
+      "label": "Search Title / Keyword",
+      "type": "text",
+      "placeholder": "Search by title substring or keyword pattern...",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "limit",
+      "label": "Result Limit",
+      "type": "number",
+      "defaultValue": 50,
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "previous",
+      "label": "Previous Content",
+      "type": "valueOrVariable",
+      "multiline": true,
+      "rows": 5,
+      "placeholder": "Previous content or artifact ID (e.g. faraz-doc-v1 or {{node.artifactId}})",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "diff"
+      }
+    },
+    {
+      "name": "next",
+      "label": "Next Content",
+      "type": "valueOrVariable",
+      "multiline": true,
+      "rows": 5,
+      "placeholder": "Next content or artifact ID (e.g. faraz-doc-v2 or {{node.artifactId}})",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "diff"
+      }
+    },
+    {
+      "name": "metadata",
+      "label": "Metadata / Provenance",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. { \"confidence\": 0.9, \"riskLevel\": \"low\", \"openQuestions\": [] }",
+      "helpText": "Provenance and traceability metadata (e.g. sourceRequestId, riskLevel, confidence).",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update",
+          "approve"
+        ]
+      }
+    },
+    {
+      "name": "linkedArtifactIds",
+      "label": "Linked Artifacts (Legacy Relations)",
+      "type": "valueOrVariable",
+      "multiselect": true,
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/artifacts",
+        "labelKey": "label",
+        "valueKey": "value"
+      },
+      "placeholder": "Choose artifacts to link or bind variable...",
+      "helpText": "Select one or more related artifacts from the list, or bind an upstream variable reference.",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "update",
+          "addRelation"
+        ]
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "artifacts",
+      "label": "Artifacts",
+      "type": "array",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "list"
+      }
+    },
+    {
+      "name": "count",
+      "label": "Count",
+      "type": "number",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "list",
+          "listVersions",
+          "getRelations"
+        ]
+      }
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "list",
+          "update",
+          "approve",
+          "archive"
+        ]
+      }
+    },
+    {
+      "name": "existing",
+      "label": "Exists",
+      "type": "boolean",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "get",
+          "getLatest"
+        ]
+      }
+    },
+    {
+      "name": "artifact",
+      "label": "Artifact Object",
+      "type": "object",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "list",
+          "listVersions",
+          "update",
+          "approve",
+          "archive",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "artifactId",
+      "label": "Artifact ID",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "list",
+          "listVersions",
+          "update",
+          "approve",
+          "archive",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "logicalId",
+      "label": "Logical ID",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "list",
+          "listVersions",
+          "update",
+          "approve",
+          "archive",
+          "addRelation",
+          "getRelations"
+        ]
+      }
+    },
+    {
+      "name": "rootArtifactId",
+      "label": "Root Artifact ID",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "isLatest",
+      "label": "Is Latest Version",
+      "type": "boolean",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "contentHash",
+      "label": "Content Hash",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "schemaVersion",
+      "label": "Schema Version",
+      "type": "number",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "versions",
+      "label": "Versions List",
+      "type": "array",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "listVersions"
+      }
+    },
+    {
+      "name": "relations",
+      "label": "Relations List",
+      "type": "array",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "getRelations",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "linkedArtifactIds",
+      "label": "Linked Artifact IDs",
+      "type": "array",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "list",
+          "update",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "keyword",
+      "label": "Keywords",
+      "type": "array",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "content",
+      "label": "Content",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "format",
+      "label": "Format",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "version",
+      "label": "Version",
+      "type": "number",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "create",
+          "get",
+          "getLatest",
+          "update",
+          "addRelation"
+        ]
+      }
+    },
+    {
+      "name": "parentArtifactId",
+      "label": "Parent Artifact ID",
+      "type": "string",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "update"
+      }
+    },
+    {
+      "name": "changed",
+      "label": "Has Changed",
+      "type": "boolean",
+      "dependsOn": {
+        "field": "operation",
+        "in": [
+          "update",
+          "diff"
+        ]
+      }
+    },
+    {
+      "name": "changedKeys",
+      "label": "Changed Keys",
+      "type": "array",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "diff"
+      }
+    },
+    {
+      "name": "before",
+      "label": "Previous Content",
+      "type": "object",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "diff"
+      }
+    },
+    {
+      "name": "after",
+      "label": "Next Content",
+      "type": "object",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "diff"
+      }
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "name": "Memory",
+  "type": "memory",
+  "description": "Remember, recall or forget scoped project and conversation knowledge.",
+  "inputs": [
+    {
+      "name": "operation",
+      "label": "Operation",
+      "type": "select",
+      "defaultValue": "recall",
+      "options": [
+        { "label": "Recall", "value": "recall" },
+        { "label": "Remember", "value": "remember" },
+        { "label": "Forget", "value": "forget" }
+      ],
+      "helpText": "Memory operation to execute."
+    },
+    {
+      "name": "namespace",
+      "label": "Namespace",
+      "type": "slug",
+      "defaultValue": "default",
+      "placeholder": "e.g. default, customer-portal",
+      "helpText": "Scope memories to a specific project or domain namespace."
+    },
+    {
+      "name": "key",
+      "label": "Key",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. user_preferences, session_summary",
+      "helpText": "Memory storage key identifier."
+    },
+    {
+      "name": "value",
+      "label": "Value",
+      "type": "json",
+      "placeholder": "{ \"role\": \"admin\", \"theme\": \"dark\" }",
+      "helpText": "Payload to remember or store.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "remember"
+      }
+    },
+    {
+      "name": "query",
+      "label": "Query",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. user preferences or recent questions",
+      "helpText": "Semantic query or key lookup string to recall memories.",
+      "dependsOn": {
+        "field": "operation",
+        "equals": "recall"
+      }
+    },
+    {
+      "name": "kind",
+      "label": "Kind",
+      "type": "select",
+      "defaultValue": "conversation",
+      "options": [
+        { "label": "Conversation", "value": "conversation" },
+        { "label": "Entity Fact", "value": "entity" },
+        { "label": "User Preference", "value": "preference" },
+        { "label": "Task State", "value": "state" }
+      ],
+      "helpText": "Category of memory item."
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Memories", "type": "array" }
+  ]
+}

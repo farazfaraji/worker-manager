@@ -1,0 +1,30 @@
+{
+    "name": "Set Variable",
+    "type": "variable",
+    "description": "Sets a variable key and value output for use in downstream flow blocks.",
+    "inputs": [
+        {
+            "name": "key",
+            "label": "Variable Key",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. user_query, status, payload",
+            "helpText": "The key or name of the variable."
+        },
+        {
+            "name": "value",
+            "label": "Value",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. active, 100, hello world",
+            "helpText": "The value assigned to this variable key."
+        }
+    ],
+    "outputs": [
+        {
+            "name": "value",
+            "label": "Value",
+            "type": "object"
+        }
+    ]
+}

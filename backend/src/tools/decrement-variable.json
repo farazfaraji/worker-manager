@@ -1,0 +1,26 @@
+{
+    "name": "Decrement Variable",
+    "type": "variable",
+    "description": "Decrements an upstream numeric variable by a specified amount.",
+    "inputs": [
+        {
+            "name": "variable",
+            "label": "Variable",
+            "type": "variable",
+            "required": true,
+            "placeholder": "Select variable to decrement...",
+            "helpText": "Select an upstream numeric variable to decrement.",
+            "accepts": ["number", "string", "property", "any"]
+        },
+        {
+            "name": "amount",
+            "label": "Decrement By",
+            "type": "number",
+            "required": true,
+            "defaultValue": "1",
+            "placeholder": "1",
+            "helpText": "The numeric amount to subtract (default: 1)."
+        }
+    ],
+    "outputs": []
+}

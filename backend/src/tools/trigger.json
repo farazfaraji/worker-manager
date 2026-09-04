@@ -1,0 +1,166 @@
+{
+  "name": "Trigger",
+  "type": "trigger",
+  "description": "Starts a flow via Manual execution, Domain Events (e.g. artifact.update), Webhook, or Schedule.",
+  "inputs": [
+    {
+      "name": "triggerType",
+      "label": "Trigger Type",
+      "type": "select",
+      "required": true,
+      "defaultValue": "manual",
+      "options": [
+        {
+          "label": "Manual",
+          "value": "manual"
+        },
+        {
+          "label": "Event Listener",
+          "value": "event"
+        },
+        {
+          "label": "Webhook",
+          "value": "webhook"
+        },
+        {
+          "label": "Schedule",
+          "value": "schedule"
+        }
+      ]
+    },
+    {
+      "name": "eventTopic",
+      "label": "Event Topic / Pattern",
+      "type": "combobox",
+      "defaultValue": "artifact.*",
+      "placeholder": "e.g. artifact.update, artifact.*, *.delete",
+      "helpText": "Topic or pattern to listen for. Supports wildcards (e.g. artifact.* or *.update).",
+      "options": [
+        {
+          "label": "All Artifact Events (artifact.*)",
+          "value": "artifact.*"
+        },
+        {
+          "label": "Artifact Created (artifact.create)",
+          "value": "artifact.create"
+        },
+        {
+          "label": "Artifact Updated / Edited (artifact.update)",
+          "value": "artifact.update"
+        },
+        {
+          "label": "Artifact Approved (artifact.approve)",
+          "value": "artifact.approve"
+        },
+        {
+          "label": "Artifact Archived (artifact.archive)",
+          "value": "artifact.archive"
+        },
+        {
+          "label": "Artifact Deleted (artifact.delete)",
+          "value": "artifact.delete"
+        },
+        {
+          "label": "Any System Event (*)",
+          "value": "*"
+        }
+      ],
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "eventProjectId",
+      "label": "Namespace Filter",
+      "type": "slug",
+      "placeholder": "e.g. default, customer-portal",
+      "helpText": "Only trigger if the event belongs to this namespace (projectId). Leave blank to match all.",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "eventEntityId",
+      "label": "Entity ID Filter (Optional)",
+      "type": "text",
+      "placeholder": "e.g. prd-*, doc-123",
+      "helpText": "Filter by specific entity ID or wildcard pattern. Leave blank to match all.",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "inputSchema",
+      "label": "Zod Input Schema",
+      "type": "code",
+      "language": "typescript",
+      "defaultValue": "z.object({\n  query: z.string(),\n  limit: z.number().optional()\n})",
+      "placeholder": "z.object({\n  url: z.string(),\n  query: z.string()\n})",
+      "helpText": "Zod schema converted to typed variables for downstream flow blocks.",
+      "required": false,
+      "dependsOn": {
+        "field": "triggerType",
+        "in": [
+          "manual",
+          "webhook",
+          "schedule"
+        ]
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "event",
+      "label": "Event Envelope",
+      "type": "object",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "data",
+      "label": "Event Data",
+      "type": "object",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "entityId",
+      "label": "Entity ID",
+      "type": "string",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "topic",
+      "label": "Topic",
+      "type": "string",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "event"
+      }
+    },
+    {
+      "name": "input",
+      "label": "Trigger Input",
+      "type": "object",
+      "schemaFrom": "inputSchema",
+      "dependsOn": {
+        "field": "triggerType",
+        "in": [
+          "manual",
+          "webhook",
+          "schedule"
+        ]
+      }
+    }
+  ]
+}

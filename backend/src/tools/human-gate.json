@@ -1,0 +1,85 @@
+{
+  "name": "Human Gate",
+  "type": "human-gate",
+  "description": "Pause flow execution for interactive human review, dynamic form input, approval, or draft editing (n8n style).",
+  "inputs": [
+    {
+      "name": "question",
+      "label": "Question / Prompt",
+      "type": "textarea",
+      "required": true,
+      "defaultValue": "Please review this request and provide your response.",
+      "helpText": "Prompt or instructions displayed at the top of the human review dialog."
+    },
+    {
+      "name": "inputType",
+      "label": "Input Component Type",
+      "type": "select",
+      "required": true,
+      "defaultValue": "approval",
+      "options": [
+        { "label": "Approve / Reject Buttons (Boolean)", "value": "approval" },
+        { "label": "Textarea (Multi-line text)", "value": "textarea" },
+        { "label": "Text Input (Single-line string)", "value": "text" },
+        { "label": "Select (Dropdown choice)", "value": "select" },
+        { "label": "Radio (Single-choice pills)", "value": "radio" },
+        { "label": "Custom Dynamic Form (Multi-field, n8n style)", "value": "form" }
+      ],
+      "helpText": "Specifies the UI control rendered for the user when the flow reaches this gate."
+    },
+    {
+      "name": "options",
+      "label": "Choice Options",
+      "type": "json",
+      "defaultValue": ["Approve", "Request Changes", "Reject"],
+      "helpText": "List of options for Select or Radio component (e.g. [\"Staging\", \"Production\"]).",
+      "dependsOn": {
+        "field": "inputType",
+        "equals": "select"
+      }
+    },
+    {
+      "name": "formFields",
+      "label": "Custom Form Fields (JSON)",
+      "type": "json",
+      "defaultValue": [
+        { "name": "feedback", "label": "Review Notes", "type": "textarea", "required": true, "placeholder": "Enter feedback..." },
+        { "name": "priority", "label": "Priority", "type": "select", "options": ["Low", "Normal", "High", "Urgent"] }
+      ],
+      "helpText": "Array of field definitions for multi-field form mode.",
+      "dependsOn": {
+        "field": "inputType",
+        "equals": "form"
+      }
+    },
+    {
+      "name": "draft",
+      "label": "Draft to Review",
+      "type": "valueOrVariable",
+      "helpText": "Upstream content or artifact for the user to inspect (e.g. {{nodes.agent_1.result.summary}})."
+    },
+    {
+      "name": "allowDraftEdit",
+      "label": "Allow User to Edit Draft Directly",
+      "type": "select",
+      "defaultValue": "false",
+      "options": [
+        { "label": "No (Read-only preview)", "value": "false" },
+        { "label": "Yes (User can edit draft before submitting)", "value": "true" }
+      ],
+      "helpText": "When enabled, the user can modify the draft text in place, and the revised text will be emitted downstream."
+    },
+    {
+      "name": "timeoutMs",
+      "label": "Timeout (ms)",
+      "type": "number",
+      "defaultValue": 86400000,
+      "helpText": "Maximum wait time in milliseconds before timing out (default: 24 hours)."
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Response", "type": "object" },
+    { "name": "approved", "label": "Approved", "type": "boolean" },
+    { "name": "value", "label": "Value", "type": "object" }
+  ]
+}

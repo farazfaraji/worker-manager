@@ -1,0 +1,7 @@
+{
+  "name": "Loop",
+  "type": "loop",
+  "description": "Process a bounded collection with iteration and retry metadata.",
+  "inputs": [{ "name": "items", "label": "Items", "type": "valueOrVariable", "required": true }, { "name": "maxIterations", "label": "Max Iterations", "type": "number", "defaultValue": 100 }, { "name": "mode", "label": "Mode", "type": "select", "defaultValue": "map", "options": [{ "label": "Map", "value": "map" }, { "label": "Batch", "value": "batch" }] }],
+  "outputs": [{ "name": "result", "label": "Iterations", "type": "object" }]
+}

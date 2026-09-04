@@ -1,0 +1,97 @@
+{
+  "name": "Route",
+  "type": "route",
+  "description": "Exposes an HTTP endpoint on the board's webserver. Declares input schema to generate typed board variables.",
+  "inputs": [
+    {
+      "name": "endpoint",
+      "label": "Endpoint Path",
+      "type": "text",
+      "required": true,
+      "defaultValue": "/api/example",
+      "placeholder": "/api/users or /webhook",
+      "helpText": "URL path to mount (e.g. /api/users, /orders/:id, /webhook)."
+    },
+    {
+      "name": "method",
+      "label": "HTTP Method",
+      "type": "select",
+      "required": true,
+      "defaultValue": "POST",
+      "options": [
+        { "label": "POST", "value": "POST" },
+        { "label": "GET", "value": "GET" },
+        { "label": "PUT", "value": "PUT" },
+        { "label": "DELETE", "value": "DELETE" },
+        { "label": "PATCH", "value": "PATCH" }
+      ],
+      "helpText": "HTTP method to handle."
+    },
+    {
+      "name": "responseMode",
+      "label": "Response Mode",
+      "type": "select",
+      "required": true,
+      "defaultValue": "sync",
+      "options": [
+        { "label": "Synchronous (Wait for Response / HTTP Response block)", "value": "sync" },
+        { "label": "Asynchronous (Immediate 202 Ack / Webhook)", "value": "async" }
+      ],
+      "helpText": "Synchronous returns the output from downstream HTTP Response block. Asynchronous returns 202 immediately."
+    },
+    {
+      "name": "type",
+      "label": "Request Body Schema (Zod)",
+      "type": "code",
+      "language": "typescript",
+      "required": false,
+      "defaultValue": "z.object({\n  title: z.string(),\n  content: z.string()\n})",
+      "placeholder": "z.object({\n  name: z.string(),\n  email: z.string().email()\n})",
+      "helpText": "Zod or TypeScript schema for the request body (POST/PUT/PATCH). Properties become typed variables under body.*"
+    },
+    {
+      "name": "querySchema",
+      "label": "Query Parameters Schema (Zod)",
+      "type": "code",
+      "language": "typescript",
+      "required": false,
+      "defaultValue": "z.object({\n  search: z.string().optional(),\n  limit: z.number().optional()\n})",
+      "placeholder": "z.object({\n  search: z.string().optional(),\n  limit: z.number().optional()\n})",
+      "helpText": "Zod or TypeScript schema for URL query string parameters (?key=val). Declared properties become typed variables under query.*"
+    },
+    {
+      "name": "paramsSchema",
+      "label": "URL Parameters Schema (Zod)",
+      "type": "code",
+      "language": "typescript",
+      "required": false,
+      "placeholder": "z.object({\n  id: z.string()\n})",
+      "helpText": "Zod or TypeScript schema for URL path parameters (e.g. /users/:id). Declared properties become typed variables under params.*"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "body",
+      "label": "Request Body",
+      "type": "object",
+      "schemaFrom": "type"
+    },
+    {
+      "name": "params",
+      "label": "URL Parameters",
+      "type": "object",
+      "schemaFrom": "paramsSchema"
+    },
+    {
+      "name": "query",
+      "label": "Query Parameters",
+      "type": "object",
+      "schemaFrom": "querySchema"
+    },
+    {
+      "name": "headers",
+      "label": "Request Headers",
+      "type": "object"
+    }
+  ]
+}

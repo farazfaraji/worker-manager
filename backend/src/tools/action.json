@@ -1,0 +1,15 @@
+{
+  "name": "Action",
+  "type": "action",
+  "description": "Execute an operation against a browser, API, integration or external provider.",
+  "inputs": [
+    { "name": "provider", "label": "Provider", "type": "text", "required": true, "defaultValue": "http" },
+    { "name": "action", "label": "Action", "type": "text", "required": true, "defaultValue": "request" },
+    { "name": "url", "label": "URL", "type": "valueOrVariable" },
+    { "name": "method", "label": "HTTP Method", "type": "select", "defaultValue": "GET", "options": [{ "label": "GET", "value": "GET" }, { "label": "POST", "value": "POST" }, { "label": "PUT", "value": "PUT" }, { "label": "DELETE", "value": "DELETE" }] },
+    { "name": "parameters", "label": "Parameters", "type": "json" },
+    { "name": "actions", "label": "Browser Actions", "type": "json", "helpText": "Used when provider is browser." },
+    { "name": "allowedHosts", "label": "Allowed Hosts", "type": "json" }
+  ],
+  "outputs": [{ "name": "result", "label": "Result", "type": "object" }]
+}

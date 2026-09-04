@@ -1,0 +1,7 @@
+{
+  "name": "Execution",
+  "type": "execution",
+  "description": "Run an external executable under an explicit command allowlist.",
+  "inputs": [{ "name": "command", "label": "Command", "type": "text", "required": true }, { "name": "args", "label": "Arguments", "type": "json" }, { "name": "cwd", "label": "Working Directory", "type": "text" }, { "name": "allowedCommands", "label": "Allowed Commands", "type": "json", "required": true }, { "name": "timeoutMs", "label": "Timeout (ms)", "type": "number", "defaultValue": 120000 }],
+  "outputs": [{ "name": "result", "label": "Execution Result", "type": "object" }]
+}

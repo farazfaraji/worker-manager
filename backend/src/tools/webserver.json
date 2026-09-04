@@ -1,0 +1,44 @@
+{
+  "name": "Run Webserver",
+  "type": "webserver",
+  "description": "Runs a background web service listening on a specified port for incoming HTTP requests.",
+  "inputs": [
+    {
+      "name": "port",
+      "label": "Port Number",
+      "type": "text",
+      "required": true,
+      "defaultValue": "3000",
+      "placeholder": "3000",
+      "helpText": "Network port for the web service to listen on (e.g. 3000, 8080)."
+    },
+    {
+      "name": "host",
+      "label": "Host",
+      "type": "text",
+      "required": false,
+      "defaultValue": "0.0.0.0",
+      "placeholder": "0.0.0.0",
+      "helpText": "Binding host address (e.g. 0.0.0.0 or 127.0.0.1)."
+    },
+    {
+      "name": "cors",
+      "label": "CORS Enabled",
+      "type": "select",
+      "required": false,
+      "defaultValue": "enabled",
+      "options": [
+        { "label": "Enabled (Allow all origins)", "value": "enabled" },
+        { "label": "Disabled", "value": "disabled" }
+      ],
+      "helpText": "Enable Cross-Origin Resource Sharing headers for browser requests."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "routes",
+      "label": "Routes",
+      "type": "object"
+    }
+  ]
+}

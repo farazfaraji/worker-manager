@@ -1,0 +1,26 @@
+{
+    "name": "Increment Variable",
+    "type": "variable",
+    "description": "Increments an upstream numeric variable by a specified amount.",
+    "inputs": [
+        {
+            "name": "variable",
+            "label": "Variable",
+            "type": "variable",
+            "required": true,
+            "placeholder": "Select variable to increment...",
+            "helpText": "Select an upstream numeric variable to increment.",
+            "accepts": ["number", "string", "property", "any"]
+        },
+        {
+            "name": "amount",
+            "label": "Increment By",
+            "type": "number",
+            "required": true,
+            "defaultValue": "1",
+            "placeholder": "1",
+            "helpText": "The numeric amount to add (default: 1)."
+        }
+    ],
+    "outputs": []
+}

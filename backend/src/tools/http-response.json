@@ -1,0 +1,47 @@
+{
+  "name": "HTTP Response",
+  "type": "http-response",
+  "description": "Sends an HTTP response back to the client that called a Route endpoint.",
+  "inputs": [
+    {
+      "name": "statusCode",
+      "label": "Status Code",
+      "type": "select",
+      "required": true,
+      "defaultValue": "200",
+      "options": [
+        { "label": "200 OK", "value": "200" },
+        { "label": "201 Created", "value": "201" },
+        { "label": "202 Accepted", "value": "202" },
+        { "label": "204 No Content", "value": "204" },
+        { "label": "400 Bad Request", "value": "400" },
+        { "label": "401 Unauthorized", "value": "401" },
+        { "label": "403 Forbidden", "value": "403" },
+        { "label": "404 Not Found", "value": "404" },
+        { "label": "500 Internal Server Error", "value": "500" }
+      ],
+      "helpText": "HTTP status code to return to the calling client."
+    },
+    {
+      "name": "responseBody",
+      "label": "Response Body",
+      "type": "valueOrVariable",
+      "required": false,
+      "defaultValue": {
+        "mode": "variable",
+        "value": ""
+      },
+      "helpText": "Content to return to the client. Accepts a variable (e.g. {{nodes.agent_1.result}}) or literal JSON / text."
+    },
+    {
+      "name": "headers",
+      "label": "Response Headers (JSON)",
+      "type": "json",
+      "required": false,
+      "defaultValue": "{\n  \"Content-Type\": \"application/json\"\n}",
+      "placeholder": "{\n  \"Content-Type\": \"application/json\"\n}",
+      "helpText": "Custom HTTP headers to include in the response."
+    }
+  ],
+  "outputs": []
+}

@@ -1,0 +1,143 @@
+{
+  "name": "Retrieval",
+  "type": "retrieval",
+  "description": "Semantic vector search and RAG knowledge retrieval across project artifacts and documents with built-in query embedding.",
+  "inputs": [
+    {
+      "name": "query",
+      "label": "Search Query / Question",
+      "type": "valueOrVariable",
+      "required": true,
+      "accepts": [
+        "string",
+        "any"
+      ],
+      "placeholder": "Enter search query or wire {{trigger.input.question}}",
+      "helpText": "Natural language query or question. Automatically vectorized using the selected embedding model."
+    },
+    {
+      "name": "embeddingModel",
+      "label": "Embedding Model",
+      "type": "select",
+      "required": false,
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/embedding-models",
+        "labelKey": "label",
+        "valueKey": "modelId"
+      },
+      "helpText": "Model used to embed the search query automatically. If omitted, uses system default."
+    },
+    {
+      "name": "artifactType",
+      "label": "Artifact Type Filter",
+      "type": "combobox",
+      "defaultValue": "",
+      "placeholder": "Select from existing or enter custom type (e.g. prd, tech-spec)",
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/artifacts/types",
+        "labelKey": "label",
+        "valueKey": "value"
+      },
+      "options": [
+        {
+          "label": "All Artifact Types",
+          "value": ""
+        },
+        {
+          "label": "Product Requirements Document (PRD)",
+          "value": "prd"
+        },
+        {
+          "label": "Technical Specification",
+          "value": "tech-spec"
+        },
+        {
+          "label": "Task / Plan",
+          "value": "task"
+        },
+        {
+          "label": "High-Level Concept",
+          "value": "high-level"
+        },
+        {
+          "label": "Human Review Decision",
+          "value": "decision"
+        },
+        {
+          "label": "General Document",
+          "value": "document"
+        },
+        {
+          "label": "Code / Patch",
+          "value": "code"
+        }
+      ],
+      "helpText": "Select from database/canonical artifact types or enter a custom type."
+    },
+    {
+      "name": "logicalId",
+      "label": "Target Logical ID",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. auth-prd, spec-core-api",
+      "helpText": "Optional: Restrict vector search to chunks from a specific logical artifact."
+    },
+    {
+      "name": "keywords",
+      "label": "Filter Keywords",
+      "type": "valueOrVariable",
+      "multiline": false,
+      "placeholder": "e.g. auth, jwt, security (or {{route.body.keywords}})",
+      "accepts": [
+        "array",
+        "string"
+      ],
+      "helpText": "Optional keywords to filter or match against indexed keywords."
+    },
+    {
+      "name": "limit",
+      "label": "Max Results (Top K)",
+      "type": "number",
+      "defaultValue": 5,
+      "helpText": "Maximum number of most relevant chunks to return (defaults to 5)."
+    },
+    {
+      "name": "latestOnly",
+      "label": "Latest Version Only",
+      "type": "boolean",
+      "defaultValue": true,
+      "helpText": "Default true. When true, searches only the latest active version of each artifact."
+    },
+    {
+      "name": "namespace",
+      "label": "Namespace",
+      "type": "slug",
+      "required": false,
+      "placeholder": "e.g. default, customer-portal, checkout-service",
+      "helpText": "Optional namespace for organizing and scoping artifacts. Leave blank to match all."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "context",
+      "label": "Context Text",
+      "type": "string"
+    },
+    {
+      "name": "results",
+      "label": "Results Array",
+      "type": "array"
+    },
+    {
+      "name": "count",
+      "label": "Count",
+      "type": "number"
+    },
+    {
+      "name": "result",
+      "label": "Result Object",
+      "type": "object"
+    }
+  ]
+}
