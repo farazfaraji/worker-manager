@@ -1,0 +1,7 @@
+{
+  "name": "Notification",
+  "type": "notification",
+  "description": "Publish a result to a configured channel or webhook.",
+  "inputs": [{ "name": "channel", "label": "Channel", "type": "text", "defaultValue": "internal" }, { "name": "recipient", "label": "Recipient", "type": "text" }, { "name": "message", "label": "Message", "type": "valueOrVariable" }, { "name": "url", "label": "Webhook URL", "type": "text" }, { "name": "allowedHosts", "label": "Allowed Hosts", "type": "json" }],
+  "outputs": [{ "name": "result", "label": "Delivery", "type": "object" }]
+}

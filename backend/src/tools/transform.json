@@ -1,0 +1,40 @@
+{
+  "name": "Transform",
+  "type": "transform",
+  "description": "Maps an input value into a new shape without making an external call.",
+  "inputs": [
+    {
+      "name": "input",
+      "label": "Input",
+      "type": "variable",
+      "required": true,
+      "accepts": ["string", "number", "boolean", "object", "array"]
+    },
+    {
+      "name": "mapping",
+      "label": "Mapping",
+      "type": "code",
+      "language": "javascript",
+      "required": true,
+      "placeholder": "({ title: input.name, score: input.metrics.score })"
+    },
+    {
+      "name": "outputType",
+      "label": "Zod Output Schema",
+      "type": "code",
+      "language": "typescript",
+      "required": true,
+      "defaultValue": "z.object({\n  title: z.string(),\n  score: z.number()\n})",
+      "placeholder": "z.object({\n  title: z.string(),\n  score: z.number()\n})",
+      "helpText": "Zod schema converted to typed variables for downstream blocks."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Transformed Value",
+      "type": "object",
+      "schemaFrom": "outputType"
+    }
+  ]
+}

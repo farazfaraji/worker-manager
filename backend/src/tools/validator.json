@@ -1,0 +1,40 @@
+{
+  "name": "Validator",
+  "type": "validator",
+  "description": "Checks whether a value matches a required Zod schema or rule.",
+  "inputs": [
+    {
+      "name": "input",
+      "label": "Input",
+      "type": "variable",
+      "required": true,
+      "accepts": ["string", "number", "boolean", "object", "array"]
+    },
+    {
+      "name": "schema",
+      "label": "Zod Validation Schema",
+      "type": "code",
+      "language": "typescript",
+      "required": true,
+      "defaultValue": "z.object({\n  summary: z.string(),\n  findings: z.array(z.string())\n})",
+      "placeholder": "z.object({\n  summary: z.string(),\n  findings: z.array(z.string())\n})",
+      "helpText": "Zod schema rule to validate incoming payload."
+    },
+    {
+      "name": "onError",
+      "label": "On Validation Error",
+      "type": "select",
+      "required": true,
+      "defaultValue": "branch",
+      "options": [
+        { "label": "Use Invalid Branch", "value": "branch" },
+        { "label": "Stop Flow", "value": "stop" },
+        { "label": "Return Error", "value": "returnError" }
+      ]
+    }
+  ],
+  "outputs": [
+    { "name": "true", "label": "True", "type": "branch" },
+    { "name": "false", "label": "False", "type": "branch" }
+  ]
+}

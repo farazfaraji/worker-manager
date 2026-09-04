@@ -1,0 +1,93 @@
+{
+  "name": "Foreach",
+  "type": "foreach",
+  "description": "Execute a saved child graph for each item in an input collection.",
+  "inputs": [
+    {
+      "name": "items",
+      "label": "Items",
+      "type": "valueOrVariable",
+      "required": true,
+      "helpText": "Array of items or an object containing an items array."
+    },
+    {
+      "name": "graphId",
+      "label": "Select Graph",
+      "type": "select",
+      "required": true,
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/graphs",
+        "labelKey": "name",
+        "valueKey": "id"
+      }
+    },
+    {
+      "name": "baseInput",
+      "label": "Base Input",
+      "type": "valueOrVariable",
+      "multiline": true,
+      "required": false,
+      "placeholder": "{\n  \"projectId\": \"{{trigger.projectId}}\"\n}",
+      "helpText": "Optional base object passed to every item run. Note: 'item', 'index', and 'total' are reserved and automatically generated."
+    },
+    {
+      "name": "maxIterations",
+      "label": "Max Iterations",
+      "type": "number",
+      "defaultValue": 25,
+      "minimum": 1,
+      "maximum": 100,
+      "helpText": "Maximum number of items to process (1 to 100)."
+    },
+    {
+      "name": "concurrency",
+      "label": "Concurrency",
+      "type": "number",
+      "defaultValue": 1,
+      "minimum": 1,
+      "maximum": 10,
+      "helpText": "Number of child graph executions to run in parallel (1 to 10)."
+    },
+    {
+      "name": "stopOnError",
+      "label": "Stop On Error",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "If enabled, stops initiating new child runs after the first failure."
+    },
+    {
+      "name": "outputMode",
+      "label": "Output Mode",
+      "type": "select",
+      "defaultValue": "result",
+      "options": [
+        {
+          "label": "Return Result",
+          "value": "result"
+        },
+        {
+          "label": "Return Full State",
+          "value": "state"
+        }
+      ]
+    },
+    {
+      "name": "outputType",
+      "label": "Child Output Type",
+      "type": "code",
+      "language": "typescript",
+      "required": false,
+      "placeholder": "{ id: string, status: string }",
+      "helpText": "Describes child graph result for downstream autocomplete."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Foreach Result",
+      "type": "object",
+      "schemaFrom": "outputType"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "Embedding",
+  "type": "embedding",
+  "description": "Convert text into vectors using a configured OpenAI-compatible embedding provider.",
+  "inputs": [
+    {
+      "name": "text",
+      "label": "Input Text(s)",
+      "type": "valueOrVariable",
+      "required": false,
+      "placeholder": "Enter text or wire {{nodes.chunker.chunks}} (optional if Artifact ID is provided)",
+      "helpText": "Single text or array of strings. If omitted, text is loaded directly from the linked Artifact."
+    },
+    {
+      "name": "artifactId",
+      "label": "Artifact ID",
+      "type": "valueOrVariable",
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/artifacts",
+        "labelKey": "label",
+        "valueKey": "value"
+      },
+      "placeholder": "Choose artifact or wire {{nodes.artifact_1.artifactId}}",
+      "helpText": "Optional Artifact ID to connect and persist embeddings out-of-band in the vector store."
+    },
+    {
+      "name": "logicalId",
+      "label": "Artifact Logical ID",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. auth-service-prd or {{nodes.artifact_1.logicalId}}",
+      "helpText": "Optional stable logical artifact identity for tracking across versions."
+    },
+    {
+      "name": "embeddingModel",
+      "label": "Embedding Model",
+      "type": "select",
+      "required": true,
+      "dataSource": { "type": "endpoint", "url": "/api/embedding-models", "labelKey": "label", "valueKey": "modelId" }
+    },
+    {
+      "name": "namespace",
+      "label": "Namespace",
+      "type": "slug",
+      "defaultValue": "default",
+      "placeholder": "e.g. default, customer-portal",
+      "helpText": "Vector namespace for storage and retrieval scoping."
+    },
+    {
+      "name": "includeRawVectors",
+      "label": "Include Raw Vectors in State",
+      "type": "boolean",
+      "defaultValue": false,
+      "helpText": "When linked to an artifact, defaults to false to prevent graph state bloat. Set true only if downstream nodes require the raw float array."
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Embedding Result", "type": "object" },
+    { "name": "artifactId", "label": "Artifact ID", "type": "string" },
+    { "name": "logicalId", "label": "Logical ID", "type": "string" },
+    { "name": "indexedChunks", "label": "Indexed Chunks Count", "type": "number" },
+    { "name": "embedding", "label": "Vector (1D)", "type": "array" },
+    { "name": "embeddings", "label": "Vectors (Batch)", "type": "array" }
+  ]
+}

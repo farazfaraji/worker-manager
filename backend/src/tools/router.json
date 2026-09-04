@@ -1,0 +1,33 @@
+{
+  "name": "Router",
+  "type": "router",
+  "description": "Route execution to dynamically generated branch sockets using declarative rules.",
+  "inputs": [
+    {
+      "name": "value",
+      "label": "Value",
+      "type": "valueOrVariable",
+      "required": true,
+      "placeholder": "{{agent.result.category}}"
+    },
+    {
+      "name": "routes",
+      "label": "Routes",
+      "type": "json",
+      "required": true,
+      "defaultValue": "[\n  { \"name\": \"highlevel\", \"when\": \"highlevel\" },\n  { \"name\": \"prd\", \"when\": \"prd\" },\n  { \"name\": \"ticket\", \"when\": \"ticket\" }\n]",
+      "helpText": "Array of route objects with 'name' and 'when'. Each route dynamically generates an output branch handle on the block."
+    },
+    {
+      "name": "defaultRoute",
+      "label": "Default Route",
+      "type": "text",
+      "placeholder": "default",
+      "helpText": "Fallback route handle if no defined route matches the input value."
+    }
+  ],
+  "outputs": [
+    { "name": "default", "label": "Default", "type": "branch" },
+    { "name": "result", "label": "Route", "type": "object" }
+  ]
+}

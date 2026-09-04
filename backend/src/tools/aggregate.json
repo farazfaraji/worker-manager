@@ -1,0 +1,35 @@
+{
+  "name": "Aggregate",
+  "type": "aggregate",
+  "description": "Normalize and summarize the output of foreach or another collection-producing block.",
+  "inputs": [
+    {
+      "name": "items",
+      "label": "Items",
+      "type": "valueOrVariable",
+      "required": true,
+      "helpText": "Array of item results or a foreach result object containing an items array."
+    },
+    {
+      "name": "includeSuccessful",
+      "label": "Include Successful",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "Include successful items in the output items array."
+    },
+    {
+      "name": "includeFailed",
+      "label": "Include Failed",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "Include failed items in the output items array."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Aggregate Result",
+      "type": "object"
+    }
+  ]
+}

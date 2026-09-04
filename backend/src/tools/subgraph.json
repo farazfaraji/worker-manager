@@ -1,0 +1,61 @@
+{
+    "name": "Subgraph",
+    "type": "subgraph",
+    "description": "Executes another saved graph as a reusable sub-flow.",
+    "inputs": [
+        {
+            "name": "graphId",
+            "label": "Select Graph",
+            "type": "select",
+            "required": true,
+            "dataSource": {
+                "type": "endpoint",
+                "url": "/api/graphs",
+                "labelKey": "name",
+                "valueKey": "id"
+            }
+        },
+        {
+            "name": "input",
+            "label": "Input",
+            "type": "valueOrVariable",
+            "multiline": true,
+            "required": false,
+            "placeholder": "{\n  \"targetUrl\": \"{{nodes.browser_1.result.url}}\",\n  \"requestedBy\": \"{{trigger.input.user.email}}\"\n}",
+            "helpText": "Payload passed to the sub-flow Trigger. Provide a JSON object for key-value mapping (e.g. {\"query\": \"{{trigger.query}}\"}), or switch to Variable Reference to pass an upstream object directly."
+        },
+        {
+            "name": "outputMode",
+            "label": "Output Mode",
+            "type": "select",
+            "required": true,
+            "defaultValue": "result",
+            "options": [
+                {
+                    "label": "Return Result",
+                    "value": "result"
+                },
+                {
+                    "label": "Return Full State",
+                    "value": "state"
+                }
+            ]
+        },
+        {
+            "name": "outputType",
+            "label": "Output Type",
+            "type": "code",
+            "language": "typescript",
+            "required": false,
+            "placeholder": "{ summary: string, findings: Finding[] }"
+        }
+    ],
+    "outputs": [
+        {
+            "name": "result",
+            "label": "Subgraph Result",
+            "type": "object",
+            "schemaFrom": "outputType"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Orchestrator",
+  "type": "orchestrator",
+  "description": "Delegate a goal to multiple configured agents and aggregate their results.",
+  "inputs": [
+    { "name": "goal", "label": "Goal", "type": "valueOrVariable", "required": true },
+    { "name": "agents", "label": "Agents", "type": "json", "required": true },
+    { "name": "strategy", "label": "Strategy", "type": "select", "defaultValue": "parallel", "options": [{ "label": "Parallel", "value": "parallel" }, { "label": "Sequential", "value": "sequential" }] }
+  ],
+  "outputs": [{ "name": "result", "label": "Delegated Results", "type": "object" }]
+}

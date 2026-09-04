@@ -1,0 +1,186 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { FileText, History, Maximize2, Server, Play, Pause, Loader2 } from 'lucide-react';
+import { Node } from '@xyflow/react';
+import { FlowNodeData } from '@/lib/types';
+import { getWebserverStatus, startWebserver, stopWebserver } from '@/lib/api';
+
+interface BoardRightToolbarProps {
+  onFitView?: () => void;
+  nodes?: Node<FlowNodeData>[];
+  graphId?: string | null;
+}
+
+export const BoardRightToolbar: React.FC<BoardRightToolbarProps> = ({
+  onFitView,
+  nodes = [],
+  graphId,
+}) => {
+  const [serverStatus, setServerStatus] = useState<'running' | 'stopped'>('stopped');
+  const [loading, setLoading] = useState(false);
+
+  const webserverNodes = nodes.filter((n) => {
+    const type = String(n.data?.definitionType || n.type || '').toLowerCase();
+    return type === 'webserver' || n.data?.definitionId === 'webserver';
+  });
+  const hasWebserver = webserverNodes.length > 0;
+  const primaryWebserver = webserverNodes[0];
+  const port = primaryWebserver?.data?.config?.port || 3000;
+
+  const effectiveGraphId =
+    graphId ||
+    (typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('flow')
+      : null);
+
+  useEffect(() => {
+    if (!hasWebserver || !effectiveGraphId || !primaryWebserver) {
+      setServerStatus('stopped');
+      return;
+    }
+
+    let isMounted = true;
+    getWebserverStatus(effectiveGraphId, primaryWebserver.id)
+      .then((res) => {
+        if (isMounted && res?.status) {
+          setServerStatus(res.status);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasWebserver, effectiveGraphId, primaryWebserver?.id]);
+
+  const handleToggleWebserver = async () => {
+    if (!hasWebserver) return;
+    if (!effectiveGraphId) {
+      alert('Please save the board first before starting the webserver.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (serverStatus === 'running') {
+        await stopWebserver(effectiveGraphId, primaryWebserver.id);
+        setServerStatus('stopped');
+      } else {
+        await startWebserver(effectiveGraphId, primaryWebserver.id);
+        setServerStatus('running');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to toggle webserver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <aside className="board-right-toolbar" aria-label="Board Toolbar Menu">
+      {/* 0. Webserver Start / Pause Button (Only enabled when webserver block is on the board) */}
+      <button
+        type="button"
+        className={`board-toolbar-btn ${
+          serverStatus === 'running' ? 'board-toolbar-btn-server-active' : ''
+        }`}
+        disabled={!hasWebserver || loading}
+        onClick={handleToggleWebserver}
+        style={{
+          position: 'relative',
+          opacity: hasWebserver ? 1 : 0.35,
+          cursor: hasWebserver ? (loading ? 'wait' : 'pointer') : 'not-allowed',
+          borderColor: serverStatus === 'running' ? 'rgba(16, 185, 129, 0.4)' : undefined,
+          background: serverStatus === 'running' ? 'rgba(16, 185, 129, 0.12)' : undefined,
+        }}
+        title={
+          !hasWebserver
+            ? 'Webserver control disabled (Add a Run Webserver block to the canvas)'
+            : serverStatus === 'running'
+            ? `Webserver is Live on :${port} (Click to Pause / Stop)`
+            : `Start Webserver on :${port}`
+        }
+        aria-label="Webserver Start/Pause"
+      >
+        {loading ? (
+          <Loader2 size={17} className="animate-spin" />
+        ) : serverStatus === 'running' ? (
+          <Pause size={17} color="#10b981" />
+        ) : (
+          <Play size={17} color={hasWebserver ? '#10b981' : 'var(--text-muted)'} fill={hasWebserver ? '#10b981' : 'none'} />
+        )}
+
+        {/* Live glowing dot indicator */}
+        {hasWebserver && serverStatus === 'running' && (
+          <span
+            style={{
+              position: 'absolute',
+              top: 5,
+              right: 5,
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              backgroundColor: '#10b981',
+              boxShadow: '0 0 6px #10b981',
+            }}
+          />
+        )}
+
+        <span className="board-toolbar-tooltip">
+          {!hasWebserver
+            ? 'Webserver (No block on board)'
+            : serverStatus === 'running'
+            ? `Pause Webserver (:${port})`
+            : `Start Webserver (:${port})`}
+        </span>
+      </button>
+
+      <div className="board-toolbar-divider" />
+
+      {/* 1. Documents & Artifacts button */}
+      <button
+        type="button"
+        className="board-toolbar-btn board-toolbar-btn-documents"
+        onClick={() => {
+          window.location.href = '/artifacts';
+        }}
+        title="Documents & Artifacts (Generated by Flow Artifact Nodes)"
+        aria-label="Documents and Artifacts"
+      >
+        <FileText size={18} />
+        <span className="board-toolbar-tooltip">Documents</span>
+      </button>
+
+      {/* 2. Runs History */}
+      <button
+        type="button"
+        className="board-toolbar-btn"
+        onClick={() => {
+          window.location.href = '/runs';
+        }}
+        title="Execution Run History"
+        aria-label="Run History"
+      >
+        <History size={18} />
+        <span className="board-toolbar-tooltip">Runs</span>
+      </button>
+
+      <div className="board-toolbar-divider" />
+
+      {/* 3. Fit View */}
+      {onFitView && (
+        <button
+          type="button"
+          className="board-toolbar-btn"
+          onClick={onFitView}
+          title="Fit Canvas to Viewport"
+          aria-label="Fit View"
+        >
+          <Maximize2 size={17} />
+          <span className="board-toolbar-tooltip">Fit View</span>
+        </button>
+      )}
+    </aside>
+  );
+};

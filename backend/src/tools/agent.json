@@ -1,0 +1,158 @@
+{
+  "name": "Agent",
+  "type": "agent",
+  "description": "Uses an LLM to reason over flow state and produce text or structured JSON output.",
+  "inputs": [
+    {
+      "name": "model",
+      "label": "Model",
+      "type": "select",
+      "required": true,
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/models",
+        "labelKey": "label",
+        "valueKey": "modelId"
+      },
+      "options": [
+        { "label": "GPT-4o (Vision & Audio)", "value": "gpt-4o" },
+        { "label": "GPT-4o Mini (Fast)", "value": "gpt-4o-mini" },
+        { "label": "o1-mini (Reasoning)", "value": "o1-mini" },
+        { "label": "Claude 3.5 Sonnet", "value": "claude-3-5-sonnet-20241022" },
+        { "label": "Local Ollama (Llama 3.2)", "value": "llama3.2" }
+      ]
+    },
+    {
+      "name": "customTemperature",
+      "label": "Custom Temperature",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "Override model default temperature. (Disabled by default for reasoning models)"
+    },
+    {
+      "name": "temperature",
+      "label": "Temperature",
+      "type": "number",
+      "defaultValue": 0.7,
+      "dependsOn": {
+        "field": "customTemperature",
+        "equals": true
+      }
+    },
+    {
+      "name": "reasoningEffort",
+      "label": "Reasoning / Thinking",
+      "type": "select",
+      "defaultValue": "model_default",
+      "helpText": "Control reasoning effort. 'Disable Thinking' turns off chain-of-thought tokens on supported models (e.g. Groq Qwen).",
+      "options": [
+        { "label": "Model Default", "value": "model_default" },
+        { "label": "Disable Thinking (none / fast)", "value": "none" },
+        { "label": "Low Effort", "value": "low" },
+        { "label": "Medium Effort", "value": "medium" },
+        { "label": "High Effort", "value": "high" }
+      ]
+    },
+    {
+      "name": "reasoningFormat",
+      "label": "Reasoning Output Format",
+      "type": "select",
+      "defaultValue": "hidden",
+      "helpText": "'Hidden' prevents <think> tokens from polluting downstream prompts and breaking JSON mode.",
+      "options": [
+        { "label": "Hidden (Recommended)", "value": "hidden" },
+        { "label": "Parsed (Separate field)", "value": "parsed" },
+        { "label": "Raw (Keep <think> in text)", "value": "raw" }
+      ]
+    },
+    {
+      "name": "systemPrompt",
+      "label": "System Prompt",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "You are a helpful AI assistant in a LangGraph workflow..."
+    },
+    {
+      "name": "userPrompt",
+      "label": "User Prompt",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "Analyze the following data: {{parser.value}}",
+      "helpText": "Supports mustache templates like {{parser.value}} or {{trigger.input}}"
+    },
+    {
+      "name": "enableAttachment",
+      "label": "Attach File / Media",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "Attach an image (vision), audio, or document from an upstream variable or URL/path."
+    },
+    {
+      "name": "attachment",
+      "label": "Attachment Source",
+      "type": "valueOrVariable",
+      "placeholder": "Select variable (e.g. browser.screenshot) or enter path/URL",
+      "accepts": ["string", "image", "file", "audio"],
+      "dependsOn": {
+        "field": "enableAttachment",
+        "equals": true
+      }
+    },
+    {
+      "name": "attachmentType",
+      "label": "Media Type",
+      "type": "select",
+      "defaultValue": "auto",
+      "options": [
+        { "label": "Auto Detect", "value": "auto" },
+        { "label": "Image (Vision)", "value": "image" },
+        { "label": "Audio", "value": "audio" },
+        { "label": "Document / PDF", "value": "document" }
+      ],
+      "dependsOn": {
+        "field": "enableAttachment",
+        "equals": true
+      }
+    },
+    {
+      "name": "outputFormat",
+      "label": "Output Format",
+      "type": "radio",
+      "defaultValue": "text",
+      "options": [
+        { "label": "Text", "value": "text" },
+        { "label": "JSON", "value": "json" }
+      ]
+    },
+    {
+      "name": "outputType",
+      "label": "Zod Output Schema",
+      "type": "code",
+      "language": "typescript",
+      "placeholder": "z.object({\n  summary: z.string(),\n  findings: z.array(z.string()),\n  score: z.number()\n})",
+      "helpText": "Define schema using Zod or TypeScript. Properties are automatically exposed as downstream variables.",
+      "dependsOn": {
+        "field": "outputFormat",
+        "equals": "json"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Agent Result",
+      "type": "object",
+      "schemaFrom": "outputType"
+    },
+    {
+      "name": "text",
+      "label": "Text Output",
+      "type": "string"
+    },
+    {
+      "name": "reasoning",
+      "label": "Reasoning / Thinking Trace",
+      "type": "string"
+    }
+  ]
+}

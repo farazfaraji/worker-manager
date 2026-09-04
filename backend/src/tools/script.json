@@ -1,0 +1,43 @@
+{
+  "name": "Script",
+  "type": "script",
+  "description": "Executes custom JavaScript code on variable inputs with typed output schema.",
+  "inputs": [
+    {
+      "name": "input",
+      "label": "Input Variable",
+      "type": "variable",
+      "required": false,
+      "placeholder": "Select input variable...",
+      "helpText": "Select an upstream variable passed as the `input` argument into run(input).",
+      "accepts": ["string", "number", "boolean", "object", "array"]
+    },
+    {
+      "name": "code",
+      "label": "Script Function",
+      "type": "functionCode",
+      "language": "javascript",
+      "required": true,
+      "defaultValue": "// Transform, compute, or process data\nconst data = input;\n\nreturn {\n  id: data?.id || 'item_1',\n  status: 'active'\n};",
+      "helpText": "Write JavaScript code inside run(input). Return an object with the properties defined in Zod Output Schema."
+    },
+    {
+      "name": "outputType",
+      "label": "Zod Output Schema",
+      "type": "code",
+      "language": "typescript",
+      "required": true,
+      "defaultValue": "z.object({\n  id: z.string(),\n  status: z.string()\n})",
+      "placeholder": "z.object({\n  id: z.string(),\n  count: z.number()\n})",
+      "helpText": "Zod schema defining returned properties (e.g. $nodeName.id) converted to types for autocomplete in downstream nodes."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Result",
+      "type": "object",
+      "schemaFrom": "outputType"
+    }
+  ]
+}

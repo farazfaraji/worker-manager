@@ -1,0 +1,84 @@
+{
+  "name": "Json Parser",
+  "type": "function",
+  "description": "Parse JSON content from path, agent, or URL with typed schema extraction.",
+  "inputs": [
+    {
+      "name": "sourceType",
+      "label": "Source Type",
+      "type": "radio",
+      "defaultValue": "path",
+      "required": true,
+      "options": [
+        {
+          "label": "File Path",
+          "value": "path"
+        },
+        {
+          "label": "Agent",
+          "value": "agent"
+        },
+        {
+          "label": "URL",
+          "value": "url"
+        }
+      ]
+    },
+    {
+      "name": "filePath",
+      "label": "File Path",
+      "type": "text",
+      "placeholder": "/data/input.json",
+      "required": true,
+      "dependsOn": {
+        "field": "sourceType",
+        "equals": "path"
+      }
+    },
+    {
+      "name": "agentId",
+      "label": "Select Agent",
+      "type": "select",
+      "required": true,
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/agents",
+        "labelKey": "name",
+        "valueKey": "id"
+      },
+      "dependsOn": {
+        "field": "sourceType",
+        "equals": "agent"
+      }
+    },
+    {
+      "name": "targetUrl",
+      "label": "Target URL",
+      "type": "text",
+      "placeholder": "https://api.example.com/data",
+      "required": true,
+      "dependsOn": {
+        "field": "sourceType",
+        "equals": "url"
+      }
+    },
+    {
+      "name": "outputType",
+      "label": "Zod Output Schema",
+      "type": "code",
+      "language": "typescript",
+      "defaultValue": "z.object({\n  type: z.string(),\n  name: z.string()\n})",
+      "placeholder": "z.object({\n  type: z.string(),\n  name: z.string()\n})",
+      "required": true,
+      "helpText": "Zod schema converted to typed variables for autocomplete in downstream nodes."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "value",
+      "label": "Parsed Value",
+      "type": "object",
+      "schemaFrom": "outputType"
+    }
+  ]
+}

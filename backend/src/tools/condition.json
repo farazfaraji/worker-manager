@@ -1,0 +1,74 @@
+{
+    "name": "Condition",
+    "type": "condition",
+    "description": "Routes execution based on a comparison or expression.",
+    "inputs": [
+        {
+            "name": "mode",
+            "label": "Condition Mode",
+            "type": "radio",
+            "defaultValue": "comparison",
+            "options": [
+                { "label": "Comparison", "value": "comparison" },
+                { "label": "Custom Expression", "value": "expression" }
+            ]
+        },
+        {
+            "name": "leftValue",
+            "label": "Left Value",
+            "type": "variable",
+            "required": true,
+            "accepts": ["string", "number", "boolean", "object"],
+            "dependsOn": {
+                "field": "mode",
+                "equals": "comparison"
+            }
+        },
+        {
+            "name": "operator",
+            "label": "Operator",
+            "type": "select",
+            "required": true,
+            "defaultValue": "equals",
+            "options": [
+                { "label": "Equals", "value": "equals" },
+                { "label": "Not Equals", "value": "notEquals" },
+                { "label": "Contains", "value": "contains" },
+                { "label": "Greater Than", "value": "greaterThan" },
+                { "label": "Less Than", "value": "lessThan" },
+                { "label": "Is Empty", "value": "isEmpty" }
+            ],
+            "dependsOn": {
+                "field": "mode",
+                "equals": "comparison"
+            }
+        },
+        {
+            "name": "rightValue",
+            "label": "Right Value",
+            "type": "valueOrVariable",
+            "required": false,
+            "dependsOn": {
+                "field": "mode",
+                "equals": "comparison"
+            }
+        },
+        {
+            "name": "expression",
+            "label": "Custom Expression",
+            "type": "code",
+            "language": "javascript",
+            "required": true,
+            "placeholder": "return input.severity === 'critical';",
+            "helpText": "Write JavaScript returning true/false. Receives (input, context).",
+            "dependsOn": {
+                "field": "mode",
+                "equals": "expression"
+            }
+        }
+    ],
+    "outputs": [
+        { "name": "true", "label": "True", "type": "branch" },
+        { "name": "false", "label": "False", "type": "branch" }
+    ]
+}
