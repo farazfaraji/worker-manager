@@ -5,26 +5,44 @@ export type SettingDocument = Setting & Document;
 
 @Schema({ timestamps: true, collection: 'setting' })
 export class Setting {
-  @Prop({ type: String, default: 'gpt-4o', trim: true })
-  typeGeneratorModel: string;
+  @Prop({ type: String, default: null, index: true })
+  projectId?: string;
 
-  @Prop({ type: Boolean, default: true })
-  typeGeneratorStrictMode: boolean;
+  @Prop({ type: String, trim: true })
+  flowHelperModel?: string;
 
-  @Prop({ type: Number, default: 30 })
-  autoSaveInterval: number;
+  @Prop({ type: String, trim: true })
+  typeGeneratorModel?: string;
 
-  @Prop({ type: Boolean, default: true })
-  enableSnapToGrid: boolean;
+  @Prop({ type: Boolean })
+  typeGeneratorStrictMode?: boolean;
 
-  @Prop({ type: Boolean, default: true })
-  autoPanOnRun: boolean;
+  @Prop({ type: Number })
+  autoSaveInterval?: number;
 
-  @Prop({ type: String, default: 'standard', trim: true })
-  logVerbosity: string;
+  @Prop({ type: Boolean })
+  enableSnapToGrid?: boolean;
 
-  @Prop({ type: Number, default: 60 })
-  nodeTimeout: number;
+  @Prop({ type: Boolean })
+  autoPanOnRun?: boolean;
+
+  @Prop({ type: String, trim: true })
+  logVerbosity?: string;
+
+  @Prop({ type: Number })
+  nodeTimeout?: number;
+
+  @Prop({ type: String, trim: true })
+  telegramBotToken?: string;
+
+  @Prop({ type: String, enum: ['polling', 'webhook'] })
+  telegramUpdateMode?: string;
+
+  @Prop({ type: Number })
+  telegramPollIntervalSeconds?: number;
+
+  @Prop({ type: String })
+  telegramWebhookUrl?: string;
 
   @Prop({ type: Object, default: () => ({}) })
   customSettings?: Record<string, any>;

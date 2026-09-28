@@ -34,6 +34,8 @@ import { SubgraphRunnerService } from './services/subgraph-runner.service';
 import { RunRecoveryService } from './services/run-recovery.service';
 import { RunStorageService } from './services/run-storage.service';
 import { WebserverService } from '../webserver/webserver.service';
+import { TelegramService } from '../telegram/telegram.service';
+import { NodeCacheService } from './services/node-cache.service';
 
 export interface RunGraphOptions {
   existingRunId?: string;
@@ -54,6 +56,8 @@ export interface RunGraphOptions {
   checkpointSequence?: number;
   projectId?: string;
   metrics?: RunMetrics;
+  debugMode?: boolean;
+  useCache?: boolean;
 }
 
 @Injectable()
@@ -88,6 +92,11 @@ export class GraphRunnerService {
     @Inject(forwardRef(() => WebserverService))
     @Optional()
     private readonly webserverService?: WebserverService,
+    @Inject(forwardRef(() => TelegramService))
+    @Optional()
+    private readonly telegramService?: TelegramService,
+    @Optional()
+    private readonly nodeCacheService?: NodeCacheService,
   ) {
     this.checkpointService = checkpointService || new RunCheckpointService(this.checkpointModel);
     this.leaseService = leaseService || new RunLeaseService(this.runModel);
@@ -283,6 +292,8 @@ export class GraphRunnerService {
         startedAt: new Date(),
         metrics,
         stateVersion: 1,
+        debugMode: options.debugMode || false,
+        useCache: options.useCache || false,
       });
     }
 
@@ -293,8 +304,10 @@ export class GraphRunnerService {
       return this.storageService.publicRun(run);
     }
 
-    const runtimeContext: Record<string, any> = { input: initialInput, apps: {} };
+    const currentProjectId = (graph as any)?.projectId || options.projectId || run.projectId;
+    const runtimeContext: Record<string, any> = { input: initialInput, apps: {}, state: {}, projectId: currentProjectId };
     const context = { ...runtimeContext, ...(options.context || {}) };
+    context.state = { ...(runtimeContext.state || {}), ...(options.context?.state || context.state || {}) };
     const records: any[] = options.priorRecords ? [...options.priorRecords] : [];
     const completed = new Set<string>(records.filter((r) => r.status === 'completed').map((r) => r.nodeId));
 
@@ -407,6 +420,21 @@ export class GraphRunnerService {
       }
 
       queue = startNodes;
+      context.__runStartNodeIds = startNodes;
+    }
+
+    if (!Array.isArray(context.__runStartNodeIds)) {
+      context.__runStartNodeIds = options.startNodeId
+        ? [options.startNodeId]
+        : this.topologyService.determineStartNodes(nodes, incoming, nodeById);
+    }
+    if (options.executionQueue !== undefined && !options.rerunFromNodeId) {
+      const completedOutputs = Object.fromEntries(records
+        .filter((entry: any) => entry.status === 'completed')
+        .map((entry: any) => [entry.nodeId, entry.output]));
+      queue = this.topologyService.readyNodes(
+        nodes, edges, context.__runStartNodeIds, completed, completedOutputs, new Set(),
+      );
     }
 
     if (queue.length > this.maxQueueLength) {
@@ -476,9 +504,6 @@ export class GraphRunnerService {
         const nodeConfig = data.config || {};
 
         run.currentNodeId = node.id;
-
-        // Resolve input
-        const nodeInput = this.variableResolver.resolveNodeInput(node, context, initialInput);
         const nodeStartTime = Date.now();
 
         // Node Execution Policy
@@ -491,23 +516,13 @@ export class GraphRunnerService {
 
         const executionPolicy: ExecutionPolicy = { timeoutMs, maxAttempts, backoffMs };
 
-        // Determine if node is non-retryable
-        const isHumanGate = nodeType === 'human-gate' || nodeType === 'humangate';
-        const isArtifactMutation =
-          nodeType === 'artifact' &&
-          ['create', 'update', 'patch', 'archive', 'addrelation', 'removerelation', 'link'].includes(
-            String(nodeConfig.operation || nodeInput?.operation || '').toLowerCase(),
-          );
-
-        const effectiveMaxAttempts = (isHumanGate || isArtifactMutation) ? 1 : executionPolicy.maxAttempts;
-
         // Create running node record
         const record: NodeRunRecord = {
           nodeId: node.id,
           nodeName,
           nodeType,
           status: 'running',
-          input: nodeInput,
+          input: {},
           attempt: 1,
           startedAt: new Date(),
           checkpointSequence: checkpointSeq + 1,
@@ -522,66 +537,170 @@ export class GraphRunnerService {
         run.nodes = records;
         await run.save();
 
+        // Resolve input
+        let nodeInput: any;
+        try {
+          nodeInput = this.variableResolver.resolveNodeInput(node, context, initialInput);
+          record.input = nodeInput;
+        } catch (resolveErr: any) {
+          const resolveDuration = Date.now() - nodeStartTime;
+          record.durationMs = resolveDuration;
+          record.finishedAt = new Date();
+          record.status = 'failed';
+          record.error = {
+            message: resolveErr?.message || String(resolveErr),
+            code: 'VARIABLE_RESOLUTION_FAILED',
+          };
+          metrics.failedNodeCount = (metrics.failedNodeCount || 0) + 1;
+          run.nodes = records;
+          run.checkpointSequence = ++checkpointSeq;
+          run.metrics = metrics;
+          await run.save();
+
+          await this.checkpointService.persistCheckpoint({
+            runId,
+            sequence: checkpointSeq,
+            status: 'running',
+            currentNodeId: node.id,
+            queue,
+            context,
+            completedNodeIds: Array.from(completed),
+            nodeRecords: records,
+            metrics,
+          });
+
+          throw resolveErr;
+        }
+
+        // Determine if node is non-retryable
+        const isHumanGate = nodeType === 'human-gate' || nodeType === 'humangate';
+        const isArtifactMutation =
+          nodeType === 'artifact' &&
+          ['create', 'update', 'patch', 'archive', 'addrelation', 'removerelation', 'link'].includes(
+            String(nodeConfig.operation || nodeInput?.operation || '').toLowerCase(),
+          );
+
+        const effectiveMaxAttempts = (isHumanGate || isArtifactMutation) ? 1 : executionPolicy.maxAttempts;
+
         let rawOutput: any;
         let finalError: any = null;
 
-        // Bounded retry loop
-        for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
-          record.attempt = attempt;
-          if (attempt > 1) {
-            metrics.retryCount = (metrics.retryCount || 0) + 1;
-            const delay = Math.min(30000, backoffMs * Math.pow(2, attempt - 2));
-            this.logger.log(`⏳ Retrying node "${nodeName}" (attempt ${attempt}/${effectiveMaxAttempts}) after ${delay}ms`);
-            await new Promise((resolve) => setTimeout(resolve, delay));
+        const isCacheEligible = [
+          'agent',
+          'llm',
+          'web-search',
+          'websearch',
+          'repo-inspect',
+          'repo_inspect',
+          'cli',
+          'repository',
+        ].includes(nodeType);
+
+        // Cache is enabled by default for all eligible nodes, unless explicitly disabled (cacheResult === false)
+        const hasCacheEnabled =
+          nodeConfig.cacheResult !== false &&
+          nodeConfig.cacheResult !== 'false' &&
+          nodeConfig.enableCache !== false &&
+          nodeConfig.enableCache !== 'false';
+
+        const isDebugSession = Boolean(options.debugMode || run.debugMode);
+        const isUseCacheSession = Boolean(options.useCache || run.useCache);
+
+        let isCacheHit = false;
+        let cachedRecord: any = null;
+
+        if (isCacheEligible && hasCacheEnabled && isDebugSession && isUseCacheSession && this.nodeCacheService) {
+          cachedRecord = await this.nodeCacheService.getCachedResult(graph._id.toString(), node.id);
+          if (cachedRecord && cachedRecord.result !== undefined) {
+            isCacheHit = true;
+            rawOutput = cachedRecord.result;
+            record.cached = true;
+            this.logger.log(`⚡ [NodeCache HIT] Skipping service execution for node "${nodeName}" (${nodeType}) in Debug mode - reusing cached result`);
+          } else {
+            this.logger.log(`ℹ️ [NodeCache MISS] No cache found for node "${nodeName}" (${nodeType}) - running service`);
           }
+        }
 
-          try {
-            const execPromise = this.executeNodeDispatch(
-              node,
-              nodeType,
-              nodeInput,
-              context,
-              initialInput,
-              runId,
-              currentDepth,
-              visitedArtifactLogicalIds,
-            );
+        if (!isCacheHit) {
+          // Bounded retry loop
+          for (let attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
+            record.attempt = attempt;
+            if (attempt > 1) {
+              metrics.retryCount = (metrics.retryCount || 0) + 1;
+              const delay = Math.min(30000, backoffMs * Math.pow(2, attempt - 2));
+              this.logger.log(`⏳ Retrying node "${nodeName}" (attempt ${attempt}/${effectiveMaxAttempts}) after ${delay}ms`);
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
 
-            // Timeout wrapper
-            rawOutput = await Promise.race([
-              execPromise,
-              new Promise((_, reject) =>
-                setTimeout(() => {
-                  const timeoutErr: any = new Error(`Node execution timed out after ${timeoutMs}ms`);
-                  timeoutErr.code = 'EXECUTION_TIMEOUT';
-                  timeoutErr.status = 408;
-                  reject(timeoutErr);
-                }, timeoutMs),
-              ),
-            ]);
+            try {
+              const execPromise = this.executeNodeDispatch(
+                node,
+                nodeType,
+                nodeInput,
+                context,
+                initialInput,
+                runId,
+                currentDepth,
+                visitedArtifactLogicalIds,
+                nodes,
+                edges,
+                graph._id.toString(),
+                graph.name,
+                currentProjectId,
+                options,
+              );
 
-            finalError = null;
-            break;
-          } catch (err: any) {
-            finalError = err;
-            const isRetryable =
-              err.code === 'EXECUTION_TIMEOUT' ||
-              err.status === 429 ||
-              (err.status >= 500 && err.status < 600) ||
-              /timeout|etimedout|econnreset|enotfound/i.test(err.message || '');
+              // Timeout wrapper
+              rawOutput = await Promise.race([
+                execPromise,
+                new Promise((_, reject) =>
+                  setTimeout(() => {
+                    const timeoutErr: any = new Error(`Node execution timed out after ${timeoutMs}ms`);
+                    timeoutErr.code = 'EXECUTION_TIMEOUT';
+                    timeoutErr.status = 408;
+                    reject(timeoutErr);
+                  }, timeoutMs),
+                ),
+              ]);
 
-            record.retryable = isRetryable;
-            record.errorCode = err.code || (err.status ? `HTTP_${err.status}` : 'EXECUTION_ERROR');
-
-            if (!isRetryable || attempt >= effectiveMaxAttempts) {
+              finalError = null;
               break;
+            } catch (err: any) {
+              finalError = err;
+              const isRetryable =
+                err.code === 'EXECUTION_TIMEOUT' ||
+                err.status === 429 ||
+                (err.status >= 500 && err.status < 600) ||
+                /timeout|etimedout|econnreset|enotfound/i.test(err.message || '');
+
+              record.retryable = isRetryable;
+              record.errorCode = err.code || (err.status ? `HTTP_${err.status}` : 'EXECUTION_ERROR');
+
+              if (!isRetryable || attempt >= effectiveMaxAttempts) {
+                break;
+              }
             }
           }
         }
 
-        const nodeDuration = Date.now() - nodeStartTime;
+        const nodeDuration = isCacheHit ? 0 : Date.now() - nodeStartTime;
         record.durationMs = nodeDuration;
         record.finishedAt = new Date();
+
+        // Save cache on all successful runs (normal Run and Debug) if node has caching enabled
+        if (isCacheEligible && hasCacheEnabled && !finalError && !isCacheHit && this.nodeCacheService) {
+          await this.nodeCacheService.saveCachedResult(
+            graph._id.toString(),
+            node.id,
+            nodeName,
+            nodeType,
+            rawOutput,
+            nodeInput,
+            graph.name,
+            currentProjectId,
+          );
+          this.logger.log(`💾 [NodeCache] Saved cache for node "${nodeName}" (${nodeType}) in graph "${graph.name || graph._id}"`);
+        }
 
         if (finalError) {
           this.logger.error(`❌ Node "${nodeName}" FAILED after ${nodeDuration}ms (attempt ${record.attempt})`);
@@ -626,15 +745,17 @@ export class GraphRunnerService {
 
           let rawResumeToken: string | undefined;
 
-          if (nodeType === 'subgraph' && rawOutput.childRunId) {
+          if (rawOutput.childRunId) {
             metrics.childRunCount = (metrics.childRunCount || 0) + 1;
             record.childRunId = rawOutput.childRunId;
             run.waitingChildRunId = rawOutput.childRunId;
+            rawResumeToken = rawOutput.resumeToken;
             run.waitingDescriptor = {
               nodeId: node.id,
               nodeName,
               nodeType,
               waitingChildRunId: rawOutput.childRunId,
+              uiPayload: rawOutput.waitingDescriptor?.uiPayload,
               createdAt: new Date(),
             };
           } else {
@@ -653,6 +774,46 @@ export class GraphRunnerService {
               timeoutMs: rawOutput?.result?.timeoutMs || 86400000,
             };
             run.waitingDescriptor = waitingDescriptor;
+
+            // Dispatch Telegram question if responseType is telegram or node is telegram question
+            const isTelegramGate =
+              (nodeType === 'human-gate' || nodeType === 'humangate') &&
+              (rawOutput?.result?.responseType === 'telegram' || nodeConfig?.responseType === 'telegram');
+            const isTelegramQuestion =
+              nodeType === 'telegram' &&
+              (rawOutput?.result?.mode === 'question' || nodeConfig?.mode === 'question' || rawOutput?.result?.telegram);
+
+            if ((isTelegramGate || isTelegramQuestion) && this.telegramService) {
+              const rawChatId = rawOutput?.result?.chatId || nodeConfig?.chatId;
+              const targetChatId = rawChatId ? this.variableResolver.resolveValue(rawChatId, context) : undefined;
+              const rawQuestion = rawOutput?.result?.question || nodeConfig?.question || 'Please review and reply to this message.';
+              const questionText = this.variableResolver.resolveValue(rawQuestion, context);
+              const botToken = nodeConfig?.botToken || rawOutput?.result?.botToken;
+              const threadId = nodeConfig?.messageThreadId || rawOutput?.result?.messageThreadId;
+              const updateMode = nodeConfig?.updateMode || rawOutput?.result?.updateMode || 'polling';
+              const pollIntervalSeconds = nodeConfig?.pollIntervalSeconds || rawOutput?.result?.pollIntervalSeconds || 2;
+
+              if (targetChatId) {
+                await this.telegramService
+                  .dispatchQuestionAndStore({
+                    runId,
+                    nodeId: node.id,
+                    projectId: run.projectId,
+                    graphId: String(run.graphId),
+                    token,
+                    question: String(questionText),
+                    chatId: targetChatId,
+                    botToken,
+                    updateMode,
+                    pollIntervalSeconds: Number(pollIntervalSeconds),
+                  })
+                  .catch((err) => {
+                    this.logger.error(
+                      `Failed to dispatch Telegram question for run ${runId}: ${err.message}`,
+                    );
+                  });
+              }
+            }
           }
 
           await run.save();
@@ -680,6 +841,24 @@ export class GraphRunnerService {
           return this.storageService.publicRun(run, rawResumeToken ? { resumeToken: rawResumeToken } : undefined);
         }
 
+        // Outbound Telegram message dispatch (one-way message mode)
+        if (nodeType === 'telegram' && nodeConfig?.mode === 'message' && this.telegramService) {
+          const rawChatId = nodeConfig?.chatId || nodeInput?.chatId;
+          const targetChatId = rawChatId ? this.variableResolver.resolveValue(rawChatId, context) : undefined;
+          const rawMessage = nodeConfig?.question || nodeConfig?.message || nodeInput?.text || '';
+          const messageText = this.variableResolver.resolveValue(rawMessage, context);
+          if (targetChatId && messageText) {
+            await this.telegramService
+              .sendMessage(targetChatId, String(messageText), {
+                botToken: nodeConfig?.botToken,
+                messageThreadId: nodeConfig?.messageThreadId,
+              })
+              .catch((err) => {
+                this.logger.error(`Failed to dispatch Telegram message: ${err.message}`);
+              });
+          }
+        }
+
         // Completed Node Handling
         record.status = 'completed';
         completed.add(node.id);
@@ -704,18 +883,102 @@ export class GraphRunnerService {
           metrics,
         });
 
-        // Edge traversal
-        const nodeEdges = outgoing.get(node.id) || [];
-        const nextTargets = this.topologyService.resolveNextTargets(node, lastNodeOutput, nodeEdges);
+        // Recompute readiness after every transition. A join runs once, after all
+        // incoming branches have either completed or become unreachable.
+        const completedOutputs = Object.fromEntries(records
+          .filter((entry: any) => entry.status === 'completed')
+          .map((entry: any) => [entry.nodeId, entry.output]));
 
-        for (const targetId of nextTargets) {
-          queue.push(targetId);
+        // Synchronize orchestrator 'done' and 'result' outputs when all its jobs finish
+        for (const candidateNode of nodes) {
+          const cType = String(candidateNode.data?.definitionType || candidateNode.type || '').toLowerCase();
+          if ((cType === 'orchestrator' || cType === 'delegator') && completed.has(candidateNode.id)) {
+            const jobNodes = this.topologyService.getOrchestratedJobNodeIds(candidateNode.id, nodes, edges);
+            if (jobNodes.size > 0 && [...jobNodes].every((id) => completed.has(id))) {
+              const orchName = candidateNode.data?.name || candidateNode.data?.nodeName || candidateNode.id;
+              const orchData = context[orchName] || {};
+              const jobResults = Array.from(jobNodes).map((id) => {
+                const rec = records.find((r) => r.nodeId === id);
+                const n = nodes.find((item) => item.id === id);
+                return {
+                  id,
+                  name: rec?.nodeName || n?.data?.name || id,
+                  type: rec?.nodeType || n?.data?.definitionType,
+                  output: rec?.output,
+                };
+              });
+              const donePayload = {
+                status: 'completed',
+                goal: orchData.goal,
+                agentCount: jobNodes.size,
+                results: jobResults,
+                lastResult: jobResults[jobResults.length - 1]?.output,
+              };
+              orchData.done = donePayload;
+              orchData.result = donePayload;
+              context[orchName] = orchData;
+            }
+          }
         }
+
+        queue = [...new Set(queue.filter((id) => !completed.has(id)))];
+        const nextTargets = this.topologyService.readyNodes(
+          nodes, edges, context.__runStartNodeIds, completed, completedOutputs,
+          new Set(queue),
+        );
+        queue.push(...nextTargets);
 
         if (queue.length > this.maxQueueLength) {
           const err: any = new BadRequestException(`Queue length exceeded limit of ${this.maxQueueLength}`);
           err.code = 'MAX_QUEUE_LENGTH_EXCEEDED';
           throw err;
+        }
+
+        // ── Debug Mode Breakpoint ──
+        // If debugMode is active and there are still nodes queued, pause the run
+        // and let the frontend decide whether to continue or cancel.
+        const isDebug = options.debugMode || run.debugMode;
+        if (isDebug && queue.length > 0) {
+          const { token, hash, tokenId } = generateResumeToken();
+
+          run.status = 'waiting';
+          run.waitingNodeId = node.id;
+          run.resumeTokenHash = hash;
+          run.output = { [nodeName]: output };
+          run.nodes = records;
+          run.checkpointSequence = ++checkpointSeq;
+          run.waitingDescriptor = {
+            nodeId: node.id,
+            nodeName,
+            nodeType,
+            waitingTokenId: tokenId,
+            debugBreakpoint: true,
+            completedNodeOutput: output,
+            nextNodeIds: queue.slice(0, 5),
+            createdAt: new Date(),
+          };
+          run.metrics = metrics;
+          await run.save();
+
+          await this.checkpointService.persistCheckpoint({
+            runId,
+            sequence: checkpointSeq,
+            status: 'waiting',
+            currentNodeId: node.id,
+            waitingNodeId: node.id,
+            queue,
+            context,
+            completedNodeIds: Array.from(completed),
+            nodeRecords: records,
+            lastNodeOutput,
+            waitingDescriptor: run.waitingDescriptor,
+            metrics,
+          });
+
+          await this.browserRunner.closeRuntimeApps(context);
+          await this.leaseService.releaseLease(runId);
+          this.logger.log(`🐛 [DEBUG BREAKPOINT] Run ${runId} paused after node "${nodeName}" — awaiting continue/cancel`);
+          return this.storageService.publicRun(run, { resumeToken: token });
         }
       }
 
@@ -754,6 +1017,7 @@ export class GraphRunnerService {
       const totalDuration = Date.now() - startTime;
       metrics.totalDurationMs = totalDuration;
 
+      if (error?.code === 'RUN_CANCELLED') run.status = 'cancelled';
       if (run.status !== 'cancelled') {
         run.status = 'failed';
         run.error = {
@@ -801,6 +1065,12 @@ export class GraphRunnerService {
     runId: string,
     currentDepth: number,
     visitedArtifactLogicalIds: string[] = [],
+    allNodes?: RuntimeNode[],
+    allEdges?: any[],
+    graphId?: string,
+    graphName?: string,
+    projectId?: string,
+    options?: RunGraphOptions,
   ): Promise<any> {
     if (nodeType === 'subgraph') {
       return this.subgraphRunner.executeSubgraphNode(
@@ -813,6 +1083,10 @@ export class GraphRunnerService {
       );
     }
     if (nodeType === 'foreach') {
+      const mode = String(nodeInput?.mode || node.data?.config?.mode || ((nodeInput?.graphId || node.data?.config?.graphId) ? 'subgraph' : 'canvas'));
+      if (mode === 'subgraph' && (String(nodeInput?.executionType || node.data?.config?.executionType || 'sync') !== 'sync' || Number(nodeInput?.concurrency ?? node.data?.config?.concurrency ?? 1) !== 1)) {
+        await this.graphsService.assertNoWaitingGatesInChildGraph(String(nodeInput?.graphId || node.data?.config?.graphId || ''));
+      }
       return this.subgraphRunner.executeForeachNode(
         node,
         nodeInput,
@@ -820,7 +1094,75 @@ export class GraphRunnerService {
         currentDepth,
         visitedArtifactLogicalIds,
         this.runGraph.bind(this),
+        {
+          context,
+          nodes: allNodes,
+          edges: allEdges,
+          executeNode: async (n, inp, ctx, init) => {
+            const innerType = String(n.data?.definitionType || n.type || '').toLowerCase();
+            const innerName = n.data?.name || n.data?.nodeName || n.id;
+            const innerConfig = n.data?.config || {};
+            const isEligible = [
+              'agent',
+              'llm',
+              'web-search',
+              'websearch',
+              'repo-inspect',
+              'repo_inspect',
+              'cli',
+              'repository',
+            ].includes(innerType);
+            const isEnabled =
+              innerConfig.cacheResult !== false &&
+              innerConfig.cacheResult !== 'false' &&
+              innerConfig.enableCache !== false &&
+              innerConfig.enableCache !== 'false';
+
+            // Check cache in debug mode
+            if (
+              isEligible &&
+              isEnabled &&
+              options?.debugMode &&
+              options?.useCache &&
+              graphId &&
+              this.nodeCacheService
+            ) {
+              const cached = await this.nodeCacheService.getCachedResult(graphId, n.id);
+              if (cached && cached.result !== undefined) {
+                this.logger.log(`⚡ [NodeCache HIT] (Foreach) Reusing cached result for "${innerName}" (${innerType})`);
+                return cached.result;
+              }
+            }
+
+            const rawResult = await this.nodeExecutor.executeNode(n, inp, ctx, init, runId);
+
+            // Save cache on successful execution
+            if (isEligible && isEnabled && graphId && this.nodeCacheService) {
+              await this.nodeCacheService.saveCachedResult(
+                graphId,
+                n.id,
+                innerName,
+                innerType,
+                rawResult,
+                inp,
+                graphName,
+                projectId,
+              );
+              this.logger.log(`💾 [NodeCache] (Foreach) Saved cache for node "${innerName}" (${innerType})`);
+            }
+
+            return rawResult;
+          },
+          resolveInput: (n, ctx, init) => this.variableResolver.resolveNodeInput(n, ctx, init),
+          normalizeOutput: (n, raw) => this.variableResolver.normalizeOutput(n, raw),
+        },
       );
+    }
+    if (nodeType === 'loop' && String(nodeInput?.mode || node.data?.config?.mode || 'map') === 'research') {
+      return this.subgraphRunner.executeIterativeLoopNode(node, nodeInput, runId, currentDepth, visitedArtifactLogicalIds, this.runGraph.bind(this), async () => {
+        const fresh = await this.runModel.findOne({ runId }).exec();
+        return Boolean(fresh?.cancelRequestedAt || fresh?.status === 'cancelled');
+      });
     }
     return this.nodeExecutor.executeNode(node, nodeInput, context, initialInput, runId);
   }
@@ -835,6 +1177,7 @@ export class GraphRunnerService {
     runId: string,
     currentDepth = 0,
     visitedArtifactLogicalIds: string[] = [],
+    options?: any,
   ): Promise<any> {
     return this.subgraphRunner.executeForeachNode(
       node,
@@ -843,6 +1186,7 @@ export class GraphRunnerService {
       currentDepth,
       visitedArtifactLogicalIds,
       this.runGraph.bind(this),
+      options,
     );
   }
 

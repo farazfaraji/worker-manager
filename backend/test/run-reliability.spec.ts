@@ -14,6 +14,7 @@ import { NodeExecutorService } from '../src/runs/services/node-executor.service'
 import { BrowserRunnerService } from '../src/runs/services/browser-runner.service';
 import { EventEngineService } from '../src/events/event-engine.service';
 import { GraphEventDispatcherService } from '../src/graphs/graph-event-dispatcher.service';
+import { GraphShapeService } from '../src/graphs/graph-shape.service';
 import {
   hashToken,
   redactSecrets,
@@ -52,6 +53,7 @@ async function runTests() {
   const checkpointModel = connection.model(RunCheckpoint.name, RunCheckpointSchema);
   const graphModel = connection.model(Graph.name, GraphSchema);
   const eventModel = connection.model(EventRecord.name, EventRecordSchema);
+  const graphShapeService = new GraphShapeService();
 
   // Clean test collections before running
   await runModel.deleteMany({});
@@ -67,7 +69,15 @@ async function runTests() {
   const graphsServiceMock: any = {
     findOne: async (id: string) => {
       const g = await graphModel.findById(id).lean().exec();
-      return g;
+      if (!g) return g;
+      const shaped = graphShapeService.reshapeForLoad({
+        flow: g.flow,
+        nodes: (g as any).nodes,
+        edges: (g as any).edges,
+        layout: g.layout,
+        viewport: (g as any).viewport,
+      });
+      return { ...g, ...shaped };
     },
     validateGraphVariables: async () => true,
   };
@@ -135,11 +145,12 @@ async function runTests() {
 
   // Helper to create test graphs
   async function createGraph(name: string, nodes: any[], edges: any[] = []) {
+    const shaped = graphShapeService.reshapeForSave({ nodes, edges });
     return graphModel.create({
       projectId: 'default',
       name,
-      nodes,
-      edges,
+      flow: shaped.flow,
+      layout: shaped.layout,
     });
   }
 
@@ -531,7 +542,12 @@ async function runTests() {
     ]);
 
     const eventEngine = new EventEngineService(eventModel as any);
-    const dispatcher = new GraphEventDispatcherService(eventEngine, graphModel as any, runner);
+    const dispatcher = new GraphEventDispatcherService(
+      eventEngine,
+      graphModel as any,
+      runner,
+      graphShapeService,
+    );
 
     const eventPayload: any = {
       id: `evt_test_${randomUUID()}`,
@@ -689,9 +705,7 @@ async function runTests() {
   console.log('=============================================\n');
 
   await connection.close();
-  if (failed > 0) {
-    process.exit(1);
-  }
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 runTests().catch((err) => {

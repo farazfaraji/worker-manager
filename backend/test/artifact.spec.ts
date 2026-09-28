@@ -61,6 +61,12 @@ async function runTests() {
   await vectorModel.deleteMany({});
   await eventModel.deleteMany({});
 
+  // Ensure indexes are fully built before running tests to prevent background index building locks
+  await artifactModel.init();
+  await relationModel.init();
+  await vectorModel.init();
+  await eventModel.init();
+
   const eventEngine = new EventEngineService(eventModel as any);
   const vectorStore = new VectorStoreService(vectorModel as any);
   const indexingService = new ArtifactIndexingService(vectorModel as any, vectorStore);

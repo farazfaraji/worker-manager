@@ -1,7 +1,27 @@
 {
   "name": "Loop",
   "type": "loop",
-  "description": "Process a bounded collection with iteration and retry metadata.",
-  "inputs": [{ "name": "items", "label": "Items", "type": "valueOrVariable", "required": true }, { "name": "maxIterations", "label": "Max Iterations", "type": "number", "defaultValue": 100 }, { "name": "mode", "label": "Mode", "type": "select", "defaultValue": "map", "options": [{ "label": "Map", "value": "map" }, { "label": "Batch", "value": "batch" }] }],
-  "outputs": [{ "name": "result", "label": "Iterations", "type": "object" }]
+  "description": "Map a collection or run bounded research rounds in a saved child graph.",
+  "inputs": [
+    {
+      "name": "items",
+      "label": "Items",
+      "type": "valueOrVariable",
+      "required": true,
+      "accepts": ["array", "object", "string", "any"],
+      "helpText": "Array of items to process or an object containing an items array.",
+      "dependsOn": { "field": "mode", "notEquals": "research" }
+    },
+    { "name": "maxIterations", "label": "Max Items", "type": "number", "defaultValue": 100, "dependsOn": { "field": "mode", "notEquals": "research" } },
+    { "name": "mode", "label": "Mode", "type": "select", "defaultValue": "map", "options": [{ "label": "Map", "value": "map" }, { "label": "Batch", "value": "batch" }, { "label": "Research Rounds", "value": "research" }] },
+    { "name": "graphId", "label": "Research Round Graph", "type": "select", "required": true, "dependsOn": { "field": "mode", "equals": "research" }, "dataSource": { "type": "endpoint", "url": "/api/graphs", "labelKey": "name", "valueKey": "id" }, "helpText": "The child graph must return the completion value and an array of gaps; human gates inside the child pause and resume the parent run." },
+    { "name": "initialInput", "label": "Idea and Constraints", "type": "valueOrVariable", "accepts": ["object"], "dependsOn": { "field": "mode", "equals": "research" } },
+    { "name": "initialGaps", "label": "Initial Gaps", "type": "valueOrVariable", "accepts": ["array"], "dependsOn": { "field": "mode", "equals": "research" } },
+    { "name": "completionPath", "label": "Completion Field Path", "type": "text", "defaultValue": "decision", "dependsOn": { "field": "mode", "equals": "research" }, "helpText": "Property path in child graph output, for example review.decision." },
+    { "name": "completionValue", "label": "Completion Value", "type": "text", "defaultValue": "pass", "dependsOn": { "field": "mode", "equals": "research" } },
+    { "name": "gapPath", "label": "Gaps Field Path", "type": "text", "defaultValue": "gaps", "dependsOn": { "field": "mode", "equals": "research" } },
+    { "name": "maxRounds", "label": "Maximum Research Rounds", "type": "number", "defaultValue": 3, "minimum": 1, "maximum": 10, "dependsOn": { "field": "mode", "equals": "research" } },
+    { "name": "maxHandoffChars", "label": "Previous Round Handoff Characters", "type": "number", "defaultValue": 12000, "minimum": 1000, "maximum": 16000, "dependsOn": { "field": "mode", "equals": "research" }, "helpText": "Maximum serialized previous-round result passed into the next research round. Store large evidence as artifacts and pass their IDs." }
+  ],
+  "outputs": [{ "name": "result", "label": "Iterations", "type": "object", "schema": { "status": "string", "decision": "string", "iterations": "array", "count": "number", "stopReason": "string", "limitReached": "boolean", "gaps": "array", "output": "object" } }]
 }

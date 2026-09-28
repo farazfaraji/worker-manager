@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -14,13 +14,15 @@ import {
   EdgeChange,
   NodeMouseHandler,
   useReactFlow,
-  ReactFlowProvider,
+  SelectionMode,
+  ConnectionLineType,
 } from '@xyflow/react';
+import { StraightWaypointEdge } from './edges/StraightWaypointEdge';
 import { FlowNodeData, NodeDefinition } from '@/lib/types';
 import { LangGraphCustomNode } from './nodes/LangGraphCustomNode';
 import { BoardRightToolbar } from './BoardRightToolbar';
 
-interface FlowBoardProps {
+export interface FlowBoardProps {
   nodes: Node<FlowNodeData>[];
   edges: Edge[];
   onNodesChange: (changes: NodeChange<Node<FlowNodeData>>[]) => void;
@@ -37,7 +39,17 @@ const nodeTypes = {
   default: LangGraphCustomNode,
 };
 
-const FlowBoardInner: React.FC<FlowBoardProps> = ({
+const edgeTypes = {
+  default: StraightWaypointEdge,
+  straight: StraightWaypointEdge,
+};
+
+/**
+ * FlowBoard must be rendered inside a <ReactFlowProvider> — this is handled by
+ * FlowStudio so that FlowStudio itself can also access the React Flow context
+ * (e.g. to compute the current viewport center when adding nodes from the palette).
+ */
+export const FlowBoard: React.FC<FlowBoardProps> = ({
   nodes,
   edges,
   onNodesChange,
@@ -49,14 +61,36 @@ const FlowBoardInner: React.FC<FlowBoardProps> = ({
   graphId,
 }) => {
   const reactFlowInstance = useReactFlow();
+  // Track whether a multi-selection drag just completed to suppress modal open
+  const didDragSelect = useRef(false);
 
-  // Handle node click to open configuration modal
+  // Handle node click — only open config modal on a plain single click
   const handleNodeClick: NodeMouseHandler = useCallback(
-    (_, clickedNode) => {
+    (event, clickedNode) => {
+      // Suppress modal when Shift/Ctrl/Meta is held (multi-select modifier)
+      if (event.shiftKey || event.ctrlKey || event.metaKey) return;
+      // Suppress modal when a rubber-band drag selection just finished
+      if (didDragSelect.current) {
+        didDragSelect.current = false;
+        return;
+      }
       onNodeSelect(clickedNode as Node<FlowNodeData>);
     },
     [onNodeSelect],
   );
+
+  // Called when user starts drawing a rubber-band selection rectangle
+  const handleSelectionStart = useCallback((_event: React.MouseEvent) => {
+    didDragSelect.current = true;
+  }, []);
+
+  // Called when the rubber-band selection ends — keep the flag for a brief
+  // moment so the follow-up click event on the node is ignored
+  const handleSelectionEnd = useCallback((_event: React.MouseEvent) => {
+    setTimeout(() => {
+      didDragSelect.current = false;
+    }, 100);
+  }, []);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -95,7 +129,22 @@ const FlowBoardInner: React.FC<FlowBoardProps> = ({
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        connectionLineType={ConnectionLineType.Straight}
+        defaultEdgeOptions={{ type: 'straight' }}
         fitView
+        // ── Multi-select support ──────────────────────────────────────────────
+        // Hold Shift and drag on an empty area of the canvas to draw a
+        // rubber-band selection rectangle that selects all overlapping nodes
+        selectionOnDrag
+        // The key that switches click into "add to selection" mode
+        multiSelectionKeyCode="Shift"
+        // Use partial intersection so nodes are captured when the selection
+        // rectangle merely overlaps them (not fully contains)
+        selectionMode={SelectionMode.Partial}
+        deleteKeyCode={['Delete', 'Backspace']}
+        onSelectionStart={handleSelectionStart}
+        onSelectionEnd={handleSelectionEnd}
       >
         <Controls />
         <MiniMap
@@ -114,13 +163,5 @@ const FlowBoardInner: React.FC<FlowBoardProps> = ({
         onFitView={() => reactFlowInstance.fitView({ padding: 0.2, duration: 400 })}
       />
     </div>
-  );
-};
-
-export const FlowBoard: React.FC<FlowBoardProps> = (props) => {
-  return (
-    <ReactFlowProvider>
-      <FlowBoardInner {...props} />
-    </ReactFlowProvider>
   );
 };

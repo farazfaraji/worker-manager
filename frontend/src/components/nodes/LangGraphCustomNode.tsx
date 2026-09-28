@@ -3,7 +3,7 @@
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
 import { FlowNodeData } from '@/lib/types';
-import { NodeOutputHandles } from './NodeOutputHandles';
+import { NodeOutputHandles, classifyOutputs } from './NodeOutputHandles';
 import {
   PlayCircle,
   Bot,
@@ -28,6 +28,7 @@ import {
   Send,
   Play,
   Square,
+  Search,
 } from 'lucide-react';
 import { getWebserverStatus, startWebserver, stopWebserver } from '@/lib/api';
 
@@ -44,6 +45,12 @@ export const getNodeIcon = (type: string, size = 16) => {
     case 'browser':
     case 'brower':
       return <Globe size={size} color="#0284c7" />;
+    case 'web-search':
+    case 'websearch':
+    case 'web_search':
+      return <Search size={size} color="#06b6d4" />;
+    case 'repo-inspect':
+      return <FileCode2 size={size} color="#0d9488" />;
     case 'condition':
       return <GitBranch size={size} color="#8b5cf6" />;
     case 'validator':
@@ -72,6 +79,10 @@ export const getNodeIcon = (type: string, size = 16) => {
     case 'http-response':
     case 'httpresponse':
       return <Send size={size} color="#8b5cf6" />;
+    case 'output':
+      return <Send size={size} color="#f97316" />;
+    case 'telegram':
+      return <Send size={size} color="#0088cc" />;
     case 'function':
     default:
       return <FileCode2 size={size} color="#6366f1" />;
@@ -155,9 +166,12 @@ export const LangGraphCustomNode: React.FC<NodeProps> = ({
   ).length;
 
   const runStatus = nodeData?.runStatus;
+  const saveError = nodeData?.saveError as string | undefined;
 
   let statusBorder = '';
-  if (runStatus === 'completed') {
+  if (saveError) {
+    statusBorder = '2px solid #f97316'; // orange for save/wiring errors
+  } else if (runStatus === 'completed') {
     statusBorder = '2px solid #10b981';
   } else if (runStatus === 'failed') {
     statusBorder = '2px solid #ef4444';
@@ -167,22 +181,45 @@ export const LangGraphCustomNode: React.FC<NodeProps> = ({
     statusBorder = '2px solid #6366f1';
   }
 
-  const isRouter = String(defType).toLowerCase() === 'router';
-  const outputCount = nodeData?.outputs?.length || 0;
-  const dynamicMinWidth = isRouter && outputCount > 2 ? Math.max(190, outputCount * 68) : (isWebserver ? 220 : 190);
-  const dynamicMaxWidth = isRouter && outputCount > 2 ? Math.max(260, outputCount * 88) : (isWebserver ? 270 : 260);
+  const outputs = nodeData?.outputs || [];
+  const { sideOutputs, bottomOutputs } = classifyOutputs(outputs);
+  const hasSideOutputs = sideOutputs.length > 0;
+  const hasBottomOutputs = bottomOutputs.length > 0;
+
+  // Dimensions: side outputs (alternating left/right) fit comfortably at 280px-300px
+  // Bottom-only outputs (e.g. onLoad & onFailed) fit cleanly at 240px-260px
+  const cardWidth = hasSideOutputs
+    ? 290
+    : hasBottomOutputs
+    ? 250
+    : (isWebserver ? 240 : 210);
+  const dynamicMinWidth = hasSideOutputs
+    ? 270
+    : hasBottomOutputs
+    ? 230
+    : (isWebserver ? 220 : 190);
+  const dynamicMaxWidth = hasSideOutputs
+    ? 330
+    : hasBottomOutputs
+    ? 280
+    : (isWebserver ? 270 : 260);
 
   return (
     <div
-      className={`langgraph-node ${selected ? 'selected' : ''} ${runStatus ? `node-run-${runStatus}` : ''}`}
+      className={`langgraph-node ${selected ? 'selected' : ''} ${runStatus ? `node-run-${runStatus}` : ''} ${saveError ? 'node-save-error' : ''}`}
+      title={saveError || undefined}
       style={{
+        width: `${cardWidth}px`,
         minWidth: dynamicMinWidth,
         maxWidth: dynamicMaxWidth,
         padding: '12px 14px',
         cursor: 'pointer',
+        boxSizing: 'border-box',
         border: statusBorder || undefined,
         boxShadow:
-          runStatus === 'completed'
+          saveError
+            ? '0 0 0 3px rgba(249, 115, 22, 0.25), var(--shadow-md)'
+            : runStatus === 'completed'
             ? '0 0 0 3px rgba(16, 185, 129, 0.18), var(--shadow-md)'
             : runStatus === 'failed'
             ? '0 0 0 3px rgba(239, 68, 68, 0.18), var(--shadow-md)'
@@ -196,17 +233,47 @@ export const LangGraphCustomNode: React.FC<NodeProps> = ({
 
       {/* Target input handle at top (except for trigger/route/webserver node) */}
       {!isTrigger && (
-        <Handle
-          type="target"
-          position={Position.Top}
-          style={{
-            background: 'var(--accent-primary)',
-            width: 9,
-            height: 9,
-            top: -5,
-            border: '2px solid #ffffff',
-          }}
-        />
+        <>
+          <Handle
+            type="target"
+            position={Position.Top}
+            style={{
+              background: 'var(--accent-primary)',
+              width: 9,
+              height: 9,
+              top: -5,
+              border: '2px solid #ffffff',
+            }}
+          />
+          <Handle
+            type="target"
+            id="input"
+            position={Position.Top}
+            style={{
+              background: 'var(--accent-primary)',
+              width: 9,
+              height: 9,
+              top: -5,
+              border: '2px solid #ffffff',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+          />
+          <Handle
+            type="target"
+            id="flow"
+            position={Position.Top}
+            style={{
+              background: 'var(--accent-primary)',
+              width: 9,
+              height: 9,
+              top: -5,
+              border: '2px solid #ffffff',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+          />
+        </>
       )}
 
       {/* Node Header */}

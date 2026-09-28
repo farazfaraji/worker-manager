@@ -107,15 +107,33 @@ export class VectorStoreService {
     // If query embedding provided, rank by cosine similarity; otherwise return candidates
     if (Array.isArray(input.embedding) && input.embedding.length > 0) {
       return candidates
-        .map((record: any) => ({
-          ...record,
-          score: this.cosine(input.embedding, record.embedding || []),
-        }))
+        .map((record: any) => {
+          const score = this.cosine(input.embedding, record.embedding || []);
+          const { embedding: _emb, ...cleanRecord } = record;
+          return {
+            ...cleanRecord,
+            score,
+          };
+        })
         .sort((a, b) => b.score - a.score)
         .slice(0, Number(input.limit || 10));
     }
 
-    return candidates.slice(0, Number(input.limit || 10));
+    return candidates
+      .slice(0, Number(input.limit || 10))
+      .map((record: any) => {
+        const { embedding: _emb, ...cleanRecord } = record;
+        return cleanRecord;
+      });
+  }
+
+  async deleteBySourceId(sourceId: string): Promise<number> {
+    const rawId = String(sourceId || '').trim();
+    if (!rawId) return 0;
+    const res = await this.model.deleteMany({
+      $or: [{ sourceId: rawId }, { artifactId: rawId }, { logicalId: rawId }],
+    }).exec();
+    return res.deletedCount;
   }
 
   private cosine(a: number[], b: number[]): number {

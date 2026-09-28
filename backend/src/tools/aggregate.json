@@ -8,6 +8,7 @@
       "label": "Items",
       "type": "valueOrVariable",
       "required": true,
+      "accepts": ["array", "object", "string", "any"],
       "helpText": "Array of item results or a foreach result object containing an items array."
     },
     {

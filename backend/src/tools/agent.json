@@ -19,8 +19,16 @@
         { "label": "GPT-4o Mini (Fast)", "value": "gpt-4o-mini" },
         { "label": "o1-mini (Reasoning)", "value": "o1-mini" },
         { "label": "Claude 3.5 Sonnet", "value": "claude-3-5-sonnet-20241022" },
-        { "label": "Local Ollama (Llama 3.2)", "value": "llama3.2" }
+        { "label": "Local Ollama (Llama 3.2)", "value": "llama3.2" },
+        { "label": "Qwen3.8 27B (LM Studio)", "value": "qwen3.8-27b" }
       ]
+    },
+    {
+      "name": "endpoint",
+      "label": "Endpoint URL (Optional)",
+      "type": "text",
+      "placeholder": "e.g. http://192.168.178.71:1234/v1/chat/completions or https://api.openai.com/v1",
+      "helpText": "Base URL (e.g. http://192.168.178.71:1234/v1) or full chat completions URL endpoint."
     },
     {
       "name": "customTemperature",
@@ -66,11 +74,49 @@
       ]
     },
     {
+      "name": "enableTools",
+      "label": "Enable Autonomous Tools",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "Allow the agent to autonomously call approved tools (search, read pages) to complete tasks."
+    },
+    {
+      "name": "allowedTools",
+      "label": "Allowed Tools",
+      "type": "valueOrVariable",
+      "multiselect": true,
+      "defaultValue": ["search_web", "read_url"],
+      "options": [
+        { "label": "Web Search (search_web)", "value": "search_web" },
+        { "label": "Read URL (read_url)", "value": "read_url" }
+      ],
+      "placeholder": "Choose allowed tools or bind variable...",
+      "helpText": "Select registered tools this agent is authorized to call autonomously.",
+      "dependsOn": {
+        "field": "enableTools",
+        "equals": true
+      }
+    },
+    {
+      "name": "maxSteps",
+      "label": "Max Tool Steps",
+      "type": "number",
+      "defaultValue": 5,
+      "placeholder": "5",
+      "helpText": "Maximum number of autonomous tool calling iterations before concluding (1-20).",
+      "dependsOn": {
+        "field": "enableTools",
+        "equals": true
+      }
+    },
+    {
       "name": "systemPrompt",
       "label": "System Prompt",
       "type": "textarea",
       "required": true,
-      "placeholder": "You are a helpful AI assistant in a LangGraph workflow..."
+      "canRevise": true,
+      "placeholder": "You are a helpful AI assistant in a LangGraph workflow...",
+      "helpText": "Base system persona and behavioral guidelines. Click 'Revise' to improve with Flow Helper LLM."
     },
     {
       "name": "userPrompt",
@@ -129,15 +175,42 @@
       "label": "Zod Output Schema",
       "type": "code",
       "language": "typescript",
+      "supportsAiGenerator": true,
       "placeholder": "z.object({\n  summary: z.string(),\n  findings: z.array(z.string()),\n  score: z.number()\n})",
-      "helpText": "Define schema using Zod or TypeScript. Properties are automatically exposed as downstream variables.",
+      "helpText": "Define schema using Zod or TypeScript, or use the 'Explain & Generate (AI)' tab to generate it with LLM. Properties are automatically exposed as downstream variables.",
       "dependsOn": {
         "field": "outputFormat",
         "equals": "json"
       }
+    },
+    {
+      "name": "researchOutput",
+      "label": "Validate Research Findings",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "Require the shared research findings schema. Invalid findings fail this Agent node with field-level errors."
+    },
+    {
+      "name": "evidenceLimit",
+      "label": "Maximum Evidence Characters",
+      "type": "number",
+      "defaultValue": 2000,
+      "dependsOn": { "field": "researchOutput", "equals": true }
+    },
+    {
+      "name": "cacheResult",
+      "label": "Cache Last Result",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "Store the latest execution result in the database cache. When running in Debug mode with 'Use Cache' enabled, this cached result will be reused instead of calling the LLM."
     }
   ],
   "outputs": [
+    {
+      "name": "done",
+      "label": "Done",
+      "type": "branch"
+    },
     {
       "name": "result",
       "label": "Agent Result",
@@ -153,6 +226,11 @@
       "name": "reasoning",
       "label": "Reasoning / Thinking Trace",
       "type": "string"
+    },
+    {
+      "name": "toolCalls",
+      "label": "Tool Calls Trace",
+      "type": "array"
     }
   ]
 }

@@ -30,7 +30,7 @@ export class LLMModel {
 
   @Prop({
     required: true,
-    enum: ['openai', 'anthropic', 'gemini', 'ollama', 'custom'],
+    enum: ['openai', 'anthropic', 'gemini', 'ollama', 'lmstudio', 'custom', 'openrouter'],
     default: 'openai',
   })
   provider: string;

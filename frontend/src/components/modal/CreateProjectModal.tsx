@@ -31,6 +31,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [repositoryPath, setRepositoryPath] = useState('');
+  const [allowedRepositoryRoots, setAllowedRepositoryRoots] = useState('');
   const [color, setColor] = useState('#4f46e5');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,10 +43,16 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       if (projectToEdit) {
         setName(projectToEdit.name || '');
         setDescription(projectToEdit.description || '');
+        setRepositoryPath(String(projectToEdit.metadata?.repositoryPath || ''));
+        setAllowedRepositoryRoots(Array.isArray(projectToEdit.metadata?.allowedRepositoryRoots)
+          ? projectToEdit.metadata.allowedRepositoryRoots.join('\n')
+          : '');
         setColor(projectToEdit.color || '#4f46e5');
       } else {
         setName('');
         setDescription('');
+        setRepositoryPath('');
+        setAllowedRepositoryRoots('');
         setColor('#4f46e5');
       }
       setError(null);
@@ -62,16 +70,35 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       setError('Project name is required');
       return;
     }
+    const repositoryRoots = allowedRepositoryRoots
+      .split(/\r?\n/)
+      .map((path) => path.trim())
+      .filter(Boolean);
+    if (repositoryRoots.some((path) => !path.startsWith('/'))) {
+      setError('Allowed repository roots must be absolute paths, one per line.');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
       setError(null);
+
+      const metadata: Record<string, any> = {
+        ...(projectToEdit?.metadata || {}),
+        repositoryPath: repositoryPath.trim(),
+      };
+      if (repositoryRoots.length > 0) {
+        metadata.allowedRepositoryRoots = repositoryRoots;
+      } else {
+        delete metadata.allowedRepositoryRoots;
+      }
 
       if (projectToEdit) {
         const updated = await updateProject(projectToEdit._id, {
           name: name.trim(),
           description: description.trim(),
           color,
+          metadata,
         });
         onProjectCreated(updated);
       } else {
@@ -79,6 +106,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           name: name.trim(),
           description: description.trim(),
           color,
+          metadata,
         });
         onProjectCreated(created);
       }
@@ -92,7 +120,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderPlus size={18} color="var(--accent-primary)" />
@@ -155,6 +183,41 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                 placeholder="Briefly describe what flows and agents belong to this project..."
                 style={{ resize: 'vertical' }}
               />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-repository-input">
+                Repository Path (Optional)
+              </label>
+              <input
+                id="project-repository-input"
+                type="text"
+                className="form-input"
+                value={repositoryPath}
+                onChange={(e) => setRepositoryPath(e.target.value)}
+                placeholder="/absolute/path/to/your/git/repository"
+              />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                Used by the Repository Inspector when planning features for this project.
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-allowed-repositories-input">
+                Allowed Repository Roots (Optional)
+              </label>
+              <textarea
+                id="project-allowed-repositories-input"
+                className="form-textarea"
+                rows={3}
+                value={allowedRepositoryRoots}
+                onChange={(e) => setAllowedRepositoryRoots(e.target.value)}
+                placeholder="/absolute/path/to/repository"
+                style={{ resize: 'vertical', fontFamily: 'monospace' }}
+              />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                One absolute folder path per line. Repository Path is always allowed; these add folders and their subfolders. Leave blank to allow only Repository Path.
+              </div>
             </div>
 
             <div className="form-group">

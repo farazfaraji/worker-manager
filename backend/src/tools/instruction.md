@@ -78,6 +78,16 @@ Each item in the `inputs` array defines a configurable field in `NodeConfigModal
 | `variable` | Upstream flow variable reference | `VariablePicker` with autocomplete (`parser.value`, etc.) |
 | `valueOrVariable` | Toggle between literal value or variable | Toggleable mode switcher between text and `VariablePicker` |
 
+### Prompt Revision (`canRevise`)
+
+Textarea inputs supporting AI prompt refinement declare `"canRevise": true` (e.g. `systemPrompt` in `agent.json`). This renders a **Revise** action button beside the field label which invokes the **Flow Helper LLM** configured in Settings (with customizable instructions and one-click presets) to structure, optimize, and improve the prompt.
+
+### Output Schema AI Synthesis (`supportsAiGenerator`)
+
+Code inputs defining schemas (e.g. `outputType` in `agent.json`) declare `"supportsAiGenerator": true`. This renders a two-tab interface in the configuration modal:
+1. **Schema Code**: Direct syntax-highlighted code editor for Zod / TypeScript schema definitions.
+2. **Explain & Generate (AI)**: Natural language generator tab where users explain their desired data structure in plain English, choose quick templates, and invoke the **Type Generator LLM** (configured in Settings) to synthesize production-ready Zod schemas automatically with `.strict()`, validations, and `.describe()` annotations.
+
 ### Conditional Visibility (`dependsOn`)
 
 Fields dynamically appear or disappear based on the value of another input field:

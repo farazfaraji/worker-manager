@@ -39,7 +39,7 @@ export const VariablePicker: React.FC<VariablePickerProps> = ({
     const matchesSearch =
       v.path.toLowerCase().includes(search.toLowerCase()) ||
       v.label.toLowerCase().includes(search.toLowerCase()) ||
-      v.sourceNodeName.toLowerCase().includes(search.toLowerCase());
+      (v.sourceNodeName || '').toLowerCase().includes(search.toLowerCase());
 
     if (!matchesSearch) return false;
 

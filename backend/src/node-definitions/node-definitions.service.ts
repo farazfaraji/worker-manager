@@ -89,6 +89,7 @@ export class NodeDefinitionsService {
         return 'App';
       case 'condition':
       case 'validator':
+      case 'research-review':
         return 'Logic';
       case 'memory':
       case 'retrieval':
@@ -96,16 +97,22 @@ export class NodeDefinitionsService {
       case 'artifact':
         return 'Artifact';
       case 'execution':
+      case 'repo-inspect':
         return 'Execution';
       case 'action':
+      case 'web-search':
+      case 'websearch':
+      case 'web_search':
       case 'webserver':
       case 'http-response':
       case 'httpresponse':
+      case 'telegram':
         return 'Integration';
       case 'orchestrator':
       case 'delegator':
       case 'human-gate':
       case 'router':
+      case 'output':
       case 'loop':
       case 'foreach':
       case 'aggregate':

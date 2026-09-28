@@ -8,6 +8,9 @@ import { Increment } from '../../functions/increment';
 import { Decrement } from '../../functions/decrement';
 import { BlockRuntimeService } from '../../blocks/block-runtime.service';
 import { WebserverService } from '../../webserver/webserver.service';
+import { WebSearchRunnerService } from './web-search-runner.service';
+import { reviewResearch } from '../../research/research-review';
+import { RepoInspectorService } from './repo-inspector.service';
 
 @Injectable()
 export class NodeExecutorService {
@@ -19,8 +22,12 @@ export class NodeExecutorService {
     private readonly agentRunner: AgentRunnerService,
     private readonly blockRuntime: BlockRuntimeService,
     @Optional()
+    private readonly webSearchRunner?: WebSearchRunnerService,
+    @Optional()
     @Inject(forwardRef(() => WebserverService))
     private readonly webserverService?: WebserverService,
+    @Optional()
+    private readonly repoInspector?: RepoInspectorService,
   ) {}
 
   async executeNode(
@@ -38,6 +45,20 @@ export class NodeExecutorService {
     // 1. TRIGGER
     if (type === 'trigger') {
       this.logger.log(`   ⚡ [Trigger Execution] Emitting initial flow input payload`);
+
+      // Human-Input trigger: expose user's answer only under the configured key
+      if (config.triggerType === 'human-input') {
+        const inputKey = String(config.inputKey || 'userInput');
+        const raw = initialInput || {};
+        // Resolve the answer from the incoming payload (frontend sends { [inputKey]: value })
+        const answer =
+          typeof raw === 'string'
+            ? raw
+            : (raw[inputKey] ?? raw['userInput'] ?? raw['input'] ?? '');
+        this.logger.log(`   ✍️ [Human-Input Trigger] key="${inputKey}", answer length=${String(answer).length}`);
+        return { [inputKey]: answer };
+      }
+
       if (initialInput && typeof initialInput === 'object' && (initialInput.topic || initialInput.entityName || initialInput.eventId || initialInput.id?.startsWith('evt_'))) {
         return {
           event: initialInput,
@@ -50,6 +71,7 @@ export class NodeExecutorService {
       }
       return initialInput;
     }
+
 
     // 1b. ROUTE
     if (type === 'route') {
@@ -120,7 +142,13 @@ export class NodeExecutorService {
       this.logger.log(`   ➕ [Increment Variable] Resolved Target: ${JSON.stringify(targetVal)} | Amount: ${JSON.stringify(amountVal)}`);
       const incrementFn = new Increment();
       const result = incrementFn.execute({ value: targetVal, amount: amountVal });
-      if (typeof config.variable === 'string' && this.variableResolver.looksLikeReference(config.variable.trim())) {
+      if (
+        typeof config.variable === 'string' &&
+        (this.variableResolver.looksLikeReference(config.variable.trim()) ||
+          this.variableResolver.looksLikeWholeNodeReference(config.variable.trim(), context) ||
+          config.variable.trim() in context ||
+          (context.state && config.variable.trim() in context.state))
+      ) {
         this.variableResolver.assignReference(config.variable.trim(), result.value, context);
       }
       return result;
@@ -139,7 +167,13 @@ export class NodeExecutorService {
       this.logger.log(`   ➖ [Decrement Variable] Resolved Target: ${JSON.stringify(targetVal)} | Amount: ${JSON.stringify(amountVal)}`);
       const decrementFn = new Decrement();
       const result = decrementFn.execute({ value: targetVal, amount: amountVal });
-      if (typeof config.variable === 'string' && this.variableResolver.looksLikeReference(config.variable.trim())) {
+      if (
+        typeof config.variable === 'string' &&
+        (this.variableResolver.looksLikeReference(config.variable.trim()) ||
+          this.variableResolver.looksLikeWholeNodeReference(config.variable.trim(), context) ||
+          config.variable.trim() in context ||
+          (context.state && config.variable.trim() in context.state))
+      ) {
         this.variableResolver.assignReference(config.variable.trim(), result.value, context);
       }
       return result;
@@ -147,22 +181,175 @@ export class NodeExecutorService {
 
     // 4. VARIABLE / SET-VARIABLE
     if (type === 'variable' || type === 'set-variable') {
-      const key = config.key || 'value';
-      const resolvedVal = this.variableResolver.resolveValue(config.value, context);
-      this.logger.log(`   📌 [Variable Node] Storing key: "${key}" = ${JSON.stringify(resolvedVal)}`);
+      const rawKey = config.key !== undefined && config.key !== null ? String(config.key).trim() : 'value';
+      const key = this.variableResolver.resolveTemplate(rawKey, context);
+      const operation = String(config.operation || 'set').toLowerCase();
+
+      context.state = context.state || {};
+
+      if (operation === 'delete') {
+        delete context.state[key];
+        delete context[key];
+        this.logger.log(`   🗑️ [Set Variable] Deleted variable key: "${key}" from state`);
+        return {
+          [key]: null,
+          key,
+          value: null,
+          deleted: true,
+        };
+      }
+
+      const valueType = String(config.valueType || 'string').toLowerCase();
+      let resolvedVal: any;
+
+      if (valueType === 'number') {
+        const rawNum = config.numberValue !== undefined ? config.numberValue : config.value;
+        const resolvedNum = this.variableResolver.resolveValue(rawNum, context);
+        const parsed = Number(resolvedNum);
+        resolvedVal = isNaN(parsed) ? resolvedNum : parsed;
+      } else if (valueType === 'boolean') {
+        const rawBool = config.booleanValue !== undefined ? config.booleanValue : config.value;
+        resolvedVal = rawBool === true || rawBool === 'true' || rawBool === 1 || rawBool === '1';
+      } else if (valueType === 'json') {
+        const rawJson = config.jsonValue !== undefined ? config.jsonValue : config.value;
+        if (typeof rawJson === 'string') {
+          const templated = this.variableResolver.resolveTemplate(rawJson, context);
+          try {
+            resolvedVal = JSON.parse(templated);
+          } catch (jsonErr: any) {
+            this.logger.warn(`   ⚠️ [Set Variable] JSON parse failed for key "${key}": ${jsonErr.message}. Storing as resolved string.`);
+            resolvedVal = templated;
+          }
+        } else {
+          resolvedVal = this.variableResolver.resolveValue(rawJson, context);
+        }
+      } else if (valueType === 'variable') {
+        const rawVar = config.variableValue !== undefined ? config.variableValue : (config.variable || config.value);
+        resolvedVal = this.variableResolver.resolveValue(rawVar, context);
+      } else {
+        // Default: string
+        const rawStr = config.stringValue !== undefined ? config.stringValue : config.value;
+        resolvedVal = this.variableResolver.resolveValue(rawStr, context);
+      }
+
+      // Handle operations: set, merge, append
+      const existing = context.state[key] !== undefined ? context.state[key] : context[key];
+      let finalVal = resolvedVal;
+
+      if (operation === 'merge') {
+        const baseObj = typeof existing === 'object' && existing !== null && !Array.isArray(existing) ? existing : {};
+        const newObj = typeof resolvedVal === 'object' && resolvedVal !== null && !Array.isArray(resolvedVal) ? resolvedVal : { value: resolvedVal };
+        finalVal = { ...baseObj, ...newObj };
+      } else if (operation === 'append') {
+        const baseArr = Array.isArray(existing) ? existing : existing !== undefined && existing !== null ? [existing] : [];
+        finalVal = [...baseArr, resolvedVal];
+      }
+
+      // Persist in state and context
+      context.state[key] = finalVal;
+      context[key] = finalVal;
+
+      if (key.includes('.')) {
+        this.variableResolver.assignReference(key, finalVal, context);
+      }
+
+      this.logger.log(`   📌 [Set Variable] Key: "${key}" (${valueType}, ${operation}) = ${JSON.stringify(finalVal)}`);
       return {
-        [key]: resolvedVal,
-        value: { [key]: resolvedVal },
+        [key]: finalVal,
+        key,
+        value: finalVal,
       };
     }
 
     // 5. AGENT RUNTIME
     if (type === 'agent') {
-      return this.agentRunner.executeAgentNode(node, nodeInput, context);
+      return this.agentRunner.executeAgentNode(node, nodeInput, context, runId);
     }
 
-    if (['action', 'memory', 'retrieval', 'artifact', 'embedding', 'router', 'human-gate', 'humangate', 'orchestrator', 'delegator', 'loop', 'aggregate', 'execution', 'notification'].includes(type)) {
-      const genericInput = type === 'human-gate' || type === 'humangate'
+    if (type === 'repo-inspect') {
+      if (!this.repoInspector) throw new BadRequestException('Repository Inspector is unavailable');
+      const resolvedProjectId =
+        nodeInput.projectId ??
+        config.projectId ??
+        context?.projectId ??
+        context?.state?.projectId;
+      return {
+        result: await this.repoInspector.inspect({
+          provider: nodeInput.provider ?? config.provider,
+          repositoryPath: nodeInput.repositoryPath ?? config.repositoryPath,
+          model: nodeInput.model ?? config.model,
+          timeoutMs: nodeInput.timeoutMs ?? config.timeoutMs,
+          ...nodeInput,
+          prompt: nodeInput.prompt ?? config.prompt,
+          projectId: resolvedProjectId,
+        }),
+      };
+    }
+
+    if (type === 'research-review') {
+      const value = (field: string) => this.variableResolver.resolveValue(config[field], context);
+      const suppliedFindings = value('findings');
+      const findings = Array.isArray(suppliedFindings) ? suppliedFindings : suppliedFindings?.findings;
+      const sourceChecks: any[] = [];
+      const weakSources: any[] = [];
+      if (value('verifySources') !== false && value('verifySources') !== 'false') {
+        const uniqueSources = new Set<string>();
+        for (const finding of Array.isArray(findings) ? findings : []) {
+          for (const source of Array.isArray(finding?.sources) ? finding.sources : []) {
+            if (source?.url) uniqueSources.add(source.url);
+          }
+        }
+        const maxSources = Math.min(30, Math.max(1, Number(value('maxSources') || 20)));
+        const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
+        const fetched = new Map<string, { text: string; reason?: string }>();
+        const urls = [...uniqueSources].slice(0, maxSources);
+        for (let index = 0; index < urls.length; index += 4) {
+          await Promise.all(urls.slice(index, index + 4).map(async (url) => {
+            try {
+              const parsed = new URL(url);
+              if (!['http:', 'https:'].includes(parsed.protocol) || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|::1$)/i.test(parsed.hostname)) {
+                throw new Error('Source URL is not a public HTTP(S) address');
+              }
+              const page = await this.webSearchRunner.executeWebSearchNode({ id: 'source-check', data: { config: { mode: 'read_article', url, maxContentLength: 50000 } } }, {}, context, runId);
+              if (page.status < 200 || page.status >= 400) throw new Error(`Source returned HTTP ${page.status}`);
+              fetched.set(url, { text: normalize(String(page.text || '')) });
+            } catch (error: any) {
+              fetched.set(url, { text: '', reason: String(error?.message || error).slice(0, 250) });
+            }
+          }));
+        }
+        for (const finding of Array.isArray(findings) ? findings : []) {
+          for (const source of Array.isArray(finding?.sources) ? finding.sources : []) {
+            const page = fetched.get(source.url);
+            const evidence = normalize(String(source.evidence || ''));
+            const verified = !!page?.text && !!evidence && page.text.includes(evidence);
+            const reason = page?.reason || (page ? (verified ? 'Evidence found on source page' : 'Evidence could not be matched to fetched page text') : 'Source verification limit reached');
+            sourceChecks.push({ findingId: finding.id, sourceUrl: source.url, verified, reason });
+            if (!verified && source.role === 'supports') weakSources.push({ findingId: finding.id, sourceUrl: source.url, reason });
+          }
+        }
+      }
+      const suppliedAssessment = value('assessment') || {};
+      const assessment = { ...suppliedAssessment, weakSources: [...(suppliedAssessment.weakSources || []), ...weakSources] };
+      const cycles = context.__researchReviewCycles || {};
+      const configuredCycle = value('reviewCycle');
+      const reviewCycle = Math.max(Number(configuredCycle ?? 1), Number(cycles[node.id] || 0) + 1);
+      const review = reviewResearch({
+        findings: suppliedFindings,
+        questions: value('questions'),
+        assessment,
+        reviewCycle,
+        maxReviewCycles: value('maxReviewCycles') === undefined ? undefined : Number(value('maxReviewCycles')),
+        evidenceLimit: value('evidenceLimit') === undefined ? undefined : Number(value('evidenceLimit')),
+      });
+      context.__researchReviewCycles = { ...cycles, [node.id]: reviewCycle };
+      const researchResult = { ...review, findings: Array.isArray(findings) ? findings : [], questions: value('questions'), sourceChecks };
+      return { ...researchResult, result: researchResult };
+    }
+
+    if (['action', 'memory', 'retrieval', 'artifact', 'embedding', 'router', 'human-gate', 'humangate', 'telegram', 'orchestrator', 'delegator', 'loop', 'aggregate', 'execution', 'notification'].includes(type)) {
+      const isGateOrTelegram = type === 'human-gate' || type === 'humangate' || type === 'telegram';
+      const genericInput = isGateOrTelegram
         ? { ...config, ...nodeInput, ...(context.__resumeDecision || {}) }
         : { ...config, ...nodeInput };
       return this.blockRuntime.execute(type, { input: genericInput, context, config: genericInput, runId }, node);
@@ -260,8 +447,24 @@ export class NodeExecutorService {
       return this.browserRunner.executeBrowserNode(node, nodeInput, context, runId);
     }
 
+    // 12. WEB SEARCH / SCRAPER
+    if (type === 'web-search' || type === 'websearch' || type === 'web_search') {
+      return this.webSearchRunner.executeWebSearchNode(node, nodeInput, context, runId);
+    }
+
     if (type === 'subgraph') {
       throw new BadRequestException('Subgraph nodes must be executed through GraphRunnerService');
+    }
+
+    // 16. OUTPUT (Loop branch return / Flow output)
+    if (type === 'output') {
+      const val = nodeInput?.value !== undefined ? nodeInput.value : config.value;
+      const keyName = String(nodeInput?.name || config.name || '').trim();
+      const outputVal = this.variableResolver.resolveValue(val, context);
+      if (keyName) {
+        return { [keyName]: outputVal, value: outputVal, result: outputVal };
+      }
+      return { value: outputVal, result: outputVal };
     }
 
     this.logger.error(`   ❌ Unsupported node type: "${type}"`);

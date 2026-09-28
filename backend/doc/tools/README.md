@@ -8,31 +8,35 @@ Welcome to the comprehensive documentation index for all node and tool blocks in
 
 | Category | Tool | Description | Documentation Guide |
 | :--- | :--- | :--- | :--- |
-| **Workspace** | `project` / `board` | Two-tier hierarchy (Project -> Flow), database schemas, endpoints, and flow creation. | [Project & Board Creation Guide](backend/src/tools/doc/tools/board/new-board.md) |
-| **Canvas** | `board` | Visual React Flow workspace, node wiring, real-time runtime status, and controls. | [Board Guide](backend/src/tools/doc/tools/board.md) |
-| **Flow** | `trigger` | Flow entrypoint supporting manual, domain event listener, webhook, or scheduled triggers. | [Trigger Guide](backend/src/tools/doc/trigger.md) |
-| **Flow** | `subgraph` | Embeds a saved graph as a reusable sub-flow with input parameter mapping. | [Subgraph Guide](backend/src/tools/doc/subgraph.md) |
-| **Agent** | `agent` | LLM reasoning engine with prompt templating, media attachments (vision/audio/doc), and Zod JSON output. | [Agent Guide](backend/src/tools/doc/agent.md) |
-| **App** | `browser` | Playwright browser automation, element interaction, scraping, standalone HTML extraction, and screenshots. | [Browser Guide](backend/src/tools/doc/browser.md) |
-| **Logic** | `condition` | Branching decision node routing along `true` or `false` handles via comparison or JavaScript expression. | [Condition Guide](backend/src/tools/doc/condition.md) |
-| **Logic** | `validator` | Validates payloads against Zod schemas and routes along `true`/`false` handles or halts on error. | [Validator Guide](backend/src/tools/doc/validator.md) |
-| **Function** | `script` | Executes custom JavaScript functions with full `async/await` and global context injection. | [Script Guide](backend/src/tools/doc/script.md) |
-| **Function** | `transform` | Reshapes in-memory data objects via lightweight JavaScript mapping expressions. | [Transform Guide](backend/src/tools/doc/transform.md) |
-| **Function** | `json-parser` | Parses and validates JSON from local files, remote URLs, or upstream Agent responses. | [JSON Parser Guide](backend/src/tools/doc/json-parser.md) |
-| **Function** | `set-variable` / `increment` / `decrement` | State persistence, loop counters, and in-place variable mutation across the graph. | [Variable Guide](backend/src/tools/doc/variable.md) |
-| **Data / Artifact** | `artifact` | Durable document persistence, versioning, diffing, and type-safe domain event emission. | [Artifact Guide](backend/src/tools/doc/artifact.md) |
-| **Knowledge** | `memory` | Scoped project and conversation memory store with lexical relevance ranking (remember, recall, forget). | [Memory Guide](backend/src/tools/doc/memory.md) |
-| **Knowledge** | `retrieval` | Semantic vector search and document indexing using cosine similarity and metadata filters. | [Retrieval Guide](backend/src/tools/doc/retrieval.md) |
-| **Knowledge** | `embedding` | Text-to-vector embeddings generation via OpenAI-compatible endpoints. | [Embedding Guide](backend/src/tools/doc/embedding.md) |
-| **Execution** | `execution` | Sandboxed child process command execution under strict security allowlists. | [Execution Guide](backend/src/tools/doc/execution.md) |
-| **Integration** | `action` | External REST API requests, webhooks, and delegated browser operations with host allowlisting. | [Action Guide](backend/src/tools/doc/action.md) |
-| **Control** | `orchestrator` | Multi-agent delegation coordinating sub-agent panels under parallel or sequential strategies. | [Orchestrator Guide](backend/src/tools/doc/orchestrator.md) |
-| **Control** | `human-gate` | Human-in-the-loop approval, review, and feedback pause/resumption gates. | [Human Gate Guide](backend/src/tools/doc/human-gate.md) |
-| **Control** | `router` | Declarative value-based routing and multi-way intent switching. | [Router Guide](backend/src/tools/doc/router.md) |
-| **Control** | `loop` | Bounded collection iteration, array mapping, and batching with safety ceilings. | [Loop Guide](backend/src/tools/doc/loop.md) |
-| **Control** | `foreach` | Executes a saved child graph per item with bounded concurrency (1–10) and parent run tracking. | [Foreach Guide](backend/src/tools/doc/foreach.md) |
-| **Control** | `aggregate` | Normalizes, filters, and summarizes collection or foreach execution outputs. | [Aggregate Guide](backend/src/tools/doc/aggregate.md) |
-| **Control** | `notification` | Alerts and webhooks dispatch to Slack, Discord, email, or internal channels. | [Notification Guide](backend/src/tools/doc/notification.md) |
+| **Workspace** | `project` / `board` | Two-tier hierarchy (Project -> Flow), database schemas, endpoints, and flow creation. | [Project & Board Creation Guide](backend/doc/board/new-board.md) |
+| **Canvas** | `board` | Visual React Flow workspace, node wiring, real-time runtime status, and controls. | [Board Guide](backend/doc/board/board.md) |
+| **Flow** | `trigger` | Flow entrypoint supporting manual, domain event listener, webhook, or scheduled triggers. | [Trigger Guide](backend/doc/tools/trigger.md) |
+| **Flow** | `subgraph` | Embeds a saved graph as a reusable sub-flow with input parameter mapping. | [Subgraph Guide](backend/doc/tools/subgraph.md) |
+| **Agent** | `agent` | LLM reasoning engine with prompt templating, media attachments (vision/audio/doc), and Zod JSON output. | [Agent Guide](backend/doc/tools/agent.md) |
+| **App** | `browser` | Playwright browser automation, element interaction, scraping, standalone HTML extraction, and screenshots. | [Browser Guide](backend/doc/tools/browser.md) |
+| **Execution** | `repo-inspect` | Read-only Codex or Cursor CLI inspection of a project's configured Git repository. | [Repository Inspector Guide](backend/doc/tools/repo-inspect.md) |
+| **Logic** | `condition` | Branching decision node routing along `true` or `false` handles via comparison or JavaScript expression. | [Condition Guide](backend/doc/tools/condition.md) |
+| **Logic** | `validator` | Validates payloads against Zod schemas and routes along `true`/`false` handles or halts on error. | [Validator Guide](backend/doc/tools/validator.md) |
+| **Function** | `script` | Executes custom JavaScript functions with full `async/await` and global context injection. | [Script Guide](backend/doc/tools/script.md) |
+| **Function** | `transform` | Reshapes in-memory data objects via lightweight JavaScript mapping expressions. | [Transform Guide](backend/doc/tools/transform.md) |
+| **Function** | `json-parser` | Parses and validates JSON from local files, remote URLs, or upstream Agent responses. | [JSON Parser Guide](backend/doc/tools/json-parser.md) |
+| **Function** | `set-variable` / `increment` / `decrement` | State persistence, loop counters, and in-place variable mutation across the graph. | [Variable Guide](backend/doc/tools/variable.md) |
+| **Data / Artifact** | `artifact` | Durable document persistence, versioning, diffing, and type-safe domain event emission. | [Artifact Guide](backend/doc/tools/artifact.md) |
+| **Knowledge** | `memory` | Scoped project and conversation memory store with lexical relevance ranking (remember, recall, forget). | [Memory Guide](backend/doc/tools/memory.md) |
+| **Knowledge** | `retrieval` | Semantic vector search and document indexing using cosine similarity and metadata filters. | [Retrieval Guide](backend/doc/tools/retrieval.md) |
+| **Knowledge** | `embedding` | Text-to-vector embeddings generation via OpenAI-compatible endpoints. | [Embedding Guide](backend/doc/tools/embedding.md) |
+| **Execution** | `execution` | Sandboxed child process command execution under strict security allowlists. | [Execution Guide](backend/doc/tools/execution.md) |
+| **Integration** | `action` | External REST API requests, webhooks, and delegated browser operations with host allowlisting. | [Action Guide](backend/doc/tools/action.md) |
+| **Integration** | `web-search` | Query-based web search via Tavily, web content scraping, HTML sanitization, and article reading. | [Web Search Guide](backend/doc/tools/web-search.md) |
+| **Control** | `orchestrator` | Multi-agent delegation coordinating sub-agent panels under parallel or sequential strategies. | [Orchestrator Guide](backend/doc/tools/orchestrator.md) |
+| **Logic** | `research-review` | Validate research findings, question coverage, and evidence on source pages. | [Research Review Guide](backend/doc/tools/research-review.md) |
+| **Control** | `human-gate` | Human-in-the-loop approval, review, and feedback pause/resumption gates. | [Human Gate Guide](backend/doc/tools/human-gate.md) |
+| **Control** | `router` | Declarative value-based routing and multi-way intent switching. | [Router Guide](backend/doc/tools/router.md) |
+| **Control** | `loop` | Bounded collection iteration and multi-round research with child graph recovery. | [Loop Guide](backend/doc/tools/loop.md) |
+| **Control** | `foreach` | Executes an in-canvas branch or child graph per item with sync/async modes and bounded concurrency (1–10). | [Foreach Guide](backend/doc/tools/foreach.md) |
+| **Control** | `output` | Defines the return boundary and payload for an in-canvas loop iteration branch. | [Output Guide](backend/doc/tools/output.md) |
+| **Control** | `aggregate` | Normalizes, filters, and summarizes collection or foreach execution outputs. | [Aggregate Guide](backend/doc/tools/aggregate.md) |
+| **Control** | `notification` | Alerts and webhooks dispatch to Slack, Discord, email, or internal channels. | [Notification Guide](backend/doc/tools/notification.md) |
 
 ---
 

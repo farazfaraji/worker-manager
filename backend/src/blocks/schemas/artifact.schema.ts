@@ -12,7 +12,7 @@ export class Artifact {
   @Prop({ index: true }) contentHash: string;
   @Prop({ required: true, default: 1 }) schemaVersion: number;
 
-  @Prop({ required: true, index: true }) projectId: string;
+  @Prop({ required: true, default: 'default', index: true }) projectId: string;
   @Prop({ required: true, index: true }) type: string;
   @Prop({ default: 'markdown', index: true }) format?: string;
   @Prop({ required: true }) title: string;

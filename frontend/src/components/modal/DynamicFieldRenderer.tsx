@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { ToolInput, VariableItem } from '@/lib/types';
 import { VariablePicker } from './VariablePicker';
 import { CodeEditor } from './CodeEditor';
-import { Code, AlignLeft, Sliders, ToggleLeft, ToggleRight, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { RevisePromptModal } from './RevisePromptModal';
+import { SchemaAiGenerator } from './SchemaAiGenerator';
+import { Code, Code2, AlignLeft, Sliders, ToggleLeft, ToggleRight, Check, AlertCircle, Sparkles, Wand2, Variable } from 'lucide-react';
 
 interface DynamicFieldRendererProps {
   input: ToolInput;
@@ -22,6 +24,45 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
   availableVariables,
 }) => {
   const [dynamicOptions, setDynamicOptions] = useState<{ label: string; value: any }[]>([]);
+  const [isReviseModalOpen, setIsReviseModalOpen] = useState(false);
+  const [schemaTab, setSchemaTab] = useState<'code' | 'ai'>('code');
+  const [isVarDropdownOpen, setIsVarDropdownOpen] = useState(false);
+  const [varSearch, setVarSearch] = useState('');
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const varDropdownRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isVarDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (varDropdownRef.current && !varDropdownRef.current.contains(e.target as HTMLElement)) {
+        setIsVarDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isVarDropdownOpen]);
+
+  const handleInsertVariable = (varPath: string) => {
+    const textToInsert = `{{${varPath}}}`;
+    const textarea = textareaRef.current;
+    const currentVal = typeof effectiveValue === 'string' ? effectiveValue : String(effectiveValue || '');
+    if (textarea) {
+      const start = textarea.selectionStart ?? currentVal.length;
+      const end = textarea.selectionEnd ?? currentVal.length;
+      const nextVal = currentVal.substring(0, start) + textToInsert + currentVal.substring(end);
+      onChange(nextVal);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + textToInsert.length;
+        }
+      }, 0);
+    } else {
+      onChange(currentVal ? `${currentVal} ${textToInsert}` : textToInsert);
+    }
+    setIsVarDropdownOpen(false);
+    setVarSearch('');
+  };
 
   // Parse value and mode for valueOrVariable
   const parseValueOrVariable = () => {
@@ -125,8 +166,9 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
       case 'textarea':
         return (
           <textarea
+            ref={textareaRef}
             className="form-input"
-            rows={4}
+            rows={input.rows || 4}
             value={effectiveValue}
             onChange={(e) => onChange(e.target.value)}
             placeholder={input.placeholder}
@@ -270,7 +312,8 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
           onChange(raw);
           try {
             if (raw.trim()) {
-              JSON.parse(raw);
+              const testStr = raw.replace(/{{\s*([^{}]+?)\s*}}/g, '"__var__"');
+              JSON.parse(testStr);
               setJsonError(null);
             } else {
               setJsonError(null);
@@ -343,19 +386,113 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
           />
         );
 
-      case 'code':
-        return (
-          <CodeEditor
-            value={typeof effectiveValue === 'string' ? effectiveValue : String(effectiveValue || '')}
-            onChange={(val) => onChange(val)}
-            language={input.language || 'typescript'}
-            isFunctionWrapper={false}
-            placeholder={input.placeholder}
-            defaultValue={input.defaultValue}
-            required={input.required}
-            minHeight={input.language === 'javascript' ? 120 : 90}
-          />
+      case 'code': {
+        const hasAiSchemaGenerator = Boolean(
+          input.supportsAiGenerator ||
+          input.name === 'outputType' ||
+          input.name.toLowerCase().includes('schema')
         );
+
+        if (!hasAiSchemaGenerator) {
+          return (
+            <CodeEditor
+              value={typeof effectiveValue === 'string' ? effectiveValue : String(effectiveValue || '')}
+              onChange={(val) => onChange(val)}
+              language={input.language || 'typescript'}
+              isFunctionWrapper={false}
+              placeholder={input.placeholder}
+              defaultValue={input.defaultValue}
+              required={input.required}
+              minHeight={input.language === 'javascript' ? 120 : 90}
+            />
+          );
+        }
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Tabs Header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                backgroundColor: '#f1f5f9',
+                padding: '3px',
+                borderRadius: 8,
+                width: 'fit-content',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSchemaTab('code')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  backgroundColor: schemaTab === 'code' ? '#ffffff' : 'transparent',
+                  color: schemaTab === 'code' ? '#1e293b' : '#64748b',
+                  boxShadow: schemaTab === 'code' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Code2 size={13} color={schemaTab === 'code' ? 'var(--accent-primary)' : '#64748b'} />
+                Schema Code
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSchemaTab('ai')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  backgroundColor: schemaTab === 'ai' ? '#ffffff' : 'transparent',
+                  color: schemaTab === 'ai' ? '#4f46e5' : '#64748b',
+                  boxShadow: schemaTab === 'ai' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Sparkles size={13} color={schemaTab === 'ai' ? '#6366f1' : '#64748b'} />
+                Explain & Generate (AI)
+              </button>
+            </div>
+
+            {/* Tab 1: Code Editor */}
+            {schemaTab === 'code' ? (
+              <CodeEditor
+                value={typeof effectiveValue === 'string' ? effectiveValue : String(effectiveValue || '')}
+                onChange={(val) => onChange(val)}
+                language={input.language || 'typescript'}
+                isFunctionWrapper={false}
+                placeholder={input.placeholder}
+                defaultValue={input.defaultValue}
+                required={input.required}
+                minHeight={input.language === 'javascript' ? 120 : 90}
+              />
+            ) : (
+              /* Tab 2: Explain & Generate (AI) */
+              <SchemaAiGenerator
+                currentSchema={typeof effectiveValue === 'string' ? effectiveValue : String(effectiveValue || '')}
+                onApply={(val) => onChange(val)}
+                onSwitchToCodeTab={() => setSchemaTab('code')}
+                placeholder={input.placeholder}
+              />
+            )}
+          </div>
+        );
+      }
 
       case 'variable': {
         const currentVarStr =
@@ -469,7 +606,8 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
                   {selectedItems.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {selectedItems.map((itemId) => {
-                        const matchedOpt = dynamicOptions.find((o) => String(o.value) === String(itemId));
+                        const allOpts = dynamicOptions.length > 0 ? dynamicOptions : (input.options || []);
+                        const matchedOpt = allOpts.find((o) => String(o.value) === String(itemId));
                         const label = matchedOpt ? matchedOpt.label : itemId;
                         return (
                           <span
@@ -500,7 +638,7 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
                                 fontSize: 14,
                                 lineHeight: 1,
                               }}
-                              title="Remove relation"
+                              title="Remove item"
                             >
                               ×
                             </button>
@@ -510,26 +648,30 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
                     </div>
                   )}
 
-                  {/* Dropdown to pick from existing artifacts */}
-                  {dynamicOptions.length > 0 && (
-                    <select
-                      className="form-input"
-                      style={{ fontSize: 12 }}
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAddMultiItem(e.target.value);
-                        }
-                      }}
-                    >
-                      <option value="">-- Add artifact from existing ({dynamicOptions.length} available) --</option>
-                      {dynamicOptions.map((opt, i) => (
-                        <option key={i} value={opt.value} disabled={selectedItems.includes(String(opt.value))}>
-                          {selectedItems.includes(String(opt.value)) ? `✓ ${opt.label}` : opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {/* Dropdown to pick from options */}
+                  {(() => {
+                    const multiOpts = dynamicOptions.length > 0 ? dynamicOptions : (input.options || []);
+                    if (multiOpts.length === 0) return null;
+                    return (
+                      <select
+                        className="form-input"
+                        style={{ fontSize: 12 }}
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleAddMultiItem(e.target.value);
+                          }
+                        }}
+                      >
+                        <option value="">-- Add {input.label || 'option'} ({multiOpts.length} available) --</option>
+                        {multiOpts.map((opt, i) => (
+                          <option key={i} value={opt.value} disabled={selectedItems.includes(String(opt.value))}>
+                            {selectedItems.includes(String(opt.value)) ? `✓ ${opt.label}` : opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()}
 
                   {/* Manual custom ID input */}
                   <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
@@ -582,25 +724,29 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
                 />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {dynamicOptions.length > 0 && (
-                    <select
-                      className="form-input"
-                      style={{ fontSize: 12, color: 'var(--text-secondary)' }}
-                      value={dynamicOptions.some((opt) => opt.value === valStr) ? valStr : ''}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleTextChange(e.target.value);
-                        }
-                      }}
-                    >
-                      <option value="">-- Choose from existing ({dynamicOptions.length} available) --</option>
-                      {dynamicOptions.map((opt, i) => (
-                        <option key={i} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {(() => {
+                    const optionsList = dynamicOptions.length > 0 ? dynamicOptions : (input.options || []);
+                    if (optionsList.length === 0) return null;
+                    return (
+                      <select
+                        className="form-input"
+                        style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+                        value={optionsList.some((opt) => String(opt.value) === String(valStr)) ? valStr : ''}
+                        onChange={(e) => {
+                          if (e.target.value !== undefined) {
+                            handleTextChange(e.target.value);
+                          }
+                        }}
+                      >
+                        <option value="">-- Choose from existing ({optionsList.length} available) --</option>
+                        {optionsList.map((opt, i) => (
+                          <option key={i} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()}
 
                   <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
                     <input
@@ -747,13 +893,154 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
     }
   };
 
+  const canRevise = Boolean(
+    input.canRevise ||
+    input.name === 'systemPrompt' ||
+    (input.type === 'textarea' && input.name.toLowerCase().includes('prompt'))
+  );
+
   return (
     <div className="form-group" style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <label className="form-label">
-          {input.label}
-          {input.required && <span style={{ color: 'var(--danger)', marginLeft: 3 }}>*</span>}
-        </label>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label className="form-label" style={{ marginBottom: 0 }}>
+            {input.label}
+            {input.required && <span style={{ color: 'var(--danger)', marginLeft: 3 }}>*</span>}
+          </label>
+          {canRevise && (
+            <button
+              type="button"
+              onClick={() => setIsReviseModalOpen(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 8px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                borderRadius: 5,
+                background: 'rgba(99, 102, 241, 0.08)',
+                color: '#4f46e5',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              title="Revise prompt with Flow Helper LLM"
+            >
+              <Sparkles size={11} color="#6366f1" />
+              Revise
+            </button>
+          )}
+          {input.type === 'textarea' && availableVariables && availableVariables.length > 0 && (
+            <div style={{ position: 'relative' }} ref={varDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsVarDropdownOpen((prev) => !prev)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  borderRadius: 5,
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  color: '#2563eb',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                title="Insert variable like {{variable}}"
+              >
+                <Variable size={11} color="#2563eb" />
+                Insert Variable
+              </button>
+              {isVarDropdownOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: 4,
+                    width: 280,
+                    maxHeight: 250,
+                    overflowY: 'auto',
+                    background: 'var(--bg-card, #ffffff)',
+                    border: '1px solid var(--border-default, #e2e8f0)',
+                    borderRadius: 6,
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
+                    zIndex: 1000,
+                    padding: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Search variables..."
+                    value={varSearch}
+                    onChange={(e) => setVarSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: 12,
+                      border: '1px solid var(--border-default)',
+                      borderRadius: 4,
+                      background: 'var(--bg-subtle)',
+                      color: 'var(--text-primary)',
+                      outline: 'none',
+                    }}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', maxHeight: 180 }}>
+                    {availableVariables
+                      .filter((v) =>
+                        !varSearch ||
+                        v.path.toLowerCase().includes(varSearch.toLowerCase()) ||
+                        v.label.toLowerCase().includes(varSearch.toLowerCase())
+                      )
+                      .map((v) => (
+                        <button
+                          key={v.path}
+                          type="button"
+                          onClick={() => handleInsertVariable(v.path)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '5px 8px',
+                            background: 'none',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: 12,
+                            color: 'var(--text-primary)',
+                            gap: 8,
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-subtle, #f1f5f9)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                        >
+                          <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{`{{${v.path}}}`}</span>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{v.sourceNodeName || v.type}</span>
+                        </button>
+                      ))}
+                    {availableVariables.filter((v) =>
+                      !varSearch ||
+                      v.path.toLowerCase().includes(varSearch.toLowerCase()) ||
+                      v.label.toLowerCase().includes(varSearch.toLowerCase())
+                    ).length === 0 && (
+                      <div style={{ padding: '8px', fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'center' }}>
+                        No matching variables
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <span
           style={{
             fontSize: 11,
@@ -774,6 +1061,16 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.3 }}>
           {input.helpText}
         </span>
+      )}
+
+      {canRevise && (
+        <RevisePromptModal
+          isOpen={isReviseModalOpen}
+          currentPrompt={typeof effectiveValue === 'string' ? effectiveValue : String(effectiveValue || '')}
+          onClose={() => setIsReviseModalOpen(false)}
+          onApply={(revised) => onChange(revised)}
+          fieldName={input.label}
+        />
       )}
     </div>
   );

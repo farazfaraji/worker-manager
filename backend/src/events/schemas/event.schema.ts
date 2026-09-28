@@ -18,7 +18,7 @@ export class EventRecord {
   @Prop({ required: true, index: true })
   entityId: string;
 
-  @Prop({ required: true, index: true })
+  @Prop({ required: true, index: true, type: String })
   eventType: EventAction;
 
   @Prop({ required: true, index: true })

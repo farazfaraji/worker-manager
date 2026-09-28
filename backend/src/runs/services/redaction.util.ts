@@ -4,7 +4,10 @@ const SENSITIVE_KEY_PATTERN =
   /^(api[-_]?key|auth|authorization|bearer|token|secret|password|passwd|cookie|session|credential|access[-_]?token|refresh[-_]?token|private[-_]?key|resumeTokenHash)$/i;
 
 const SENSITIVE_VALUE_PATTERN =
-  /^(Bearer\s+[A-Za-z0-9\-._~+/]+=*|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|[A-Za-z0-9+/]{40,}={0,2})$/;
+  /^(Bearer\s+[A-Za-z0-9\-._~+/]+=*|sk-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|[A-Za-z0-9+/]{40,}={0,2})$/;
+
+const EMBEDDED_SECRET_PATTERN =
+  /(Bearer\s+[A-Za-z0-9\-._~+/]+=*|sk-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,})/gi;
 
 /**
  * Compute single-way SHA-256 hash of a string (such as an opaque resume token)
@@ -34,8 +37,14 @@ export function generateResumeToken(): {
 export function redactSecrets(data: any, seen = new WeakSet()): any {
   if (data === null || data === undefined) return data;
   if (typeof data !== 'object') {
-    if (typeof data === 'string' && SENSITIVE_VALUE_PATTERN.test(data.trim())) {
-      return '[REDACTED_SECRET]';
+    if (typeof data === 'string') {
+      if (SENSITIVE_VALUE_PATTERN.test(data.trim())) {
+        return '[REDACTED_SECRET]';
+      }
+      // Replace directly: testing a global regexp first can leave lastIndex set
+      // and miss a secret in the next string processed.
+      const cleaned = data.replace(EMBEDDED_SECRET_PATTERN, '[REDACTED]');
+      if (cleaned !== data) return cleaned;
     }
     return data;
   }

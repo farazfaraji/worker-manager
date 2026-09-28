@@ -146,6 +146,11 @@ export class GraphsService {
     private readonly graphShapeService: GraphShapeService,
   ) {}
 
+  /** Converts either canonical flow input or legacy React Flow input for validation. */
+  reshapeGraphInput(input: any) {
+    return this.graphShapeService.reshapeForSave(input || {});
+  }
+
   /**
    * Enriches nodes with metadata and extracted output schemas from tool definitions & node configs.
    */
@@ -163,18 +168,29 @@ export class GraphsService {
       const config = data.config || {};
 
       // Match definition
-      const def = definitions.find(
-        (d) =>
-          d.type.toLowerCase() === defType.toLowerCase() ||
-          d.id.toLowerCase() === (data.definitionId || '').toLowerCase() ||
-          d.name.toLowerCase() === (data.definitionName || '').toLowerCase() ||
-          d.id.toLowerCase() === defType.toLowerCase(),
-      );
+      const def =
+        definitions.find((d) => data.definitionId && d.id.toLowerCase() === String(data.definitionId).toLowerCase()) ||
+        definitions.find((d) => data.definitionName && d.name.toLowerCase() === String(data.definitionName).toLowerCase()) ||
+        definitions.find((d) => data.name && d.name.toLowerCase() === String(data.name).toLowerCase()) ||
+        definitions.find((d) => data.name && d.id.toLowerCase() === String(data.name).toLowerCase().replace(/[_\s]+/g, '-')) ||
+        definitions.find((d) => d.id.toLowerCase() === defType.toLowerCase()) ||
+        definitions.find((d) => d.name.toLowerCase() === defType.toLowerCase()) ||
+        definitions.find((d) => d.type.toLowerCase() === defType.toLowerCase());
 
       let outputsDef =
         data.definitionOutputs && data.definitionOutputs.length > 0
           ? data.definitionOutputs
           : def?.outputs || data.outputs || [];
+
+      // Guarantee Set Variable nodes provide the 'value' output
+      const isSetVar =
+        defType.toLowerCase() === 'variable' ||
+        defType.toLowerCase() === 'set-variable' ||
+        (data.definitionId && String(data.definitionId).toLowerCase() === 'set-variable') ||
+        (data.definitionName && String(data.definitionName).toLowerCase().includes('set variable'));
+      if (isSetVar && (!outputsDef || outputsDef.length === 0)) {
+        outputsDef = def?.outputs?.length ? def.outputs : [{ name: 'value', label: 'Assigned Value', type: 'object' }];
+      }
 
       // If browser/app node has legacy result output or stale outputs, upgrade to definition outputs
       if (
@@ -197,11 +213,136 @@ export class GraphsService {
         }
       }
 
+      // If router node, dynamically generate branch output handles from routes config
+      if (defType.toLowerCase() === 'router') {
+        let routes = config.routes;
+        if (routes === undefined || routes === null || routes === '') {
+          const routesInput = def?.inputs?.find((inp: any) => inp.name === 'routes');
+          if (routesInput?.defaultValue) {
+            routes = routesInput.defaultValue;
+          }
+        }
+        if (typeof routes === 'string') {
+          try {
+            routes = JSON.parse(routes);
+          } catch {
+            routes = [];
+          }
+        }
+        if (Array.isArray(routes) && routes.length > 0) {
+          const dynamicRoutes: any[] = [];
+          const seen = new Set<string>();
+
+          for (const r of routes) {
+            const routeName = String(r?.name || r?.id || '').trim();
+            if (routeName && !seen.has(routeName.toLowerCase())) {
+              seen.add(routeName.toLowerCase());
+              dynamicRoutes.push({
+                name: routeName,
+                label: routeName,
+                type: 'branch',
+              });
+            }
+          }
+
+          const defaultRouteName = String(config.defaultRoute || '').trim();
+          if (defaultRouteName && !seen.has(defaultRouteName.toLowerCase())) {
+            seen.add(defaultRouteName.toLowerCase());
+            dynamicRoutes.push({
+              name: defaultRouteName,
+              label: defaultRouteName,
+              type: 'branch',
+            });
+          } else if (!seen.has('default')) {
+            dynamicRoutes.push({
+              name: 'default',
+              label: 'default',
+              type: 'branch',
+            });
+          }
+
+          outputsDef = dynamicRoutes;
+        } else {
+          outputsDef = [
+            { name: 'default', label: 'default', type: 'branch' },
+            { name: 'result', label: 'Route Result', type: 'object' },
+          ];
+        }
+      }
+
+      // If foreach node, dynamically provide item, done, and result outputs based on mode
+      if (defType.toLowerCase() === 'foreach') {
+        const mode = String(config.mode || 'canvas').toLowerCase();
+        if (mode !== 'subgraph') {
+          outputsDef = [
+            { name: 'item', label: 'Item (Loop)', type: 'branch' },
+            { name: 'done', label: 'Done', type: 'branch' },
+            { name: 'result', label: 'Foreach Result', type: 'object' },
+          ];
+        } else {
+          outputsDef = [
+            { name: 'result', label: 'Foreach Result', type: 'object' },
+          ];
+        }
+      }
+
+      // If orchestrator node, dynamically generate agent output sockets + last result socket
+      if (defType.toLowerCase() === 'orchestrator' || defType.toLowerCase() === 'delegator') {
+        let agentOutputs = config.agentOutputs ?? config.outputs ?? config.agents;
+        if (agentOutputs === undefined || agentOutputs === null || agentOutputs === '') {
+          const agentOutputsInput = def?.inputs?.find((inp: any) => inp.name === 'agentOutputs' || inp.name === 'agents');
+          if (agentOutputsInput?.defaultValue) {
+            agentOutputs = agentOutputsInput.defaultValue;
+          }
+        }
+        if (typeof agentOutputs === 'string') {
+          try {
+            agentOutputs = JSON.parse(agentOutputs);
+          } catch {
+            agentOutputs = [];
+          }
+        }
+        if (Array.isArray(agentOutputs) && agentOutputs.length > 0) {
+          const dynamicOutputs: any[] = [];
+          const seen = new Set<string>();
+          for (let i = 0; i < agentOutputs.length; i++) {
+            const item = agentOutputs[i];
+            const handleName = typeof item === 'string' ? item : (item?.name || item?.id || `agent_${i + 1}`);
+            const handleLabel = typeof item === 'object' ? item.label || item.name || handleName : handleName;
+            if (handleName && !seen.has(handleName.toLowerCase())) {
+              seen.add(handleName.toLowerCase());
+              dynamicOutputs.push({
+                name: handleName,
+                label: handleLabel,
+                type: 'branch',
+              });
+            }
+          }
+          dynamicOutputs.push({
+            name: 'result',
+            label: 'Last Result',
+            type: 'object',
+          });
+          outputsDef = dynamicOutputs;
+        } else {
+          outputsDef = [
+            { name: 'agent_1', label: 'agent_1', type: 'branch' },
+            { name: 'agent_2', label: 'agent_2', type: 'branch' },
+            { name: 'agent_3', label: 'agent_3', type: 'branch' },
+            { name: 'agent_4', label: 'agent_4', type: 'branch' },
+            { name: 'result', label: 'Last Result', type: 'object' },
+          ];
+        }
+      }
+
       // Filter outputs by dependsOn against config
       if (config && outputsDef.some((o: any) => o.dependsOn)) {
         outputsDef = outputsDef.filter((out: any) => {
           if (!out.dependsOn) return true;
           const targetVal = config[out.dependsOn.field];
+          if (Array.isArray(out.dependsOn.in)) {
+            return out.dependsOn.in.some((item: any) => String(item).toLowerCase() === String(targetVal ?? '').toLowerCase());
+          }
           if (out.dependsOn.equals !== undefined) {
             return String(targetVal ?? '').toLowerCase() === String(out.dependsOn.equals).toLowerCase();
           }
@@ -272,6 +413,7 @@ export class GraphsService {
       return {
         id: node.id,
         type: node.type || 'langgraphNode',
+        ...(node.position ? { position: node.position } : {}),
         data: {
           ...data,
           name: nodeName,
@@ -290,44 +432,32 @@ export class GraphsService {
     const filter = projectId ? { projectId } : {};
     const graphs = await this.graphModel
       .find(filter)
-      .select('name projectId createdAt updatedAt nodes edges layout viewport metadata')
+      .select('name projectId createdAt updatedAt flow layout metadata')
       .sort({ updatedAt: -1 })
+      .lean()
       .exec();
 
     return graphs.map((g) => ({
       id: g._id.toString(),
       name: g.name,
       projectId: g.projectId,
-      nodeCount: (g.nodes || []).length,
-      edgeCount: (g.edges || []).length,
+      nodeCount: (g.flow?.blocks || []).length,
+      edgeCount: (g.flow?.connections || []).length,
       createdAt: (g as any).createdAt,
       updatedAt: (g as any).updatedAt,
       metadata: g.metadata,
     }));
   }
 
-  async findOne(id: string): Promise<GraphDocument> {
+  async findOne(id: string): Promise<any> {
     if (!id || (typeof id === 'string' && !isValidObjectId(id))) {
       throw new NotFoundException('Graph not found');
     }
     try {
-      const graph = await this.graphModel.findById(id).exec();
+      const graph: any = await this.graphModel.findById(id).lean().exec();
       if (!graph) {
         throw new NotFoundException('Graph not found');
       }
-      // First extract inline React Flow layout from legacy documents. Enrichment
-      // intentionally removes UI-only fields, so doing this first preserves the
-      // current canvas arrangement during the schema transition.
-      const storedShape = this.graphShapeService.reshapeForSave({
-        nodes: graph.nodes || [],
-        edges: graph.edges || [],
-        layout: graph.layout,
-        viewport: graph.viewport,
-      });
-      graph.nodes = (await this.enrichNodesWithOutputs(storedShape.nodes)) as any;
-      graph.edges = storedShape.edges as any;
-      graph.layout = storedShape.layout;
-      graph.viewport = storedShape.layout.viewport;
       return this.reshapeDocumentForEditor(graph);
     } catch (err) {
       if (err instanceof NotFoundException) throw err;
@@ -335,8 +465,9 @@ export class GraphsService {
     }
   }
 
-  async create(createGraphDto: CreateGraphDto): Promise<GraphDocument> {
+  async create(createGraphDto: CreateGraphDto): Promise<any> {
     const shaped = this.graphShapeService.reshapeForSave({
+      flow: createGraphDto.flow,
       nodes: createGraphDto.nodes,
       edges: createGraphDto.edges,
       layout: createGraphDto.layout,
@@ -344,47 +475,49 @@ export class GraphsService {
     });
     await this.validateGraphVariables(shaped.nodes, shaped.edges);
 
-    const enrichedNodes = await this.enrichNodesWithOutputs(shaped.nodes);
     const createdGraph = new this.graphModel({
       ...createGraphDto,
-      nodes: enrichedNodes,
-      edges: shaped.edges,
+      flow: shaped.flow,
       layout: shaped.layout,
-      viewport: shaped.layout.viewport,
       metadata: createGraphDto.metadata || {},
     });
-    return this.reshapeDocumentForEditor(await createdGraph.save());
+    const saved = await createdGraph.save();
+    return this.reshapeDocumentForEditor(saved.toObject());
   }
 
   async update(
     id: string,
     updateGraphDto: UpdateGraphDto,
-  ): Promise<GraphDocument> {
+  ): Promise<any> {
     const existing = await this.findOne(id);
-    const nodes = updateGraphDto.nodes !== undefined ? updateGraphDto.nodes : existing.nodes || [];
-    const edges = updateGraphDto.edges !== undefined ? updateGraphDto.edges : existing.edges || [];
+    const isLegacyPresentationUpdate =
+      updateGraphDto.flow === undefined &&
+      (updateGraphDto.nodes !== undefined || updateGraphDto.edges !== undefined);
     const shaped = this.graphShapeService.reshapeForSave({
-      nodes,
-      edges,
+      flow: updateGraphDto.flow !== undefined ? updateGraphDto.flow : isLegacyPresentationUpdate ? undefined : existing.flow,
+      nodes: updateGraphDto.nodes !== undefined ? updateGraphDto.nodes : existing.nodes,
+      edges: updateGraphDto.edges !== undefined ? updateGraphDto.edges : existing.edges,
       layout: updateGraphDto.layout !== undefined ? updateGraphDto.layout : existing.layout,
-      viewport: updateGraphDto.viewport || existing.viewport,
+      viewport: updateGraphDto.viewport || existing.layout?.viewport,
     });
 
     await this.validateGraphVariables(shaped.nodes, shaped.edges);
 
     try {
       const updateData: any = { ...updateGraphDto };
-      updateData.nodes = await this.enrichNodesWithOutputs(shaped.nodes);
-      updateData.edges = shaped.edges;
+      updateData.flow = shaped.flow;
       updateData.layout = shaped.layout;
-      updateData.viewport = shaped.layout.viewport;
+      delete updateData.nodes;
+      delete updateData.edges;
+      delete updateData.viewport;
 
       const updatedGraph = await this.graphModel
         .findByIdAndUpdate(
           id,
-          { $set: updateData },
+          { $set: updateData, $unset: { nodes: '', edges: '', viewport: '' } },
           { new: true, runValidators: true },
         )
+        .lean()
         .exec();
 
       if (!updatedGraph) {
@@ -397,18 +530,24 @@ export class GraphsService {
     }
   }
 
-  private reshapeDocumentForEditor(graph: GraphDocument): GraphDocument {
+  private async reshapeDocumentForEditor(graph: any): Promise<any> {
     const shaped = this.graphShapeService.reshapeForLoad({
-      nodes: graph.nodes || [],
-      edges: graph.edges || [],
+      flow: graph.flow,
+      // Legacy fields are read only for documents that have not been migrated.
+      nodes: graph.nodes,
+      edges: graph.edges,
       layout: graph.layout,
       viewport: graph.viewport,
     });
-    graph.nodes = shaped.nodes as any;
-    graph.edges = shaped.edges as any;
-    graph.layout = shaped.layout;
-    graph.viewport = shaped.layout.viewport;
-    return graph;
+    const enrichedNodes = await this.enrichNodesWithOutputs(shaped.nodes);
+    return {
+      ...graph,
+      flow: shaped.flow,
+      layout: shaped.layout,
+      viewport: shaped.layout.viewport,
+      nodes: enrichedNodes,
+      edges: shaped.edges,
+    };
   }
 
   async remove(id: string): Promise<{ success: boolean; message: string }> {
@@ -427,6 +566,94 @@ export class GraphsService {
    * - Variables referencing downstream or un-merged parallel branch nodes (not upstream).
    * - Invalid output property paths that don't exist on the upstream node's outputs/schema.
    */
+  /** Detect waiting gates where the caller cannot safely pause and resume. */
+  async assertNoWaitingGatesInChildGraph(graphId: string, visited = new Set<string>()): Promise<void> {
+    if (!isValidObjectId(graphId) || visited.has(graphId)) return;
+    visited.add(graphId);
+    const graph = await this.findOne(graphId);
+    const nodes = graph.nodes || [];
+    if (nodes.some((node: any) => ['human-gate', 'humangate'].includes(String(node.data?.definitionType || node.type || '').toLowerCase()) || (String(node.data?.definitionType || node.type || '').toLowerCase() === 'telegram' && node.data?.config?.mode === 'question'))) {
+      throw new BadRequestException({ code: 'NESTED_WAITING_GATE_UNSUPPORTED', message: 'Human gates inside foreach or research-round child graphs are not supported. Place the gate in the parent graph.' });
+    }
+    for (const node of nodes) {
+      const type = String(node.data?.definitionType || node.type || '').toLowerCase();
+      const nestedId = node.data?.config?.graphId;
+      if (nestedId && ['subgraph', 'foreach', 'loop'].includes(type)) await this.assertNoWaitingGatesInChildGraph(String(nestedId), visited);
+    }
+  }
+
+  private async validateNestedWaitingGates(nodes: any[], edges: any[]): Promise<void> {
+    const byId = new Map(nodes.map((node: any) => [node.id, node]));
+    for (const node of nodes) {
+      const type = String(node.data?.definitionType || node.type || '').toLowerCase();
+      const config = node.data?.config || {};
+      const foreachMode = String(config.mode || (config.graphId ? 'subgraph' : 'canvas'));
+      if (type === 'foreach' && foreachMode !== 'subgraph') {
+        const first = (edges.find((edge: any) => edge.source === node.id && edge.sourceHandle === 'item') || edges.find((edge: any) => edge.source === node.id && edge.sourceHandle !== 'done'))?.target;
+        const queue = first ? [first] : [];
+        const seen = new Set<string>();
+        while (queue.length) {
+          const id = queue.shift()!;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const child: any = byId.get(id);
+          const childType = String(child?.data?.definitionType || child?.type || '').toLowerCase();
+          if (['human-gate', 'humangate'].includes(childType) || (childType === 'telegram' && child?.data?.config?.mode === 'question')) throw new BadRequestException({ code: 'NESTED_WAITING_GATE_UNSUPPORTED', message: 'Human gates inside a foreach item branch are not supported. Place the gate after the foreach node.' });
+          if (childType !== 'output') queue.push(...edges.filter((edge: any) => edge.source === id && edge.target !== node.id).map((edge: any) => edge.target));
+        }
+      }
+      if (type === 'foreach' && foreachMode === 'subgraph' && (String(config.executionType || 'sync') !== 'sync' || Number(config.concurrency ?? 1) !== 1)) {
+        if (typeof config.graphId === 'string' && isValidObjectId(config.graphId)) await this.assertNoWaitingGatesInChildGraph(config.graphId);
+      }
+    }
+  }
+
+  /** Identify all downstream node IDs that belong to the parallel jobs spawned by an orchestrator node. */
+  private getOrchestratedJobNodeIds(
+    orchNodeId: string,
+    nodes: any[],
+    edges: any[],
+  ): Set<string> {
+    const jobNodes = new Set<string>();
+    const doneTargetIds = new Set<string>();
+
+    for (const edge of edges) {
+      if (edge.source === orchNodeId) {
+        const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+        if (handle === 'done' || handle === 'result') {
+          doneTargetIds.add(edge.target);
+        }
+      }
+    }
+
+    const queue: string[] = [];
+    for (const edge of edges) {
+      if (edge.source === orchNodeId) {
+        const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+        if (handle !== 'done' && handle !== 'result' && !doneTargetIds.has(edge.target)) {
+          queue.push(edge.target);
+          jobNodes.add(edge.target);
+        }
+      }
+    }
+
+    const visited = new Set<string>(jobNodes);
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const edge of edges) {
+        if (edge.source === current) {
+          if (!doneTargetIds.has(edge.target) && !visited.has(edge.target) && edge.target !== orchNodeId) {
+            visited.add(edge.target);
+            jobNodes.add(edge.target);
+            queue.push(edge.target);
+          }
+        }
+      }
+    }
+
+    return jobNodes;
+  }
+
   async validateGraphVariables(
     nodes: any[],
     edges: any[],
@@ -434,6 +661,8 @@ export class GraphsService {
     if (!Array.isArray(nodes) || nodes.length === 0) {
       return { valid: true };
     }
+
+    await this.validateNestedWaitingGates(nodes, edges);
 
     const definitions = await this.nodeDefinitionsService.getAllDefinitions();
     const enrichedNodes = await this.enrichNodesWithOutputs(nodes);
@@ -489,8 +718,13 @@ export class GraphsService {
 
       const sourceData = sourceNode.data || {};
       const sourceNodeName = sourceData.name || sourceData.nodeName || sourceNode.id;
+      const sourceNodeLabel = sourceData.label || sourceNodeName;
       const sourceDefType = String(sourceData.definitionType || sourceNode.type || '').toLowerCase();
       const outputs = sourceData.outputs || [];
+
+      const targetData = targetNode?.data || {};
+      const targetNodeName = targetData.name || targetData.nodeName || edge.target;
+      const targetNodeLabel = targetData.label || targetNodeName;
 
       if (sourceDefType === 'condition') {
         const handle = String(edge.sourceHandle || '').toLowerCase();
@@ -500,8 +734,12 @@ export class GraphsService {
             edgeId: edge.id,
             source: sourceNode.id,
             sourceName: sourceNodeName,
+            sourceLabel: sourceNodeLabel,
+            target: edge.target,
+            targetName: targetNodeName,
+            targetLabel: targetNodeLabel,
             sourceHandle: edge.sourceHandle,
-            reason: `Edge from Condition node "${sourceNodeName}" must connect from "true" or "false" handle, but received "${edge.sourceHandle || 'none'}".`,
+            reason: `Edge from Condition block "${sourceNodeLabel}" ($${sourceNodeName}) → "${targetNodeLabel}" ($${targetNodeName}) must use "true" or "false" handle, but got "${edge.sourceHandle || 'none'}".`,
           });
         }
       } else if (sourceDefType === 'router') {
@@ -538,9 +776,13 @@ export class GraphsService {
             edgeId: edge.id,
             source: sourceNode.id,
             sourceName: sourceNodeName,
+            sourceLabel: sourceNodeLabel,
+            target: edge.target,
+            targetName: targetNodeName,
+            targetLabel: targetNodeLabel,
             sourceHandle: edge.sourceHandle,
             validHandles: Array.from(validHandles),
-            reason: `Edge connects from handle "${edge.sourceHandle}", but Router node "${sourceNodeName}" only provides [${Array.from(validHandles).join(', ')}]. Please reconnect this node.`,
+            reason: `Edge from Router block "${sourceNodeLabel}" ($${sourceNodeName}) → "${targetNodeLabel}" ($${targetNodeName}): handle "${edge.sourceHandle}" is not valid. Available: [${Array.from(validHandles).join(', ')}]. Please reconnect this edge.`,
           });
         }
       } else if (edge.sourceHandle) {
@@ -551,15 +793,93 @@ export class GraphsService {
           if (out.name) validHandles.add(String(out.name).toLowerCase());
         }
 
+        const isVarNode =
+          sourceDefType === 'variable' ||
+          sourceDefType === 'set-variable' ||
+          (sourceData.definitionId && String(sourceData.definitionId).toLowerCase() === 'set-variable') ||
+          (sourceNodeName && String(sourceNodeName).toLowerCase().includes('setvariable'));
+        if (isVarNode) {
+          validHandles.add('value');
+          if (sourceData.config?.key) {
+            validHandles.add(String(sourceData.config.key).trim().toLowerCase());
+          }
+        }
+
+        if (sourceDefType === 'foreach') {
+          validHandles.add('item');
+          validHandles.add('done');
+          validHandles.add('result');
+        }
+
+        if (sourceDefType === 'orchestrator' || sourceDefType === 'delegator') {
+          validHandles.add('done');
+          validHandles.add('result');
+          let agentOutputs = sourceData.config?.agentOutputs ?? sourceData.config?.outputs;
+          if (typeof agentOutputs === 'string') {
+            try { agentOutputs = JSON.parse(agentOutputs); } catch {}
+          }
+          if (Array.isArray(agentOutputs)) {
+            for (const ao of agentOutputs) {
+              const name = typeof ao === 'string' ? ao : (ao?.name || ao?.id);
+              if (name) validHandles.add(String(name).toLowerCase());
+            }
+          }
+        }
+
+        if (sourceDefType === 'artifact') {
+          validHandles.add('onload');
+          validHandles.add('onfailed');
+          validHandles.add('content');
+          validHandles.add('artifact');
+          validHandles.add('artifactid');
+          validHandles.add('status');
+        }
+
+        if (sourceDefType === 'human-gate') {
+          validHandles.add('approved');
+          validHandles.add('rejected');
+          validHandles.add('result');
+          validHandles.add('value');
+        }
+
+        if (sourceDefType === 'browser' || sourceDefType === 'app') {
+          validHandles.add('done');
+          validHandles.add('onfailed');
+          validHandles.add('screenshot');
+          validHandles.add('text');
+          validHandles.add('result');
+        }
+
+        if (sourceDefType === 'retrieval' || sourceDefType === 'embedding') {
+          validHandles.add('done');
+          validHandles.add('onfailed');
+          validHandles.add('result');
+          validHandles.add('results');
+        }
+
+        if (sourceDefType === 'web-search') {
+          validHandles.add('done');
+          validHandles.add('onfailed');
+          validHandles.add('results');
+          validHandles.add('answer');
+          validHandles.add('query');
+          validHandles.add('text');
+          validHandles.add('result');
+        }
+
         if (!validHandles.has(handle)) {
           throw new BadRequestException({
             message: 'Invalid source handle on edge',
             edgeId: edge.id,
             source: sourceNode.id,
             sourceName: sourceNodeName,
+            sourceLabel: sourceNodeLabel,
+            target: edge.target,
+            targetName: targetNodeName,
+            targetLabel: targetNodeLabel,
             sourceHandle: edge.sourceHandle,
             validHandles: Array.from(validHandles),
-            reason: `Edge connects from handle "${edge.sourceHandle}", but node "${sourceNodeName}" only provides [${Array.from(validHandles).join(', ')}]. Please reconnect this node.`,
+            reason: `Edge from "${sourceNodeLabel}" ($${sourceNodeName}) → "${targetNodeLabel}" ($${targetNodeName}): source handle "${edge.sourceHandle}" does not exist. Available handles: [${Array.from(validHandles).join(', ')}]. Please reconnect this edge.`,
           });
         }
       }
@@ -649,9 +969,60 @@ export class GraphsService {
             queue.push(sourceId);
           }
         }
+
+        // If currentId receives a 'done' or 'result' edge from an orchestrator,
+        // all downstream job nodes belonging to that orchestrator are also upstream.
+        for (const edge of edges || []) {
+          if (edge.target === currentId) {
+            const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+            if (handle === 'done' || handle === 'result') {
+              const srcNode = nodeById.get(edge.source);
+              const srcType = String(srcNode?.data?.definitionType || srcNode?.type || '').toLowerCase();
+              if (srcType === 'orchestrator' || srcType === 'delegator') {
+                const jobNodeIds = this.getOrchestratedJobNodeIds(edge.source, enrichedNodes, edges || []);
+                for (const jId of jobNodeIds) {
+                  if (!visited.has(jId)) {
+                    visited.add(jId);
+                    upstreamSet.add(jId);
+                    queue.push(jId);
+                  }
+                }
+              }
+            }
+          }
+        }
       }
 
       upstreamNodesMap.set(node.id, upstreamSet);
+    }
+
+    // Canvas Foreach exposes the current input as an arbitrary item object only
+    // inside its item branch. Track that scope so references such as
+    // `foreach.item.url` can be validated without making the item available to
+    // unrelated downstream nodes after the `done` handle.
+    const foreachItemBranchNodes = new Map<string, Set<string>>();
+    for (const foreachNode of enrichedNodes) {
+      const foreachData = foreachNode.data || {};
+      const foreachType = String(foreachData.definitionType || foreachNode.type || '').toLowerCase();
+      const foreachMode = String(foreachData.config?.mode || 'canvas').toLowerCase();
+      if (foreachType !== 'foreach' || foreachMode === 'subgraph') continue;
+
+      const branchNodes = new Set<string>();
+      const queue = (edges || [])
+        .filter((edge: any) => edge.source === foreachNode.id && String(edge.sourceHandle || '').toLowerCase() === 'item')
+        .map((edge: any) => edge.target);
+      while (queue.length) {
+        const currentId = queue.shift();
+        if (!currentId || branchNodes.has(currentId)) continue;
+        branchNodes.add(currentId);
+        const currentNode = nodeById.get(currentId);
+        const currentType = String(currentNode?.data?.definitionType || currentNode?.type || '').toLowerCase();
+        if (currentType === 'output') continue;
+        for (const edge of edges || []) {
+          if (edge.source === currentId && !branchNodes.has(edge.target)) queue.push(edge.target);
+        }
+      }
+      foreachItemBranchNodes.set(foreachNode.id, branchNodes);
     }
 
     // Compute all valid variable paths produced by each node
@@ -694,12 +1065,65 @@ export class GraphsService {
         }
       }
 
-      // Add direct key references for variable / set-variable nodes (e.g. setvariable.key)
+      // Add direct key references for variable / set-variable nodes (e.g. setvariable.key, state.key)
       const defType = String(data.definitionType || node.type || '').toLowerCase();
       if ((defType === 'variable' || defType === 'set-variable') && data.config?.key) {
         const keyName = String(data.config.key).trim();
         if (keyName) {
           producedPaths.add(`${nodeName}.${keyName}`);
+          producedPaths.add(`state.${keyName}`);
+          producedPaths.add(keyName);
+        }
+      }
+
+      // Add well-known produced variable paths for action nodes whose canvas outputs are now event/branch-based
+      if (defType === 'artifact') {
+        const artifactKeys = ['content', 'artifact', 'artifactId', 'status', 'version', 'metadata', 'title', 'type', 'count', 'artifacts', 'latestVersion', 'history', 'relations'];
+        for (const k of artifactKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+        }
+      } else if (defType === 'human-gate') {
+        const gateKeys = ['approved', 'feedback', 'status', 'data', 'action', 'value', 'draft', 'timestamp'];
+        for (const k of gateKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+          producedPaths.add(`${nodeName}.result.${k}`);
+        }
+      } else if (defType === 'research-review') {
+        const reviewKeys = ['decision', 'feedback', 'score', 'quality', 'missingEvidence', 'findings', 'questions', 'sourceChecks'];
+        producedPaths.add(`${nodeName}.result`);
+        for (const k of reviewKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+          producedPaths.add(`${nodeName}.result.${k}`);
+        }
+      } else if (defType === 'browser' || defType === 'app') {
+        const browserKeys = ['screenshot', 'text', 'url', 'title', 'html', 'css', 'path', 'actions'];
+        for (const k of browserKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+        }
+      } else if (defType === 'retrieval') {
+        const retrievalKeys = ['results', 'count', 'query', 'context', 'result'];
+        for (const k of retrievalKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+        }
+      } else if (defType === 'embedding') {
+        const embedKeys = ['embeddings', 'dimensions', 'model', 'count', 'artifactId', 'logicalId', 'result'];
+        for (const k of embedKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+        }
+      } else if (defType === 'web-search') {
+        const webSearchKeys = [
+          'results', 'query', 'provider', 'resultsCount', 'title', 'url',
+          'originalUrl', 'resolvedUrl', 'accessedAt', 'publishedAt',
+          'text', 'answer', 'responseTime', 'status', 'html', 'links', 'result'
+        ];
+        for (const k of webSearchKeys) {
+          producedPaths.add(`${nodeName}.${k}`);
+        }
+      } else if (defType === 'foreach') {
+        // The canvas Foreach result has a stable envelope even though the
+        // per-item payload itself is user-defined.
+        for (const k of ['status', 'count', 'processed', 'truncated', 'items', 'errors']) {
+          producedPaths.add(`${nodeName}.result.${k}`);
         }
       }
 
@@ -716,13 +1140,14 @@ export class GraphsService {
       const config = data.config || {};
       const defType = data.definitionType || node.type || 'function';
 
-      const def = definitions.find(
-        (d) =>
-          d.type.toLowerCase() === defType.toLowerCase() ||
-          d.id.toLowerCase() === (data.definitionId || '').toLowerCase() ||
-          d.name.toLowerCase() === (data.definitionName || '').toLowerCase() ||
-          d.id.toLowerCase() === defType.toLowerCase(),
-      );
+      const def =
+        definitions.find((d) => data.definitionId && d.id.toLowerCase() === String(data.definitionId).toLowerCase()) ||
+        definitions.find((d) => data.definitionName && d.name.toLowerCase() === String(data.definitionName).toLowerCase()) ||
+        definitions.find((d) => data.name && d.name.toLowerCase() === String(data.name).toLowerCase()) ||
+        definitions.find((d) => data.name && d.id.toLowerCase() === String(data.name).toLowerCase().replace(/[_\s]+/g, '-')) ||
+        definitions.find((d) => d.id.toLowerCase() === defType.toLowerCase()) ||
+        definitions.find((d) => d.name.toLowerCase() === defType.toLowerCase()) ||
+        definitions.find((d) => d.type.toLowerCase() === defType.toLowerCase());
 
       const inputsDef = data.inputs || def?.inputs || [];
       const upstreamSet = upstreamNodesMap.get(node.id) || new Set<string>();
@@ -744,9 +1169,19 @@ export class GraphsService {
         } else if (typeof fieldVal === 'string') {
           const strTrimmed = fieldVal.trim();
           if (inputDef && inputDef.type === 'variable') {
-            refPathsToCheck.push(strTrimmed);
+            const cleanRef = strTrimmed.replace(/^\{\{|\}\}$/g, '').trim();
+            refPathsToCheck.push(cleanRef);
           } else if (inputDef && inputDef.type === 'valueOrVariable') {
-            if (
+            if (strTrimmed.includes('{{')) {
+              const matches = Array.from(strTrimmed.matchAll(/\{\{([\w$.]+)\}\}/g));
+              for (const m of matches) {
+                if (m[1] && m[1] !== 'uuid') {
+                  refPathsToCheck.push(m[1].trim());
+                }
+              }
+            } else if (
+              !strTrimmed.includes(' ') &&
+              !strTrimmed.includes('\n') &&
               strTrimmed.includes('.') &&
               !strTrimmed.startsWith('http://') &&
               !strTrimmed.startsWith('https://') &&
@@ -814,7 +1249,16 @@ export class GraphsService {
           // 4. Output path existence check
           const validPaths =
             nodeProducedPathsMap.get(referencedNode.id) || new Set<string>();
-          if (!validPaths.has(refPath)) {
+          const normalizedPath = refPath.replace(/\.\d+/g, '');
+          const referencedData = referencedNode.data || {};
+          const referencedType = String(referencedData.definitionType || referencedNode.type || '').toLowerCase();
+          const referencedMode = String(referencedData.config?.mode || 'canvas').toLowerCase();
+          const isScopedForeachItemPath =
+            referencedType === 'foreach' &&
+            referencedMode !== 'subgraph' &&
+            refPath.startsWith(`${nodePrefix}.item.`) &&
+            Boolean(foreachItemBranchNodes.get(referencedNode.id)?.has(node.id));
+          if (!validPaths.has(refPath) && !validPaths.has(normalizedPath) && !isScopedForeachItemPath) {
             throw new BadRequestException({
               message: 'Invalid variable reference',
               path: refPath,
@@ -897,6 +1341,28 @@ export class GraphsService {
           queue.push(sourceId);
         }
       }
+
+      // If currentId receives a 'done' or 'result' edge from an orchestrator,
+      // all downstream job nodes belonging to that orchestrator are also upstream.
+      for (const edge of edges) {
+        if (edge.target === currentId) {
+          const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+          if (handle === 'done' || handle === 'result') {
+            const srcNode = nodes.find((n) => n.id === edge.source);
+            const srcType = String(srcNode?.data?.definitionType || srcNode?.type || '').toLowerCase();
+            if (srcType === 'orchestrator' || srcType === 'delegator') {
+              const jobNodeIds = this.getOrchestratedJobNodeIds(edge.source, nodes, edges);
+              for (const jId of jobNodeIds) {
+                if (!visited.has(jId)) {
+                  visited.add(jId);
+                  upstreamNodeIds.add(jId);
+                  queue.push(jId);
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
     // If no upstream nodes found, return empty array with graphId & blockId
@@ -927,6 +1393,9 @@ export class GraphsService {
         outputs = outputs.filter((out: any) => {
           if (!out.dependsOn) return true;
           const targetVal = data.config[out.dependsOn.field];
+          if (Array.isArray(out.dependsOn.in)) {
+            return out.dependsOn.in.some((item: any) => String(item).toLowerCase() === String(targetVal ?? '').toLowerCase());
+          }
           if (out.dependsOn.equals !== undefined) {
             return String(targetVal ?? '').toLowerCase() === String(out.dependsOn.equals).toLowerCase();
           }
@@ -937,19 +1406,37 @@ export class GraphsService {
         });
       }
 
-      // Expose direct key variable for variable / set-variable nodes (e.g. setvariable.key)
+      // Expose direct key variable for variable / set-variable nodes (e.g. setvariable.key, state.key)
       const defType = String(data.definitionType || node.type || '').toLowerCase();
       const isVariableNode = defType === 'variable' || defType === 'set-variable';
 
       if (isVariableNode && data.config?.key) {
         const keyName = String(data.config.key).trim();
         if (keyName) {
+          const valType = String(data.config.valueType || '').toLowerCase();
+          let resolvedType = 'string';
+          if (valType === 'number' || typeof data.config.value === 'number' || typeof data.config.numberValue === 'number') {
+            resolvedType = 'number';
+          } else if (valType === 'boolean' || typeof data.config.value === 'boolean' || typeof data.config.booleanValue === 'boolean') {
+            resolvedType = 'boolean';
+          } else if (valType === 'json' || typeof data.config.value === 'object' || typeof data.config.jsonValue === 'object') {
+            resolvedType = 'object';
+          }
+
           variables.push({
             nodeId: node.id,
             nodeName,
             outputName: keyName,
             path: `${nodeName}.${keyName}`,
-            type: typeof data.config.value === 'number' ? 'number' : typeof data.config.value === 'boolean' ? 'boolean' : 'string',
+            type: resolvedType,
+            schema: undefined,
+          });
+          variables.push({
+            nodeId: node.id,
+            nodeName: 'state',
+            outputName: keyName,
+            path: `state.${keyName}`,
+            type: resolvedType,
             schema: undefined,
           });
           continue;
@@ -974,7 +1461,7 @@ export class GraphsService {
         const schema = output.schema;
         const isSingleOutput = outputs.length === 1;
 
-        // 1. Add base variable
+        // 1. Add base variable (e.g. trigger.input, script.result)
         variables.push({
           nodeId: node.id,
           nodeName,
@@ -986,16 +1473,27 @@ export class GraphsService {
 
         // 2. If schema exists and is an object, generate nested field paths
         if (schema && typeof schema === 'object' && !Array.isArray(schema)) {
-          // If single output (e.g. jsonparser, script), generate direct paths (e.g. jsonparser.entries, script.result)
-          const targetPrefix = isSingleOutput ? nodeName : basePath;
+          // Qualified paths (e.g. trigger.input.type, trigger.input.content)
           const nestedVars = this.generateNestedVariables(
             node.id,
             nodeName,
             output.name,
-            targetPrefix,
+            basePath,
             schema,
           );
           variables.push(...nestedVars);
+
+          // If single output, also expose direct path without intermediate handle (e.g. trigger.type, trigger.content)
+          if (isSingleOutput) {
+            const directVars = this.generateNestedVariables(
+              node.id,
+              nodeName,
+              output.name,
+              nodeName,
+              schema,
+            );
+            variables.push(...directVars);
+          }
         }
       }
     }

@@ -36,7 +36,12 @@
       "label": "Embedding Model",
       "type": "select",
       "required": true,
-      "dataSource": { "type": "endpoint", "url": "/api/embedding-models", "labelKey": "label", "valueKey": "modelId" }
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/embedding-models",
+        "labelKey": "label",
+        "valueKey": "modelId"
+      }
     },
     {
       "name": "namespace",
@@ -55,11 +60,15 @@
     }
   ],
   "outputs": [
-    { "name": "result", "label": "Embedding Result", "type": "object" },
-    { "name": "artifactId", "label": "Artifact ID", "type": "string" },
-    { "name": "logicalId", "label": "Logical ID", "type": "string" },
-    { "name": "indexedChunks", "label": "Indexed Chunks Count", "type": "number" },
-    { "name": "embedding", "label": "Vector (1D)", "type": "array" },
-    { "name": "embeddings", "label": "Vectors (Batch)", "type": "array" }
+    {
+      "name": "done",
+      "label": "Done",
+      "type": "branch"
+    },
+    {
+      "name": "onFailed",
+      "label": "On Failed",
+      "type": "branch"
+    }
   ]
 }

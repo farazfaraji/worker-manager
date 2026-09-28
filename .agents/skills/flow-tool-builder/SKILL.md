@@ -20,7 +20,7 @@ builder/
 │   ├── trigger.json                 # Flow entrypoint definition
 │   ├── agent.json                   # LLM Agent node definition
 │   ├── json-parser.json             # Function parser definition
-│   ├── brower.json                  # Browser / App node definition
+│   ├── browser.json                  # Browser / App node definition
 │   ├── condition.json               # Branching logic definition
 │   ├── transform.json               # Data transformation definition
 │   └── validator.json               # Schema validation definition
@@ -84,10 +84,25 @@ Check if all `type` values in `inputs` are supported by [DynamicFieldRenderer.ts
 
 If a new input type is introduced, add its case in `DynamicFieldRenderer.tsx`.
 
-### Step 3: Verify Output Types & Handles
-Check if all items in `outputs` render appropriately in [NodeOutputHandles.tsx](frontend/src/components/nodes/NodeOutputHandles.tsx):
-- Branch types (`type: "branch"`, e.g. `true`/`false`, `valid`/`invalid`) receive colored badges.
-- Data sockets receive clean output sockets with IDs matching `output.name`.
+### Step 3: Enforce Event-Driven Outputs vs. State Variables
+Follow the **Event-Driven Output Architecture** strictly:
+- **Canvas Sockets / Handles = Flow Events & Branches ONLY**:
+  - **Action / Execution Nodes** (e.g. `artifact`, `browser`, `retrieval`, `embedding`):
+    - Must ONLY define lifecycle event outputs (`onLoad` or `done`, `onFailed` with `type: "branch"`).
+    - **NEVER** expose data fields (e.g. `content`, `text`, `screenshot`, `status`, `count`) as canvas sockets. Doing so bloats node cards and clutters connection routing.
+  - **Decision / Gate Nodes** (e.g. `condition`, `validator`, `human-gate`, `research-review`):
+    - Must ONLY define decision branches (`true`/`false`, `approved`/`rejected`, `pass`/`needs_more_research`, etc. with `type: "branch"`).
+  - **Orchestrator Nodes**:
+    - Dispatches to child worker handles (`agent_1`, `agent_2`, ...) and a dedicated `done` handle invoked once after all jobs conclude.
+- **Data Payloads = State Variables**:
+  - Node outputs are automatically saved to execution context (`context[nodeName]`) and referenced downstream via `{{nodeName.fieldName}}`.
+  - When creating or modifying tools with rich payloads, register their properties in:
+    1. [`graphs.service.ts`](backend/src/graphs/graphs.service.ts) (`nodeProducedPathsMap` and `validHandles`).
+    2. [`variable-utils.ts`](frontend/src/lib/variable-utils.ts) (`extractAvailableVariables`).
+- **Handle Visuals & Spatial Placement**:
+  - The two primary status/lifecycle handles (`onLoad`/`done`, `onFailed`/`error`, `approved`/`rejected`, `true`/`false`) are positioned at the bottom of the card (`Position.Bottom`) in a clean 2-button grid with centered connection dots.
+  - All remaining dispatch/branch handles (e.g. `agent_1`, `agent_2`, `agent_3`, `agent_4`) are positioned along the sides, alternating between Left (`Position.Left`) and Right (`Position.Right`).
+  - Edges route with smooth 90° orthogonal step connections (`StraightWaypointEdge`) directly into target nodes' top handle (`Position.Top`).
 
 ### Step 4: Verify Category & Icons
 Check if the node's `type` maps to a suitable category and icon:
@@ -116,3 +131,7 @@ If a custom type or icon is needed, check `getCategory` in [node-definitions.ser
    - Save configuration and verify parameters persist in `node.data.config`.
    - Connect output handles to another node's input.
    - Save graph to MongoDB (Save / Save As) and reload to confirm full persistence.
+
+## Research node changes
+
+When updating a research node, update its JSON definition, runtime dispatch, output normalization, branch handles, and the relevant guide in `backend/doc/tools/`. JSON metadata alone does not implement execution. For `research-review`, expose source-check results; for `orchestrator`, preserve research output and tool-step limits; for child flows with human gates, keep resume state and idempotent child run keys.

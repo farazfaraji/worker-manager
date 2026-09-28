@@ -1,7 +1,7 @@
 {
   "name": "Trigger",
   "type": "trigger",
-  "description": "Starts a flow via Manual execution, Domain Events (e.g. artifact.update), Webhook, or Schedule.",
+  "description": "Starts a flow via Manual execution, Human Input prompt, Domain Events (e.g. artifact.update), Webhook, or Schedule.",
   "inputs": [
     {
       "name": "triggerType",
@@ -13,6 +13,10 @@
         {
           "label": "Manual",
           "value": "manual"
+        },
+        {
+          "label": "Human Input",
+          "value": "human-input"
         },
         {
           "label": "Event Listener",
@@ -93,6 +97,32 @@
       }
     },
     {
+      "name": "question",
+      "label": "Question / Prompt",
+      "type": "textarea",
+      "required": true,
+      "defaultValue": "Please enter your input to start the flow.",
+      "placeholder": "e.g. What topic would you like to research today?",
+      "helpText": "The question or instruction shown to the user in the Run panel before execution begins.",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "human-input"
+      }
+    },
+    {
+      "name": "inputKey",
+      "label": "Input Variable Key",
+      "type": "text",
+      "required": false,
+      "defaultValue": "userInput",
+      "placeholder": "e.g. userInput, query, message",
+      "helpText": "The key under which the user's answer is exposed to downstream nodes (e.g. trigger.userInput).",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "human-input"
+      }
+    },
+    {
       "name": "inputSchema",
       "label": "Zod Input Schema",
       "type": "code",
@@ -160,6 +190,15 @@
           "webhook",
           "schedule"
         ]
+      }
+    },
+    {
+      "name": "userInput",
+      "label": "User Answer",
+      "type": "string",
+      "dependsOn": {
+        "field": "triggerType",
+        "equals": "human-input"
       }
     }
   ]

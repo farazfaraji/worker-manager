@@ -20,6 +20,8 @@ import {
   Eye,
   Terminal,
   PlusCircle,
+  Pencil,
+  Save,
   AlertCircle,
   Tag,
   Hash,
@@ -34,6 +36,8 @@ import {
   fetchArtifacts,
   deleteArtifact,
   createArtifact,
+  updateArtifact,
+  approveArtifact,
   fetchArtifactVersions,
   fetchArtifactRelations,
   createArtifactRelation,
@@ -77,6 +81,9 @@ export function ArtifactsView() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'rendered' | 'raw'>('rendered');
   const [activeTab, setActiveTab] = useState<'content' | 'versions' | 'relations'>('content');
+  const [editingArtifactId, setEditingArtifactId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [savingArtifact, setSavingArtifact] = useState(false);
 
   // Related data for selected artifact
   const [versions, setVersions] = useState<ArtifactItem[]>([]);
@@ -182,6 +189,39 @@ export function ArtifactsView() {
     a.download = `${artifact.logicalId || artifact.artifactId || 'artifact'}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleSaveContent = async (artifact: ArtifactItem) => {
+    try {
+      setSavingArtifact(true);
+      setError(null);
+      const updated = await updateArtifact(artifact.artifactId, {
+        projectId: artifact.projectId,
+        content: editContent,
+        status: 'draft',
+      });
+      await loadData();
+      setSelectedId(updated.artifactId);
+      setEditingArtifactId(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save artifact');
+    } finally {
+      setSavingArtifact(false);
+    }
+  };
+
+  const handleApprove = async (artifact: ArtifactItem) => {
+    try {
+      setSavingArtifact(true);
+      setError(null);
+      const approved = await approveArtifact(artifact.artifactId);
+      await loadData();
+      setSelectedId(approved.artifactId);
+    } catch (err: any) {
+      setError(err.message || 'Failed to approve artifact');
+    } finally {
+      setSavingArtifact(false);
+    }
   };
 
   // Delete an artifact
@@ -709,6 +749,27 @@ export function ArtifactsView() {
 
                 {/* Header Action Buttons */}
                 <div className="artifact-detail-actions">
+                  {(currentArtifact.format === 'markdown' || currentArtifact.format === 'text') && currentArtifact.isLatest !== false && (
+                    editingArtifactId === currentArtifact.artifactId ? (
+                      <>
+                        <button type="button" className="btn btn-primary" disabled={savingArtifact || !editContent.trim()} onClick={() => void handleSaveContent(currentArtifact)}>
+                          <Save size={14} /><span>Save New Version</span>
+                        </button>
+                        <button type="button" className="btn btn-default" disabled={savingArtifact} onClick={() => setEditingArtifactId(null)}>
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="btn btn-default" onClick={() => { setEditingArtifactId(currentArtifact.artifactId); setEditContent(String(currentArtifact.content || '')); setActiveTab('content'); }}>
+                        <Pencil size={14} /><span>Edit</span>
+                      </button>
+                    )
+                  )}
+                  {currentArtifact.status === 'draft' && currentArtifact.isLatest !== false && editingArtifactId !== currentArtifact.artifactId && (
+                    <button type="button" className="btn btn-primary" disabled={savingArtifact || !String(currentArtifact.content || '').trim() || (currentArtifact.logicalId === 'seacher-project-brief' && String(currentArtifact.content || '').includes('TODO'))} onClick={() => void handleApprove(currentArtifact)} title="Approve this version for use by project workflows">
+                      <CheckCircle2 size={14} /><span>Approve</span>
+                    </button>
+                  )}
                   <div className="view-mode-toggle">
                     <button
                       type="button"
@@ -858,7 +919,15 @@ export function ArtifactsView() {
 
                   {/* Scrollable Content Body */}
                   <div className="artifact-content-container">
-                    {renderContentBody(currentArtifact)}
+                    {editingArtifactId === currentArtifact.artifactId ? (
+                      <textarea
+                        className="form-textarea"
+                        aria-label="Artifact content"
+                        value={editContent}
+                        onChange={(event) => setEditContent(event.target.value)}
+                        style={{ width: '100%', minHeight: 480, resize: 'vertical', fontFamily: 'monospace' }}
+                      />
+                    ) : renderContentBody(currentArtifact)}
                   </div>
                 </>
               )}

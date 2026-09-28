@@ -110,7 +110,7 @@ export class ArtifactRelationService {
     let reverseCreated: any;
 
     try {
-      session.startTransaction();
+      session.startTransaction({ maxCommitTimeMS: 5000 });
 
       [forwardCreated] = await this.relationModel.create(
         [
@@ -212,7 +212,7 @@ export class ArtifactRelationService {
     let deletedCount = 0;
 
     try {
-      session.startTransaction();
+      session.startTransaction({ maxCommitTimeMS: 5000 });
 
       // Delete forward
       const fRes = await this.relationModel

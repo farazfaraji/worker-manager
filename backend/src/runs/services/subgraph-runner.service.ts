@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { isValidObjectId } from 'mongoose';
 import { RuntimeNode } from './variable-resolver.service';
 import { ForEachResult, ForEachItemResult } from '../../blocks/block.types';
+import { redactSecrets } from './redaction.util';
 
 export type RunGraphDelegate = (
   graphId: string,
@@ -9,9 +10,113 @@ export type RunGraphDelegate = (
   options?: any,
 ) => Promise<any>;
 
+export interface ForeachExecutionOptions {
+  context?: Record<string, any>;
+  nodes?: RuntimeNode[];
+  edges?: any[];
+  executeNode?: (node: RuntimeNode, nodeInput: any, context: Record<string, any>, initialInput?: any) => Promise<any>;
+  resolveInput?: (node: RuntimeNode, context: Record<string, any>, initialInput?: any) => any;
+  normalizeOutput?: (node: RuntimeNode, rawOutput: any) => any;
+}
+
 @Injectable()
 export class SubgraphRunnerService {
   private readonly logger = new Logger(SubgraphRunnerService.name);
+
+  /** Runs a saved child graph once per research round without adding graph cycles. */
+  async executeIterativeLoopNode(
+    node: RuntimeNode,
+    nodeInput: any,
+    runId: string,
+    currentDepth: number,
+    visitedArtifactLogicalIds: string[],
+    runGraph: RunGraphDelegate,
+    isCancelled?: () => Promise<boolean>,
+  ): Promise<any> {
+    // A dotted path such as "review.decision" can resolve to undefined while
+    // preparing nodeInput. Do not let that erase the saved literal path.
+    const resolvedInput = Object.fromEntries(
+      Object.entries(nodeInput || {}).filter(([, value]) => value !== undefined),
+    );
+    const config = { ...(node.data?.config || {}), ...resolvedInput };
+    const graphId = String(config.graphId || '').trim();
+    if (!isValidObjectId(graphId)) throw new BadRequestException('Research Loop requires a saved child graph');
+    const maxIterations = Number(config.maxRounds ?? 3);
+    if (!Number.isInteger(maxIterations) || maxIterations < 1 || maxIterations > 10) throw new BadRequestException('Research Loop maxRounds must be an integer from 1 to 10');
+    const maxHandoffChars = Number(config.maxHandoffChars ?? 12000);
+    if (!Number.isInteger(maxHandoffChars) || maxHandoffChars < 1000 || maxHandoffChars > 16000) throw new BadRequestException('Research Loop maxHandoffChars must be from 1,000 to 16,000');
+    const completionPath = String(config.completionPath || 'decision');
+    if (!/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(completionPath)) throw new BadRequestException('Research Loop completionPath must be a property path');
+    const completionValue = config.completionValue ?? 'pass';
+    const gapPath = String(config.gapPath || 'gaps');
+    if (!/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(gapPath)) throw new BadRequestException('Research Loop gapPath must be a property path');
+    const readPath = (value: any, path: string) => path.split('.').reduce((current, key) => current?.[key], value);
+    let suppliedInput = config.initialInput;
+    let suppliedGaps = config.initialGaps;
+    if (typeof suppliedInput === 'string') {
+      try { suppliedInput = JSON.parse(suppliedInput); } catch { throw new BadRequestException('Research Loop initialInput must be a JSON object'); }
+    }
+    if (typeof suppliedGaps === 'string') {
+      try { suppliedGaps = JSON.parse(suppliedGaps); } catch { throw new BadRequestException('Research Loop initialGaps must be a JSON array'); }
+    }
+    if (suppliedInput !== undefined && (typeof suppliedInput !== 'object' || suppliedInput === null || Array.isArray(suppliedInput))) throw new BadRequestException('Research Loop initialInput must be an object');
+    if (suppliedGaps !== undefined && !Array.isArray(suppliedGaps)) throw new BadRequestException('Research Loop initialGaps must be an array');
+    const initialInput = suppliedInput || {};
+    const rounds: any[] = [];
+    let gaps = suppliedGaps ?? [];
+    let priorResult: any = null;
+    for (let iteration = 1; iteration <= maxIterations; iteration++) {
+      if (await isCancelled?.()) {
+        const error: any = new Error(`Research Loop cancelled before round ${iteration}`);
+        error.code = 'RUN_CANCELLED';
+        throw error;
+      }
+      const childInput = { ...initialInput, iteration, gaps, priorResult };
+      // Idempotency keeps a completed child round from being rerun on parent recovery.
+      const childRun = await runGraph(graphId, childInput, {
+        parentRunId: runId,
+        subgraphDepth: currentDepth + 1,
+        visitedArtifactLogicalIds,
+        idempotencyKey: `research-loop:${runId}:${node.id}:${iteration}`,
+      });
+      if (await isCancelled?.()) {
+        const error: any = new Error(`Research Loop cancelled after round ${iteration}`);
+        error.code = 'RUN_CANCELLED';
+        throw error;
+      }
+      if (childRun.status === 'waiting') {
+        return { status: 'waiting', childRunId: childRun.runId, resumeToken: childRun.resumeToken, waitingDescriptor: childRun.waitingDescriptor, result: childRun.output };
+      }
+      if (childRun.status !== 'completed') {
+        const code = 'RESEARCH_LOOP_CHILD_FAILED';
+        const detail = redactSecrets(String(childRun.error || childRun.status)).slice(0, 500);
+        const error: any = new Error(`Research Loop round ${iteration} (child run ${childRun.runId}) failed: ${detail}`);
+        error.code = code;
+        throw error;
+      }
+      const output = childRun.output;
+      const serialized = JSON.stringify(output ?? null);
+      if (serialized.length > 32000) {
+        const error: any = new Error(`Research Loop round ${iteration} output exceeds 32,000 characters; save large documents as artifacts and return their IDs`);
+        error.code = 'RESEARCH_LOOP_OUTPUT_TOO_LARGE';
+        throw error;
+      }
+      rounds.push({ iteration, childRunId: childRun.runId, output });
+      const completion = readPath(output, completionPath);
+      const nextGaps = readPath(output, gapPath);
+      if (completion === undefined) throw new BadRequestException(`Research Loop completionPath "${completionPath}" was not found in child round ${iteration} output`);
+      if (!Array.isArray(nextGaps)) throw new BadRequestException(`Research Loop gapPath "${gapPath}" must resolve to an array in child round ${iteration} output`);
+      if (completion === completionValue) {
+        const result = { status: 'completed', decision: completion, iterations: rounds, count: iteration, stopReason: 'condition_met', limitReached: false, gaps: nextGaps, output };
+        return { status: 'completed', result, ...result };
+      }
+      gaps = nextGaps;
+      // Only the prior round is passed to the next child; keep the handoff bounded.
+      priorResult = serialized.length <= maxHandoffChars ? output : { truncated: true, excerpt: serialized.slice(0, maxHandoffChars) };
+    }
+    const result = { status: 'incomplete', decision: 'incomplete_needs_human_review', iterations: rounds, count: rounds.length, stopReason: 'iteration_limit', limitReached: true, gaps, output: rounds[rounds.length - 1]?.output };
+    return { status: 'completed', result, ...result };
+  }
 
   async executeSubgraphNode(
     node: RuntimeNode,
@@ -50,9 +155,12 @@ export class SubgraphRunnerService {
       }
     }
 
-    this.logger.log(`🔗 [Subgraph Execution] Invoking "${targetGraphId}" (Parent: ${runId}, Depth: ${currentDepth + 1})`);
+    const resolvedChildInput =
+      typeof childInput === 'object' && childInput !== null
+        ? childInput
+        : { value: childInput };
 
-    const childRun = await runGraph(targetGraphId, childInput, {
+    const childRun = await runGraph(targetGraphId, resolvedChildInput, {
       parentRunId: runId,
       subgraphDepth: currentDepth + 1,
       visitedArtifactLogicalIds,
@@ -61,22 +169,20 @@ export class SubgraphRunnerService {
     if (childRun.status === 'waiting') {
       return {
         status: 'waiting',
-        result: childRun.output,
         childRunId: childRun.runId,
+        waitingNodeId: childRun.waitingNodeId,
+        waitingTokenId: childRun.waitingTokenId,
+        resumeToken: childRun.resumeToken,
+        waitingDescriptor: childRun.waitingDescriptor,
+        result: childRun.output,
+        output: childRun.output,
       };
     }
 
     if (childRun.status === 'failed') {
-      throw new Error(childRun.error?.message || `Child run ${childRun.runId} failed`);
-    }
-
-    const outputMode = String(nodeInput?.outputMode || config.outputMode || 'result').toLowerCase();
-    if (outputMode === 'state') {
-      return {
-        result: childRun.output,
-        state: childRun.nodes,
-        childRunId: childRun.runId,
-      };
+      const err: any = new Error(childRun.error || `Subgraph execution failed for node "${nodeName}"`);
+      err.code = childRun.errorCode || 'SUBGRAPH_EXECUTION_FAILED';
+      throw err;
     }
 
     return {
@@ -93,13 +199,21 @@ export class SubgraphRunnerService {
     currentDepth = 0,
     visitedArtifactLogicalIds: string[] = [],
     runGraph: RunGraphDelegate,
+    options?: ForeachExecutionOptions,
   ): Promise<any> {
     const data = node.data || {};
     const config = data.config || {};
     const nodeName = data.name || data.nodeName || node.id;
     const targetGraphId = String(nodeInput?.graphId || config.graphId || '').trim();
+    const explicitMode = String(nodeInput?.mode || config.mode || '').toLowerCase();
+    const isCanvasMode =
+      explicitMode === 'canvas' ||
+      (!explicitMode && !targetGraphId && Boolean(options?.edges?.some((e) => e.source === node.id)));
+    const mode = isCanvasMode ? 'canvas' : 'subgraph';
+    const executionType = String(nodeInput?.executionType || config.executionType || 'sync').toLowerCase();
+    const isAsync = executionType === 'async';
 
-    if (!targetGraphId || !isValidObjectId(targetGraphId)) {
+    if (mode === 'subgraph' && (!targetGraphId || !isValidObjectId(targetGraphId))) {
       const err = `Foreach node "${nodeName}" requires a valid target graphId`;
       const result: ForEachResult = {
         status: 'failed',
@@ -217,75 +331,240 @@ export class SubgraphRunnerService {
       return { result, ...result };
     }
 
+    // In-Canvas Mode: Identify the loop iteration branch starting from 'item' handle
+    let sortedBranchNodes: RuntimeNode[] = [];
+    if (mode !== 'subgraph') {
+      const loopStartEdge = (options?.edges || []).find(
+        (e: any) => e.source === node.id && String(e.sourceHandle || '').toLowerCase() === 'item',
+      );
+      const fallbackEdge = (options?.edges || []).find(
+        (e: any) => e.source === node.id && String(e.sourceHandle || '').toLowerCase() !== 'done',
+      );
+      const startNodeId = loopStartEdge?.target || fallbackEdge?.target;
+
+      if (startNodeId) {
+        const nodeMap = new Map((options?.nodes || []).map((n) => [n.id, n]));
+        const outgoingMap = new Map<string, any[]>();
+        for (const e of (options?.edges || [])) {
+          if (!outgoingMap.has(e.source)) outgoingMap.set(e.source, []);
+          outgoingMap.get(e.source)!.push(e);
+        }
+
+        const branchNodes: RuntimeNode[] = [];
+        const branchEdges: any[] = [];
+        const visited = new Set<string>();
+        const q = [startNodeId];
+        visited.add(startNodeId);
+
+        while (q.length > 0) {
+          const currId = q.shift()!;
+          const currNode = nodeMap.get(currId);
+          if (!currNode) continue;
+          branchNodes.push(currNode);
+
+          const currType = String(currNode.data?.definitionType || currNode.type || '').toLowerCase();
+          if (currType === 'output') {
+            continue; // Output node is the branch boundary
+          }
+
+          const outEdges = outgoingMap.get(currId) || [];
+          for (const edge of outEdges) {
+            if (edge.target === node.id) continue;
+            branchEdges.push(edge);
+            if (!visited.has(edge.target)) {
+              visited.add(edge.target);
+              q.push(edge.target);
+            }
+          }
+        }
+
+        sortedBranchNodes = this.sortBranchNodes(branchNodes, branchEdges);
+        if (sortedBranchNodes.some((branchNode) => {
+          const branchType = String(branchNode.data?.definitionType || branchNode.type || '').toLowerCase();
+          return branchType === 'human-gate' || branchType === 'humangate' || (branchType === 'telegram' && branchNode.data?.config?.mode === 'question');
+        })) throw new BadRequestException('Human gates inside a foreach item branch are not supported. Place the gate after foreach.');
+      } else {
+        this.logger.warn(`Foreach node "${nodeName}" in canvas mode has no connected item branch edges.`);
+      }
+    }
+
     let nextIndex = 0;
     let hasErrorOccurred = false;
     const indexedResults: ForEachItemResult[] = new Array(itemsToProcess.length);
 
     const numWorkers = Math.min(concurrency, itemsToProcess.length);
-    const workers = Array.from({ length: numWorkers }, async () => {
+    const runWorkerLoop = async () => {
       while (nextIndex < itemsToProcess.length) {
         if (stopOnError && hasErrorOccurred) break;
         const currentIndex = nextIndex++;
         const currentItem = itemsToProcess[currentIndex];
 
-        const childInput = {
-          ...resolvedBaseInput,
-          item: currentItem,
-          index: currentIndex,
-          total: originalItemCount,
-        };
-
-        try {
-          const childRun = await runGraph(targetGraphId, childInput, {
-            parentRunId: runId,
-            subgraphDepth: currentDepth + 1,
-            visitedArtifactLogicalIds,
-          });
-
-          if (childRun.status === 'waiting') {
-            indexedResults[currentIndex] = {
-              index: currentIndex,
-              item: currentItem,
-              status: 'failed',
-              childRunId: childRun.runId,
-              error: {
-                message: 'Child graph returned waiting status which is unsupported in foreach',
-                errorCode: 'FOREACH_CHILD_WAITING_UNSUPPORTED',
-              },
-            };
-            if (stopOnError) hasErrorOccurred = true;
-          } else if (childRun.status === 'failed') {
-            indexedResults[currentIndex] = {
-              index: currentIndex,
-              item: currentItem,
-              status: 'failed',
-              childRunId: childRun.runId,
-              error: childRun.error || 'Child run failed',
-            };
-            if (stopOnError) hasErrorOccurred = true;
-          } else {
-            const itemResultValue = outputMode === 'state' ? childRun.nodes : childRun.output;
+        // 1. IN-CANVAS EXECUTION
+        if (mode !== 'subgraph') {
+          if (sortedBranchNodes.length === 0) {
             indexedResults[currentIndex] = {
               index: currentIndex,
               item: currentItem,
               status: 'completed',
-              result: itemResultValue,
-              childRunId: childRun.runId,
+              result: currentItem,
             };
+            continue;
           }
-        } catch (err: any) {
-          indexedResults[currentIndex] = {
-            index: currentIndex,
+
+          const itemContext: Record<string, any> = {
+            ...(options?.context || {}),
+            [nodeName]: {
+              item: currentItem,
+              index: currentIndex,
+              total: originalItemCount,
+              ...resolvedBaseInput,
+            },
             item: currentItem,
-            status: 'failed',
-            error: err?.message || String(err),
+            index: currentIndex,
+            total: originalItemCount,
           };
-          if (stopOnError) hasErrorOccurred = true;
+
+          let lastOutput: any = undefined;
+          let capturedResult: any = undefined;
+          const executedRecords: any[] = [];
+          let itemFailed = false;
+
+          for (const currNode of sortedBranchNodes) {
+            const currNodeName = currNode.data?.name || currNode.data?.nodeName || currNode.id;
+            try {
+              const currInput = options?.resolveInput
+                ? options.resolveInput(currNode, itemContext, currentItem)
+                : currNode.data?.config || {};
+
+              const raw = options?.executeNode
+                ? await options.executeNode(currNode, currInput, itemContext, currentItem)
+                : null;
+
+              const normalized = options?.normalizeOutput
+                ? options.normalizeOutput(currNode, raw)
+                : raw;
+
+              itemContext[currNodeName] = normalized;
+              lastOutput = normalized;
+              executedRecords.push({ nodeId: currNode.id, nodeName: currNodeName, output: normalized });
+
+              const currType = String(currNode.data?.definitionType || currNode.type || '').toLowerCase();
+              if (currType === 'output') {
+                capturedResult = normalized?.result !== undefined ? normalized.result : (normalized?.value !== undefined ? normalized.value : normalized);
+                break;
+              }
+            } catch (err: any) {
+              itemFailed = true;
+              indexedResults[currentIndex] = {
+                index: currentIndex,
+                item: currentItem,
+                status: 'failed',
+                error: err?.message || String(err),
+              };
+              if (stopOnError) hasErrorOccurred = true;
+              break;
+            }
+          }
+
+          if (!itemFailed) {
+            const finalItemResult = capturedResult !== undefined ? capturedResult : lastOutput;
+            indexedResults[currentIndex] = {
+              index: currentIndex,
+              item: currentItem,
+              status: 'completed',
+              result: finalItemResult,
+              nodes: executedRecords,
+            } as any;
+          }
+        } else {
+          // 2. CHILD SUBGRAPH EXECUTION
+          const childInput = {
+            ...resolvedBaseInput,
+            item: currentItem,
+            index: currentIndex,
+            total: originalItemCount,
+          };
+
+          try {
+            const childRun = await runGraph(targetGraphId, childInput, {
+              parentRunId: runId,
+              subgraphDepth: currentDepth + 1,
+              visitedArtifactLogicalIds,
+              idempotencyKey: `foreach:${runId}:${node.id}:${currentIndex}`,
+            });
+
+            if (childRun.status === 'waiting') {
+              if (isAsync || concurrency !== 1) throw new BadRequestException('A foreach child with a human gate requires synchronous execution and concurrency 1');
+              throw { status: 'waiting', childRunId: childRun.runId, resumeToken: childRun.resumeToken, waitingDescriptor: childRun.waitingDescriptor, result: childRun.output };
+            } else if (childRun.status === 'failed') {
+              indexedResults[currentIndex] = {
+                index: currentIndex,
+                item: currentItem,
+                status: 'failed',
+                childRunId: childRun.runId,
+                error: childRun.error || 'Child run failed',
+              };
+              if (stopOnError) hasErrorOccurred = true;
+            } else {
+              const itemResultValue = outputMode === 'state' ? childRun.nodes : childRun.output;
+              indexedResults[currentIndex] = {
+                index: currentIndex,
+                item: currentItem,
+                status: 'completed',
+                result: itemResultValue,
+                childRunId: childRun.runId,
+              };
+            }
+          } catch (err: any) {
+            if (err?.status === 'waiting') throw err;
+            indexedResults[currentIndex] = {
+              index: currentIndex,
+              item: currentItem,
+              status: 'failed',
+              error: err?.message || String(err),
+            };
+            if (stopOnError) hasErrorOccurred = true;
+          }
         }
       }
-    });
+    };
 
-    await Promise.all(workers);
+    const workers = Array.from({ length: numWorkers }, () => runWorkerLoop());
+
+    // ASYNC MODE: Non-blocking fire-and-forget dispatch
+    if (isAsync) {
+      (async () => {
+        try {
+          await Promise.all(workers);
+          this.logger.log(`⚡ [Async Foreach] Completed background execution for node "${nodeName}" (${itemsToProcess.length} items)`);
+        } catch (err: any) {
+          this.logger.error(`❌ [Async Foreach] Background worker error in node "${nodeName}": ${err.message}`);
+        }
+      })();
+
+      const asyncResult: ForEachResult = {
+        status: 'completed',
+        count: originalItemCount,
+        processed: 0,
+        truncated,
+        items: [],
+        errors: [],
+      };
+
+      return {
+        result: asyncResult,
+        ...asyncResult,
+        async: true,
+      };
+    }
+
+    // SYNC MODE: Await all workers
+    try {
+      await Promise.all(workers);
+    } catch (error: any) {
+      if (error?.status === 'waiting') return error;
+      throw error;
+    }
 
     const completedItems: ForEachItemResult[] = [];
     const errorsList: Array<{ index: number; childRunId?: string; error: any }> = [];
@@ -320,5 +599,51 @@ export class SubgraphRunnerService {
       result: foreachResult,
       ...foreachResult,
     };
+  }
+
+  private sortBranchNodes(nodes: RuntimeNode[], edges: any[]): RuntimeNode[] {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const incoming = new Map<string, Set<string>>();
+    const outgoing = new Map<string, Set<string>>();
+
+    for (const n of nodes) {
+      incoming.set(n.id, new Set());
+      outgoing.set(n.id, new Set());
+    }
+    for (const e of edges) {
+      if (byId.has(e.source) && byId.has(e.target)) {
+        incoming.get(e.target)!.add(e.source);
+        outgoing.get(e.source)!.add(e.target);
+      }
+    }
+
+    const roots = nodes.filter((n) => (incoming.get(n.id)?.size || 0) === 0);
+    const q = [...roots];
+    const result: RuntimeNode[] = [];
+    const emitted = new Set<string>();
+
+    while (q.length > 0) {
+      const n = q.shift()!;
+      if (emitted.has(n.id)) continue;
+      const deps = incoming.get(n.id) || new Set<string>();
+      if ([...deps].some((id) => !emitted.has(id))) {
+        q.push(n);
+        continue;
+      }
+      emitted.add(n.id);
+      result.push(n);
+      for (const targetId of outgoing.get(n.id) || []) {
+        if (byId.has(targetId)) {
+          q.push(byId.get(targetId)!);
+        }
+      }
+    }
+
+    for (const n of nodes) {
+      if (!emitted.has(n.id)) {
+        result.push(n);
+      }
+    }
+    return result;
   }
 }

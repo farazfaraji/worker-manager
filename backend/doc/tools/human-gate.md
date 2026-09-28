@@ -70,7 +70,12 @@ sequenceDiagram
 
 | Input Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `question` | `textarea` | Yes | `"Please review and provide your input..."` | The question or instructions shown to the reviewer in the dialog. |
+| `responseType` | `select` | No | `"panel"` | Response channel: `"panel"` (Flow Studio UI dialog) or `"telegram"` (dispatches prompt to Telegram and awaits user reply). |
+| `chatId` | `valueOrVariable` | Yes (if telegram) | `null` | Target Telegram Chat ID or User ID when `responseType === "telegram"`. |
+| `botToken` | `text` | No | `null` | Telegram Bot Token override. Defaults to `TELEGRAM_BOT_TOKEN` environment variable. |
+| `updateMode` | `select` | No | `"polling"` | Telegram update ingestion mode: `"polling"` (local getUpdates interval) or `"webhook"` (HTTP POST). |
+| `pollIntervalSeconds` | `number` | No | `2` | Polling frequency in seconds when `updateMode === "polling"`. |
+| `question` | `textarea` | Yes | `"Please review and provide your input..."` | The question or instructions shown to the reviewer in the dialog or Telegram. |
 | `inputType` | `select` | No | `"approval"` | UI component type to render (`approval`, `textarea`, `text`, `select`, `radio`, `form`). |
 | `options` | `json` | No | `[]` | Array of string options for `select` and `radio` types. |
 | `formFields` | `json` | No | `[]` | Array of field descriptor objects for `form` type. |
@@ -93,7 +98,7 @@ sequenceDiagram
    - Packs question, input type, options, form fields, and draft into output.
 2. The graph runner saves the run with `status: "waiting"`, releases the execution lease, and records a durable checkpoint in `run_checkpoints`.
 3. Flow Studio modal displays an amber **"Waiting for Review"** badge on the graph node and timeline, and opens the **Interactive Review & Form Card** in the Execution tab.
-4. **Parent/Child Subgraph Delegation**: If this Human Gate is inside a child subgraph, the parent run automatically transitions to `waiting` with `waitingChildRunId`. When the parent is resumed with the token, it resumes the child directly without restarting the child graph from scratch.
+4. **Parent/Child Delegation**: If this Human Gate is inside a child subgraph, a research-round child, or a synchronous Foreach child with concurrency 1, the parent run transitions to `waiting` with `waitingChildRunId`. Resuming the parent resumes the waiting child. Asynchronous or in-canvas Foreach item branches cannot pause for input.
 
 ### Stage 2: User Submission & Graph Resumption
 1. The operator fills the form or clicks Approve/Reject.

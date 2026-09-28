@@ -54,7 +54,7 @@ body {
 .main-content {
   display: flex;
   flex: 1;
-  height: calc(100vh - 60px);
+  min-height: 0;
   position: relative;
   overflow: hidden;
 }
@@ -621,6 +621,251 @@ body {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* Floating Movable & Resizable Node Config Window */
+.floating-node-window-wrapper {
+  pointer-events: auto !important;
+}
+
+.floating-node-window {
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  user-select: auto;
+}
+
+.floating-node-window:focus-within {
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1.5px var(--accent-primary, #6366f1);
+}
+
+.floating-node-window.failed-node-window {
+  border: 2px solid #ef4444;
+  box-shadow: 0 20px 45px -10px rgba(239, 68, 68, 0.35), 0 0 0 1px rgba(239, 68, 68, 0.2);
+}
+
+.floating-node-window.minimized {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2), 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.window-drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.window-drag-handle:active {
+  cursor: grabbing;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.window-control-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm, 6px);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.window-control-btn:hover {
+  background: var(--bg-hover, #f1f5f9);
+  color: var(--text-primary, #0f172a);
+}
+
+.window-control-btn.close-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.window-control-btn.minimize-btn:hover {
+  background: #f1f5f9;
+  color: var(--accent-primary, #6366f1);
+}
+
+.window-control-btn.maximize-btn:hover {
+  background: #f1f5f9;
+  color: var(--accent-primary, #6366f1);
+}
+
+/* Docked pill when node configuration is minimized */
+.docked-minimized-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999;
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 9999px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  font-size: 13px;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+  animation: modalEnter 0.2s ease-out;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.docked-minimized-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -5px rgba(15, 23, 42, 0.25);
+}
+
+.docked-restore-btn {
+  background: var(--accent-primary, #6366f1);
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.docked-restore-btn:hover {
+  opacity: 0.9;
+}
+
+/* Floating Movable & Resizable Node Config Window */
+.floating-node-window-wrapper {
+  pointer-events: auto !important;
+}
+
+.floating-node-window {
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  user-select: auto;
+}
+
+.floating-node-window:focus-within {
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28), 0 0 0 1.5px var(--accent-primary, #6366f1);
+}
+
+.floating-node-window.failed-node-window {
+  border: 2px solid #ef4444;
+  box-shadow: 0 20px 45px -10px rgba(239, 68, 68, 0.35), 0 0 0 1px rgba(239, 68, 68, 0.2);
+}
+
+.floating-node-window.minimized {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2), 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.window-drag-handle {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.window-drag-handle:active {
+  cursor: grabbing;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.window-control-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm, 6px);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.window-control-btn:hover {
+  background: var(--bg-hover, #f1f5f9);
+  color: var(--text-primary, #0f172a);
+}
+
+.window-control-btn.close-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.window-control-btn.minimize-btn:hover {
+  background: #f1f5f9;
+  color: var(--accent-primary, #6366f1);
+}
+
+.window-control-btn.maximize-btn:hover {
+  background: #f1f5f9;
+  color: var(--accent-primary, #6366f1);
+}
+
+/* Docked pill when node configuration is minimized */
+.docked-minimized-pill {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999;
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 9999px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  font-size: 13px;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+  animation: modalEnter 0.2s ease-out;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.docked-minimized-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -5px rgba(15, 23, 42, 0.25);
+}
+
+.docked-restore-btn {
+  background: var(--accent-primary, #6366f1);
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.docked-restore-btn:hover {
+  opacity: 0.9;
+}
+
 
 /* Graph List Items in Load Modal */
 .graph-list {
@@ -2087,4 +2332,361 @@ body {
   font-style: italic;
 }
 
+/* ==========================================================================
+   Flow Execution Studio - Bottom Docked Terminal / DevTools Design
+   ========================================================================== */
 
+.execution-studio-dock {
+  width: 100%;
+  background: var(--bg-surface, #ffffff);
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 40;
+  flex-shrink: 0;
+  transition: height 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.execution-studio-dock.is-resizing {
+  transition: none !important;
+  user-select: none !important;
+}
+
+/* Top resizer splitter handle (like Chrome DevTools / VS Code terminal) */
+.execution-studio-resizer {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  height: 9px;
+  cursor: ns-resize;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  touch-action: none;
+}
+
+.execution-studio-resizer:hover,
+.execution-studio-dock.is-resizing .execution-studio-resizer {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.execution-studio-resizer .resizer-handle-pill {
+  width: 52px;
+  height: 4px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: all 0.15s ease;
+}
+
+.execution-studio-resizer:hover .resizer-handle-pill,
+.execution-studio-dock.is-resizing .resizer-handle-pill {
+  background: var(--accent-primary, #6366f1);
+  width: 76px;
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
+}
+
+/* Consolidated Studio Header / Tab Bar */
+.execution-studio-header {
+  height: 42px;
+  min-height: 42px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 16px;
+  gap: 12px;
+  user-select: none;
+}
+
+.execution-studio-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.execution-studio-header-left::-webkit-scrollbar {
+  display: none;
+}
+
+.execution-studio-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  white-space: nowrap;
+}
+
+.execution-studio-target-flow {
+  font-size: 11.5px;
+  color: var(--text-secondary, #475569);
+  background: var(--bg-subtle, #f1f5f9);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.execution-studio-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-color, #e2e8f0);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
+/* Tab buttons inside docked terminal */
+.execution-studio-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.execution-studio-tab:hover {
+  color: var(--text-primary, #0f172a);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.execution-studio-tab.active {
+  color: var(--accent-primary, #4f46e5);
+  background: #ffffff;
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Header right controls */
+.execution-studio-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.execution-studio-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.execution-studio-tool-btn:hover {
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-subtle, #f1f5f9);
+  border-color: var(--border-color, #e2e8f0);
+}
+
+.execution-studio-tool-btn.active {
+  color: var(--accent-primary, #4f46e5);
+  background: var(--accent-subtle, #eef2ff);
+  border-color: var(--accent-border, #c7d2fe);
+}
+
+.execution-studio-preset-btn {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.execution-studio-preset-btn:hover {
+  color: var(--text-primary, #0f172a);
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+/* Dock body */
+.execution-studio-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  background: var(--bg-surface, #ffffff);
+}
+
+/* Minimized state */
+.execution-studio-dock.is-minimized {
+  height: 40px !important;
+  overflow: hidden;
+}
+
+.execution-studio-dock.is-minimized .execution-studio-header {
+  cursor: pointer;
+}
+
+.execution-studio-dock.is-minimized:hover .execution-studio-header {
+  background: #f1f5f9;
+}
+
+/* Floating modal mode fallback */
+.execution-studio-floating-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.execution-studio-floating-card {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalEnter 0.15s ease-out;
+}
+
+
+
+
+/* ─── Multi-select / drag-selection styles ──────────────────────────────── */
+
+/* The rubber-band selection rectangle drawn when Shift+dragging on canvas */
+.react-flow__selection {
+  background: rgba(79, 70, 229, 0.08);
+  border: 1.5px solid var(--accent-primary, #4f46e5);
+  border-radius: 4px;
+}
+
+/* Nodes that are part of a multi-selection get a stronger accent ring */
+.react-flow__node.selected .langgraph-node {
+  border-color: var(--accent-primary, #4f46e5);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.3), var(--shadow-lg);
+}
+
+/* The semi-transparent overlay React Flow renders over the group of selected
+   nodes when they are being moved together */
+.react-flow__nodesselection-rect {
+  background: rgba(79, 70, 229, 0.05);
+  border: 1.5px dashed var(--accent-primary, #4f46e5);
+  border-radius: 6px;
+}
+
+/* ─── Straight polyline edge — waypoint drag handles ────────────────────── */
+
+.waypoint-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-primary, #4f46e5);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--accent-primary, #4f46e5), 0 2px 6px rgba(0,0,0,0.25);
+  cursor: grab;
+  z-index: 10;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.waypoint-handle:hover {
+  transform: translate(-50%, -50%) scale(1.4);
+  box-shadow: 0 0 0 2px var(--accent-primary, #4f46e5), 0 4px 10px rgba(79,70,229,0.4);
+}
+
+.waypoint-handle:active {
+  cursor: grabbing;
+}
+
+/* Hit-area path for edge click-to-add-waypoint */
+.edge-hit-area {
+  cursor: crosshair;
+}
+
+/* Selected edge gets brighter stroke */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent-primary, #4f46e5) !important;
+  filter: drop-shadow(0 0 4px rgba(79,70,229,0.5));
+}
+
+/* ─── Edge inline toolbox ────────────────────────────────────────────────── */
+
+.edge-toolbox {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, rgba(255,255,255,0.12));
+  border-radius: 8px;
+  padding: 4px 5px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+  animation: edgeToolboxIn 0.12s ease-out;
+}
+
+@keyframes edgeToolboxIn {
+  from { opacity: 0; transform: translate(-50%, -100%) translate(var(--tx,0px), calc(var(--ty,0px) - 16px)) scale(0.88); }
+  to   { opacity: 1; transform: translate(-50%, -100%) translate(var(--tx,0px), var(--ty,0px)) scale(1); }
+}
+
+.edge-toolbox-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.edge-toolbox-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: var(--text-primary, #f1f5f9);
+}
+
+.edge-toolbox-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.edge-toolbox-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-color, rgba(255,255,255,0.1));
+  margin: 0 2px;
+  flex-shrink: 0;
+}
