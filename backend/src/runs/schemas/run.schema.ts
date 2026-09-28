@@ -55,6 +55,9 @@ export class NodeRunRecord {
 
   @Prop()
   finishedAt?: Date;
+
+  @Prop({ default: false })
+  cached?: boolean;
 }
 
 export const NodeRunRecordSchema = SchemaFactory.createForClass(NodeRunRecord);
@@ -136,6 +139,12 @@ export class Run {
 
   @Prop()
   cancelRequestedAt?: Date;
+
+  @Prop({ default: false })
+  debugMode?: boolean;
+
+  @Prop({ default: false })
+  useCache?: boolean;
 
   @Prop({ type: MongooseSchema.Types.Mixed })
   input: any;

@@ -1,0 +1,30 @@
+{
+  "name": "Output",
+  "type": "output",
+  "description": "Returns data from an iteration branch back to Foreach or defines flow exit payload.",
+  "inputs": [
+    {
+      "name": "value",
+      "label": "Output Value",
+      "type": "valueOrVariable",
+      "required": true,
+      "accepts": ["any", "object", "array", "string", "number", "boolean"],
+      "placeholder": "{{agent_1.result}} or enter literal value",
+      "helpText": "Value or variable to return from this iteration."
+    },
+    {
+      "name": "name",
+      "label": "Key Name (Optional)",
+      "type": "text",
+      "placeholder": "e.g. result",
+      "helpText": "Optional key name to wrap the returned value under."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Output Result",
+      "type": "object"
+    }
+  ]
+}

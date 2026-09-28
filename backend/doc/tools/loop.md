@@ -40,7 +40,7 @@ graph LR
 
 | Input Field | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `items` | `valueOrVariable` | Yes | `null` | Array of items to process, or an object containing an `items` array. |
+| `items` | `valueOrVariable` | Yes | `null` | Array of items to process, or an object containing an `items` array. Accepts `array`, `object`, `string`, `any`. |
 | `maxIterations` | `number` | No | `100` | Hard cap on items processed in a single run. |
 | `mode` | `select` | No | `"map"` | Iteration processing mode: `"map"` or `"batch"`. |
 
@@ -130,7 +130,41 @@ Safely process items parsed from an external file:
 
 ---
 
-## 7. Best Practices
+## 7. Loop vs. Foreach: Decision Matrix
+
+A common question is when to use **Loop** vs. **Foreach**:
+
+| Feature | `Loop` Node | `Foreach` Node |
+| :--- | :--- | :--- |
+| **Primary Purpose** | **Data Transformer & Guardrail** | **Execution Orchestrator** |
+| **Downstream Node Execution** | Downstream node runs **once** receiving the sliced or indexed array. | Downstream pipeline runs **once per item** (in parallel or sequentially). |
+| **Execution Context** | Single linear run in same graph. | Isolated context per item (`item`, `index`, `total`). |
+| **Workflow Termination** | Passes sliced collection directly to the next node. | Uses dedicated **`Output`** block at the end of the iteration branch. |
+| **Best Used For** | Slicing top $N$ items for **one** LLM summary, chunking batches for DB inserts, or stateful cyclic loops. | Calling an **Agent** or API once for every record in a list. |
+
+---
+
+## 8. Best Practices
 
 1. **Set Reasonable `maxIterations`**: Always establish a conservative `maxIterations` during testing (e.g. 5–10) before scaling up to production volumes.
 2. **Combine with Increment Variable**: For stateful step-by-step looping where the graph cycles back on itself, pair with an **Increment Variable** and **Condition** node to manage the iteration counter and exit condition.
+3. **Use Foreach for Multi-Node Iterations**: If you need to run an Agent, Script, or API call repeatedly for each item in an array, use the **`Foreach`** node rather than building cycles with `Loop`.
+
+## Research Rounds mode
+
+Set `mode` to `research` and choose a saved `graphId`. This mode invokes the child graph once per round; it does not add a cycle to the parent graph. Existing `map` and `batch` configurations retain their item-mapping behavior.
+
+- `initialInput`: object containing the idea, constraints, questions, and other fixed context.
+- `initialGaps`: starting array of unanswered questions.
+- `maxRounds`: integer from 1 to 10, default 3. This is separate from legacy `maxIterations`.
+- `completionPath`: property path in the child graph's output, such as `review.decision`. The default is `decision`.
+- `completionValue`: value that marks completion, default `pass`.
+- `gapPath`: property path for gaps passed to the next round, default `gaps`.
+
+Child graph outputs are wrapped under the final node's name. For a final reviewer named `review`, configure `completionPath: "review.decision"` and `gapPath: "review.gaps"`. A missing completion field or a gaps field that is not an array fails the loop with a configuration error.
+
+Each child run receives `{...initialInput, iteration, gaps, priorResult}`. `iteration` is one-based. `priorResult` contains the preceding round's structured output, capped at 16,000 characters; larger outputs pass a marked excerpt. The child should save long reports as Artifact documents and return IDs. A round output above 32,000 characters fails the loop. Each round has its own child run and a stable idempotency key, so a completed round is reused if the parent node is retried. Child run IDs remain in `result.iterations` for tracing.
+
+The parent checks for cancellation before and after each child round and stops starting new rounds once cancelled. A currently running child round may finish before the cancellation is observed.
+
+`result` contains `status`, `decision`, `iterations`, `count`, `stopReason`, `limitReached`, `gaps`, and `output`. A matching completion field yields `status: completed` and `stopReason: condition_met`. Exhaustion yields `status: incomplete`, `decision: incomplete_needs_human_review`, and `limitReached: true`; it does not assert research passed. A child human gate pauses the parent run and resumes the same child round when the user responds. A failed child still fails the parent node. Connect a Condition to `result.status` to route incomplete research to human review. `maxHandoffChars` bounds the previous round result sent into the next round; save large evidence as artifacts and pass their IDs.

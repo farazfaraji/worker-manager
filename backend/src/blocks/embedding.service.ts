@@ -19,8 +19,24 @@ export class EmbeddingService {
     if (!endpoint) throw new BadRequestException('Set EMBEDDING_ENDPOINT before using the Embedding block');
     const isLocal = /localhost|127\.0\.0\.1/.test(endpoint);
     if (!isLocal && process.env.EMBEDDING_ALLOW_EXTERNAL !== 'true') throw new BadRequestException('External embedding is disabled by server policy');
-    const url = endpoint.endsWith('/embeddings') ? endpoint : `${endpoint.replace(/\/$/, '')}/embeddings`;
-    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) }, body: JSON.stringify({ model, input: values }) });
+    let cleanEndpoint = endpoint.trim().replace(/\/+$/, '');
+    if (cleanEndpoint.endsWith('/embedding')) cleanEndpoint = cleanEndpoint.slice(0, -10);
+    const url = cleanEndpoint.endsWith('/embeddings') ? cleanEndpoint : `${cleanEndpoint}/embeddings`;
+    const timeoutMs = Number(process.env.EMBEDDING_TIMEOUT_MS || config.timeout || 5000);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+        body: JSON.stringify({ model, input: values }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err: any) {
+      if (err.name === 'TimeoutError' || err.code === 23) {
+        throw new Error(`Embedding request timed out after ${timeoutMs}ms connecting to ${url}`);
+      }
+      throw err;
+    }
     const payload: any = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`Embedding API error (${response.status}): ${payload.error?.message || response.statusText}`);
     const vectors = (payload.data || []).sort((a: any, b: any) => Number(a.index) - Number(b.index)).map((item: any) => item.embedding.map(Number));

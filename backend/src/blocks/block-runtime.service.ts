@@ -11,6 +11,7 @@ import { RuntimeNode } from '../runs/services/variable-resolver.service';
 import { AggregateResult, BlockInput, BlockOutput } from './block.types';
 import { EmbeddingService } from './embedding.service';
 import { VectorStoreService } from './vector-store.service';
+import { redactSecrets } from '../runs/services/redaction.util';
 
 const execFileAsync = promisify(execFile);
 
@@ -39,6 +40,7 @@ export class BlockRuntimeService {
       case 'embedding': return this.embedding(input);
       case 'router': return this.router(input);
       case 'human-gate': case 'humangate': return this.humanGate(input);
+      case 'telegram': return this.telegramBlock(input);
       case 'orchestrator': case 'delegator': return this.orchestrate(input);
       case 'loop': return this.loop(input);
       case 'aggregate': return this.aggregate(input);
@@ -91,34 +93,63 @@ export class BlockRuntimeService {
         const text = String(document.text || document.content || '').trim();
         if (!text) continue;
         const embedding = Array.isArray(document.embedding) ? document.embedding : await this.embeddings.embed(text, config);
-        records.push(await this.vectors.upsert({ namespace: config.namespace || payload.namespace, sourceType: document.sourceType || config.sourceType || 'document', sourceId: document.sourceId || document.artifactId || config.sourceId || `document-${Date.now()}`, version: document.version, chunkId: document.chunkId, text, embedding, metadata: { ...(document.metadata || {}), projectId: document.projectId || config.projectId, status: document.status || config.status } }));
+        const upserted: any = await this.vectors.upsert({ namespace: config.namespace || payload.namespace, sourceType: document.sourceType || config.sourceType || 'document', sourceId: document.sourceId || document.artifactId || config.sourceId || `document-${Date.now()}`, version: document.version, chunkId: document.chunkId, text, embedding, metadata: { ...(document.metadata || {}), projectId: document.projectId || config.projectId, status: document.status || config.status } });
+        const { embedding: _emb, ...cleanRec } = upserted || {};
+        records.push(cleanRec);
       }
       return { status: 'completed', result: { operation: 'index', indexedCount: records.length, records } };
     }
-    const query = String(payload.query || config.query || '').trim();
+    let query = String(payload.query || config.query || '').trim();
+    if ((query.startsWith("'") && query.endsWith("'")) || (query.startsWith('"') && query.endsWith('"'))) {
+      query = query.slice(1, -1).trim();
+    }
     const rawEmbedding = payload.embedding !== undefined ? payload.embedding : config.embedding;
-    const embedding = Array.isArray(rawEmbedding) && rawEmbedding.length > 0
-      ? rawEmbedding
-      : (query ? await this.embeddings.embed(query, config) : []);
-    const keywords = payload.keywords !== undefined ? payload.keywords : (config.keywords !== undefined ? config.keywords : payload.keyword || config.keyword);
-    const results = await this.vectors.search({
+    let embedding: number[] = [];
+    if (Array.isArray(rawEmbedding) && rawEmbedding.length > 0) {
+      embedding = rawEmbedding;
+    } else if (query) {
+      try {
+        embedding = await this.embeddings.embed(query, config);
+      } catch (err: any) {
+        this.logger.warn(`Failed to generate query embedding: ${err.message}. Falling back to keyword / candidate search.`);
+        embedding = [];
+      }
+    }
+    let keywords = payload.keywords !== undefined ? payload.keywords : (config.keywords !== undefined ? config.keywords : payload.keyword || config.keyword);
+    if (typeof keywords === 'string') {
+      const trimmedKw = keywords.trim();
+      if ((trimmedKw.startsWith("'") && trimmedKw.endsWith("'")) || (trimmedKw.startsWith('"') && trimmedKw.endsWith('"'))) {
+        keywords = trimmedKw.slice(1, -1).trim();
+      }
+    }
+    if ((!embedding || embedding.length === 0) && !keywords && query) {
+      keywords = query;
+    }
+    const rawResults = await this.vectors.search({
       embedding,
       namespace: config.namespace || payload.namespace || 'artifact-index',
       sourceType: config.sourceType || payload.sourceType,
       projectId: config.projectId || payload.projectId,
       status: config.status || payload.status,
       keywords,
-      limit: config.limit || payload.limit || 5,
+      limit: Number(payload.limit ?? config.limit ?? 5) || 5,
       latestOnly: config.latestOnly !== undefined ? config.latestOnly : payload.latestOnly,
       logicalId: config.logicalId || payload.logicalId,
       artifactType: config.artifactType || payload.artifactType,
+    });
+
+    // Ensure raw vector float arrays are never added to graph state on retrieval / get
+    const results = (rawResults || []).map((r: any) => {
+      const { embedding: _emb, ...clean } = r;
+      return clean;
     });
 
     const context = results
       .map((r: any, idx: number) => {
         const title = r.metadata?.title || r.logicalId || r.artifactId || `Source #${idx + 1}`;
         const score = typeof r.score === 'number' ? ` (Similarity: ${(r.score * 100).toFixed(1)}%)` : '';
-        return `### ${title}${score}\n${r.text || ''}`;
+        const idInfo = r.logicalId ? `Logical ID: ${r.logicalId}\n` : r.artifactId ? `Artifact ID: ${r.artifactId}\n` : '';
+        return `### ${title}${score}\n${idInfo}${r.text || ''}`;
       })
       .join('\n\n---\n\n');
 
@@ -239,8 +270,8 @@ export class BlockRuntimeService {
       }
     }
 
-    // Keep state lean: exclude raw vectors if linked to an artifact unless includeRawVectors is requested
-    const shouldIncludeVectors = includeRawVectors || !hasArtifactLink;
+    // Keep state lean: when linked to an artifact, suppress raw vector arrays unless includeRawVectors is true
+    const shouldIncludeVectors = hasArtifactLink ? includeRawVectors : true;
 
     return {
       status: 'completed',
@@ -580,12 +611,20 @@ export class BlockRuntimeService {
       ];
     }
 
+    const responseType = config.responseType || 'panel';
+
     return {
       status: 'waiting',
       result: {
         approvalRequired: true,
         token: payload.token || `approval-${Date.now()}`,
         question: config.question || 'Please review this request and provide your response.',
+        responseType,
+        chatId: config.chatId || payload.chatId,
+        botToken: config.botToken || payload.botToken,
+        messageThreadId: config.messageThreadId || payload.messageThreadId,
+        updateMode: config.updateMode || 'polling',
+        pollIntervalSeconds: Number(config.pollIntervalSeconds || 2),
         inputType,
         options,
         formFields,
@@ -596,15 +635,256 @@ export class BlockRuntimeService {
     };
   }
 
+  private async telegramBlock(input: BlockInput): Promise<BlockOutput> {
+    const config: any = input.config || {};
+    const payload: any = input.input || {};
+    const mode = String(config.mode || payload.mode || 'trigger').toLowerCase();
+
+    // Resumed state: user replied to the question
+    const hasResumed =
+      payload.decision !== undefined ||
+      payload.value !== undefined ||
+      payload.text !== undefined ||
+      payload.replyText !== undefined ||
+      payload.__resumed === true;
+
+    if (hasResumed) {
+      const value =
+        payload.value !== undefined
+          ? payload.value
+          : payload.text !== undefined
+          ? payload.text
+          : payload.replyText !== undefined
+          ? payload.replyText
+          : payload.decision;
+      const text = typeof value === 'string' ? value : JSON.stringify(value);
+
+      return {
+        status: 'completed',
+        result: {
+          value,
+          text,
+          replyText: text,
+          repliedAt: payload.repliedAt || new Date().toISOString(),
+          telegramReply: payload.telegramReply || null,
+        },
+        value,
+        text,
+      };
+    }
+
+    // Question mode: pauses the flow and waits for user's reply via Telegram
+    if (mode === 'question') {
+      return {
+        status: 'waiting',
+        result: {
+          telegram: true,
+          mode: 'question',
+          question: config.question || payload.question || 'Please review and reply directly to this message.',
+          chatId: config.chatId || payload.chatId,
+          botToken: config.botToken || payload.botToken,
+          messageThreadId: config.messageThreadId || payload.messageThreadId,
+          updateMode: config.updateMode || 'polling',
+          pollIntervalSeconds: Number(config.pollIntervalSeconds || 2),
+          timeoutMs: Number(config.timeoutMs || 86400000),
+        },
+      };
+    }
+
+    // Trigger mode: pass through trigger payload
+    if (mode === 'trigger') {
+      return {
+        status: 'completed',
+        result: payload,
+        text: payload.text || '',
+        chatId: payload.chatId || '',
+        userId: payload.userId || '',
+        username: payload.username || '',
+        threadId: payload.threadId || '',
+      };
+    }
+
+    // One-way outbound message mode
+    const chatId = config.chatId || payload.chatId;
+    const text = config.question || payload.question || config.message || payload.text || '';
+    return {
+      status: 'completed',
+      result: {
+        sent: true,
+        chatId,
+        text,
+      },
+      text,
+      chatId,
+    };
+  }
+
   private async orchestrate(input: BlockInput): Promise<BlockOutput> {
-    const agents = Array.isArray(input.config?.agents) ? input.config.agents : [];
     const goal = input.config?.goal || input.input;
-    const results = await Promise.all(agents.map(async (agent: any) => {
-      const node: any = { id: `delegated-${agent.id || agent.name}`, data: { config: { ...agent, userPrompt: agent.prompt || goal, outputFormat: agent.outputFormat || 'json' } } };
-      const result = await this.agentRunner.executeAgentNode(node, goal, input.context || {});
-      return { id: agent.id || agent.name, role: agent.role, result };
-    }));
-    return { status: 'completed', result: { goal, results, agentCount: results.length } };
+    const strategy = String(input.config?.strategy || 'parallel').toLowerCase();
+    if (!['parallel', 'sequential'].includes(strategy)) throw new BadRequestException('Orchestrator strategy must be parallel or sequential');
+    const failFast = input.config?.failFast === true;
+    const rawConcurrency = Number(input.config?.concurrency ?? 4);
+    if (!Number.isInteger(rawConcurrency) || rawConcurrency < 1) throw new BadRequestException('Orchestrator concurrency must be a positive integer');
+    const concurrency = Math.min(8, rawConcurrency);
+    const sharedInput = input.config?.sharedInput;
+    const maxToolStepsPerAgent = Math.min(10, Math.max(1, Number(input.config?.maxToolStepsPerAgent || 5)));
+    const requireResearchOutput = input.config?.requireResearchOutput === true;
+    const evidenceLimit = Math.min(10000, Math.max(100, Number(input.config?.evidenceLimit || 2000)));
+
+    let agents = input.config?.agents;
+    if (typeof agents === 'string') {
+      try {
+        agents = JSON.parse(agents);
+      } catch {
+        if (!input.config?.agentOutputs && !input.config?.outputs) {
+          throw new BadRequestException('Orchestrator agents must be a JSON array');
+        }
+      }
+    }
+
+    let agentOutputs = input.config?.agentOutputs ?? input.config?.outputs;
+    if (typeof agentOutputs === 'string') {
+      try { agentOutputs = JSON.parse(agentOutputs); } catch {}
+    }
+
+    const hasInternalAgents = Array.isArray(agents) && agents.length > 0 &&
+      agents.some((a) => a && (a.role || a.task || a.prompt || a.model || a.id || a.name));
+
+    // If no internal agents array is declared, execute visual canvas fan-out mode
+    if (!hasInternalAgents) {
+      const rawOutputs = Array.isArray(agentOutputs) && agentOutputs.length > 0
+        ? agentOutputs
+        : [
+            { name: 'agent_1', label: 'Agent 1', role: 'researcher' },
+            { name: 'agent_2', label: 'Agent 2', role: 'analyst' },
+            { name: 'agent_3', label: 'Agent 3', role: 'reviewer' },
+            { name: 'agent_4', label: 'Agent 4', role: 'architect' },
+          ];
+
+      const dispatchMap: BlockOutput = {
+        status: 'completed',
+        goal,
+      };
+
+      const agentRecords: any[] = [];
+      for (let i = 0; i < rawOutputs.length; i++) {
+        const item = rawOutputs[i];
+        const key = typeof item === 'string' ? item : (item?.name || item?.id || `agent_${i + 1}`);
+        const role = typeof item === 'object' ? item.role || item.label || key : key;
+        const task = typeof item === 'object' ? item.task || goal : goal;
+        const payload = {
+          goal,
+          task,
+          role,
+          agentId: key,
+          sharedInput,
+        };
+        dispatchMap[key] = payload;
+        agentRecords.push({ id: key, role, status: 'dispatched', task });
+      }
+
+      dispatchMap.result = {
+        goal,
+        agentCount: rawOutputs.length,
+        status: 'completed',
+        strategy,
+        results: agentRecords,
+        sharedInput,
+      };
+
+      return dispatchMap;
+    }
+
+    if (!Array.isArray(agents) || agents.length < 1 || agents.length > 12) throw new BadRequestException('Orchestrator requires 1 to 12 agents');
+    if (agents.some(agent => !agent || typeof agent !== 'object' || Array.isArray(agent))) throw new BadRequestException('Each delegated agent must be an object');
+    const ids = agents.map((agent, index) => String(agent.id || agent.name || `agent-${index + 1}`));
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Delegated agent IDs must be unique');
+
+    const executeDelegatedAgent = async (agent: any, index: number, previous: any[] = []) => {
+      const id = String(agent.id || agent.name || `agent-${index + 1}`);
+      const role = String(agent.role || agent.name || id);
+      const task = agent.task || agent.prompt || goal;
+      const allowedTools = agent.allowedTools || agent.tools;
+      const enableTools =
+        agent.enableTools !== undefined
+          ? Boolean(agent.enableTools)
+          : Array.isArray(allowedTools) && allowedTools.length > 0;
+
+      const priorResults = strategy === 'sequential' && agent.includePriorResults !== false
+        ? previous.filter(entry => entry.status === 'completed').map(entry => {
+            const result = entry.result && typeof entry.result === 'object'
+              ? Object.fromEntries(Object.entries(entry.result).filter(([key]) => !['toolCalls', 'toolTrace', 'reasoning'].includes(key)))
+              : entry.result;
+            return { id: entry.id, role: entry.role, result };
+          }).map(entry => {
+            const serialized = JSON.stringify(entry.result);
+            return { ...entry, result: serialized.length <= 4000 ? entry.result : { truncated: true, excerpt: serialized.slice(0, 3000) } };
+          })
+        : [];
+      const handoff = { goal, task, ...(sharedInput !== undefined ? { sharedInput } : {}), ...(priorResults.length ? { priorResults } : {}) };
+      const node: any = {
+        id: `delegated-${id}`,
+        data: {
+          config: {
+            ...agent,
+            userPrompt: priorResults.length || sharedInput !== undefined ? handoff : task,
+            systemPrompt:
+              agent.systemPrompt ||
+              `You are an agent with role: ${role}.`,
+            outputFormat: agent.outputFormat || 'json',
+            outputType: agent.outputType || agent.outputSchema,
+            enableTools,
+            allowedTools: enableTools ? allowedTools || ['search_web', 'read_url'] : [],
+            maxSteps: Math.min(maxToolStepsPerAgent, Math.max(1, Number(agent.maxSteps || agent.maxToolCalls || maxToolStepsPerAgent))),
+            researchOutput: agent.researchOutput !== undefined ? Boolean(agent.researchOutput) : requireResearchOutput,
+            evidenceLimit,
+            timeoutMs: Math.min(120000, Math.max(1000, Number(agent.timeoutMs || 60000))),
+            maxTimeoutMs: 120000,
+          },
+        },
+      };
+      try {
+        const result = await this.agentRunner.executeAgentNode(node, handoff, { ...(input.context || {}), delegation: handoff });
+        return { id, role, status: 'completed', result: redactSecrets(result), ...(result.toolCalls ? { toolCalls: redactSecrets(result.toolCalls) } : {}) };
+      } catch (error: any) {
+        return { id, role, status: 'failed', error: redactSecrets(String(error?.message || error).slice(0, 500)) };
+      }
+    };
+
+    let results: any[] = [];
+    if (strategy === 'sequential') {
+      for (let i = 0; i < agents.length; i++) {
+        const entry = await executeDelegatedAgent(agents[i], i, results);
+        results.push(entry);
+        if (failFast && entry.status === 'failed') break;
+      }
+    } else {
+      results = new Array(agents.length);
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(concurrency, agents.length) }, async () => {
+        while (next < agents.length) {
+          const index = next++;
+          results[index] = await executeDelegatedAgent(agents[index], index);
+        }
+      }));
+    }
+    const failureCount = results.filter(entry => entry.status === 'failed').length;
+    const result = { goal, results, agentCount: results.length, successCount: results.length - failureCount, failureCount, status: failureCount ? (failureCount === results.length ? 'failed' : 'partial') : 'completed' };
+    if (failFast && failureCount) throw new BadRequestException({ code: 'ORCHESTRATOR_AGENT_FAILED', message: 'Delegated agent failed in fail-fast mode', result });
+
+    const outputMap: BlockOutput = {
+      ...result,
+      status: 'completed',
+      goal,
+      result,
+    };
+    for (let i = 0; i < results.length; i++) {
+      const res = results[i];
+      const key = res.id || `agent_${i + 1}`;
+      outputMap[key] = res.result !== undefined ? res.result : res;
+    }
+    return outputMap;
   }
 
   private async loop(input: BlockInput): Promise<BlockOutput> {

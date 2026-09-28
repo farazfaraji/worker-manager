@@ -388,22 +388,29 @@ async function runTests() {
     assert.strictEqual(res.result.errors.length, 1);
   });
 
-  await test('foreach handles child graph returning waiting status as controlled failure', async () => {
+  await test('foreach handles waiting child: suspends parent on concurrency 1, marks failed on concurrency > 1', async () => {
     const runner = createTestGraphRunner(async () => {
       return { status: 'waiting', runId: 'child-waiting-run', output: { gate: 'approval' } };
     });
 
-    const res = await runner.executeForeachNode(
+    // 1. With concurrency 1, foreach pauses with waiting status
+    const waitingRes = await runner.executeForeachNode(
       { id: 'node_1', data: { name: 'foreach_1' } },
-      { items: ['task-1'], graphId: validGraphId },
+      { items: ['task-1'], graphId: validGraphId, concurrency: 1 },
       'parent-run-1',
     );
+    assert.strictEqual(waitingRes.status, 'waiting');
+    assert.strictEqual(waitingRes.childRunId, 'child-waiting-run');
 
-    assert.strictEqual(res.result.status, 'partial');
-    assert.strictEqual(res.result.items.length, 1);
-    assert.strictEqual(res.result.items[0].status, 'failed');
-    assert.strictEqual(res.result.items[0].childRunId, 'child-waiting-run');
-    assert.strictEqual(res.result.items[0].error.errorCode, 'FOREACH_CHILD_WAITING_UNSUPPORTED');
+    // 2. With concurrency > 1, human gates cannot be cleanly multiplexed so the item is marked failed
+    const failedRes = await runner.executeForeachNode(
+      { id: 'node_1', data: { name: 'foreach_1' } },
+      { items: ['task-1'], graphId: validGraphId, concurrency: 3 },
+      'parent-run-1',
+    );
+    assert.strictEqual(failedRes.result.status, 'partial');
+    assert.strictEqual(failedRes.result.items[0].status, 'failed');
+    assert.ok(failedRes.result.items[0].error.includes('requires synchronous execution and concurrency 1'));
   });
 
   await test('foreach supports outputMode state and result', async () => {
@@ -526,7 +533,95 @@ async function runTests() {
   });
 
   // -------------------------------------------------------------
-  // 4. Regression Tests
+  // 4. In-Canvas Foreach & Output Node Tests
+  // -------------------------------------------------------------
+  console.log('\n--- In-Canvas Foreach & Output Node Tests ---');
+
+  await test('output tool definition is valid and categorized under Control', async () => {
+    const service = new NodeDefinitionsService();
+    const defs = await service.getAllDefinitions();
+    const outputDef = defs.find((d) => d.type === 'output')!;
+
+    assert.ok(outputDef, 'Output tool definition must exist');
+    assert.strictEqual(outputDef.category, 'Control');
+  });
+
+  await test('in-canvas foreach executes branch nodes synchronously and aggregates outputs', async () => {
+    const executed: any[] = [];
+    const runner = createTestGraphRunner(async () => ({ status: 'completed' }));
+
+    const nodes: any[] = [
+      { id: 'foreach_1', type: 'foreach', data: { name: 'foreach_1', config: { mode: 'canvas', executionType: 'sync' } } },
+      { id: 'worker_1', type: 'script', data: { name: 'worker_1' } },
+      { id: 'output_1', type: 'output', data: { name: 'output_1' } },
+    ];
+    const edges: any[] = [
+      { source: 'foreach_1', target: 'worker_1', sourceHandle: 'item' },
+      { source: 'worker_1', target: 'output_1' },
+    ];
+
+    const res = await runner.executeForeachNode(
+      nodes[0],
+      { items: ['alpha', 'beta'], mode: 'canvas', executionType: 'sync' },
+      'test-run-canvas',
+      0,
+      [],
+      {
+        nodes,
+        edges,
+        context: {},
+        resolveInput: (n: any, ctx: any, item: any) => ({ item, processedBy: n.id }),
+        executeNode: async (n: any, inp: any, ctx: any, item: any) => {
+          executed.push({ node: n.id, item });
+          if (n.id === 'output_1') {
+            return { value: `result_${item}`, result: `result_${item}` };
+          }
+          return { transformed: item.toUpperCase() };
+        },
+      },
+    );
+
+    assert.strictEqual(res.result.status, 'completed');
+    assert.strictEqual(res.result.count, 2);
+    assert.strictEqual(res.result.processed, 2);
+    assert.strictEqual(res.result.items.length, 2);
+    assert.strictEqual(res.result.items[0].result, 'result_alpha');
+    assert.strictEqual(res.result.items[1].result, 'result_beta');
+    assert.strictEqual(executed.length, 4); // 2 nodes * 2 items
+  });
+
+  await test('in-canvas foreach supports non-blocking async execution', async () => {
+    const runner = createTestGraphRunner(async () => ({ status: 'completed' }));
+    const nodes: any[] = [
+      { id: 'foreach_1', type: 'foreach', data: { name: 'foreach_1', config: { mode: 'canvas', executionType: 'async' } } },
+      { id: 'worker_1', type: 'script', data: { name: 'worker_1' } },
+    ];
+    const edges: any[] = [
+      { source: 'foreach_1', target: 'worker_1', sourceHandle: 'item' },
+    ];
+
+    const res = await runner.executeForeachNode(
+      nodes[0],
+      { items: ['a', 'b', 'c'], mode: 'canvas', executionType: 'async' },
+      'test-run-async',
+      0,
+      [],
+      {
+        nodes,
+        edges,
+        context: {},
+        resolveInput: (n: any) => ({}),
+        executeNode: async () => ({ ok: true }),
+      },
+    );
+
+    assert.strictEqual(res.result.status, 'completed');
+    assert.strictEqual(res.async, true);
+    assert.strictEqual(res.result.count, 3);
+  });
+
+  // -------------------------------------------------------------
+  // 5. Regression Tests
   // -------------------------------------------------------------
   console.log('\n--- Regression Tests ---');
 

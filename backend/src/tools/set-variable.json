@@ -1,29 +1,95 @@
 {
     "name": "Set Variable",
     "type": "variable",
-    "description": "Sets a variable key and value output for use in downstream flow blocks.",
+    "description": "Defines or updates a flow state variable (string, number, boolean, or JSON) with template interpolation.",
     "inputs": [
         {
-            "name": "key",
-            "label": "Variable Key",
-            "type": "text",
+            "name": "operation",
+            "label": "Operation",
+            "type": "select",
             "required": true,
-            "placeholder": "e.g. user_query, status, payload",
-            "helpText": "The key or name of the variable."
+            "defaultValue": "set",
+            "options": [
+                { "label": "Set / Overwrite", "value": "set" },
+                { "label": "Merge Object (JSON only)", "value": "merge" },
+                { "label": "Append to List (Array)", "value": "append" },
+                { "label": "Delete Variable", "value": "delete" }
+            ],
+            "helpText": "Choose whether to overwrite, merge keys into an existing object, or append to an array."
         },
         {
-            "name": "value",
-            "label": "Value",
+            "name": "key",
+            "label": "Variable Name",
             "type": "text",
             "required": true,
-            "placeholder": "e.g. active, 100, hello world",
-            "helpText": "The value assigned to this variable key."
+            "placeholder": "e.g. user_query, status, counter, payload",
+            "helpText": "The state variable key (e.g. 'counter' or 'user.id')."
+        },
+        {
+            "name": "valueType",
+            "label": "Value Type",
+            "type": "select",
+            "required": true,
+            "defaultValue": "string",
+            "dependsOn": { "field": "operation", "notEquals": "delete" },
+            "options": [
+                { "label": "String (Text with templates)", "value": "string" },
+                { "label": "Number", "value": "number" },
+                { "label": "Boolean", "value": "boolean" },
+                { "label": "JSON (Object / Array)", "value": "json" },
+                { "label": "Variable Reference", "value": "variable" }
+            ],
+            "helpText": "Data type of the variable."
+        },
+        {
+            "name": "stringValue",
+            "label": "String Value",
+            "type": "text",
+            "dependsOn": { "field": "valueType", "equals": "string" },
+            "placeholder": "e.g. test_{{node.id}}",
+            "helpText": "Text value. Supports variables like {{node.id}}."
+        },
+        {
+            "name": "numberValue",
+            "label": "Numeric Value",
+            "type": "number",
+            "dependsOn": { "field": "valueType", "equals": "number" },
+            "placeholder": "0",
+            "helpText": "Numeric value (or template resolving to a number)."
+        },
+        {
+            "name": "booleanValue",
+            "label": "Boolean Value",
+            "type": "radio",
+            "defaultValue": "true",
+            "dependsOn": { "field": "valueType", "equals": "boolean" },
+            "options": [
+                { "label": "True", "value": "true" },
+                { "label": "False", "value": "false" }
+            ]
+        },
+        {
+            "name": "jsonValue",
+            "label": "JSON Value",
+            "type": "json",
+            "dependsOn": { "field": "valueType", "equals": "json" },
+            "placeholder": "{\n  \"id\": \"test_{{node.id}}\",\n  \"status\": \"active\"\n}",
+            "helpText": "Valid JSON object or array. String values inside can use {{variables}}."
+        },
+        {
+            "name": "variableValue",
+            "label": "Source Variable",
+            "type": "variable",
+            "dependsOn": { "field": "valueType", "equals": "variable" },
+            "placeholder": "Select variable to copy...",
+            "helpText": "Select an upstream variable to assign by reference.",
+            "accepts": ["string", "number", "boolean", "object", "array", "property", "any"]
         }
     ],
     "outputs": [
         {
             "name": "value",
-            "label": "Value",
+            "label": "Assigned Value",
             "type": "object"
         }
     ]

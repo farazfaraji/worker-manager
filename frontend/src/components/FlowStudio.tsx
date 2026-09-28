@@ -6,6 +6,8 @@ import {
   Edge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
   addEdge,
   Connection,
   NodeChange,
@@ -42,7 +44,9 @@ interface FlowStudioProps {
   initialFlowId?: string;
 }
 
-export function FlowStudio({ initialFlowId }: FlowStudioProps) {
+function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
+  const reactFlow = useReactFlow();
+
   // Graph state
   const [graphId, setGraphId] = useState<string | null>(initialFlowId || null);
   const [graphName, setGraphName] = useState<string>('Untitled Graph');
@@ -130,7 +134,22 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
         const resolvedId = loaded._id || id;
         setGraphId(resolvedId);
         setGraphName(loaded.name || 'Untitled Graph');
-        setNodes(loaded.nodes || []);
+        const enrichedLoadedNodes = (loaded.nodes || []).map((n: any) => {
+          const dynamicOutputs = extractNodeOutputs({
+            definitionType: n.data?.definitionType || n.type,
+            outputs: n.data?.definitionOutputs?.length ? n.data.definitionOutputs : (n.data?.outputs || []),
+            config: n.data?.config,
+            inputs: n.data?.inputs,
+          });
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              outputs: dynamicOutputs.length > 0 ? dynamicOutputs : (n.data?.outputs || []),
+            },
+          };
+        });
+        setNodes(enrichedLoadedNodes);
         setEdges(loaded.edges || []);
         setActiveRunResult(null);
         setIsDirty(false);
@@ -241,19 +260,38 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
 
   const handleConnect = useCallback(
     (params: Connection) => {
-      setEdges((eds) =>
-        addEdge(
+      setEdges((eds) => {
+        const sourceNode = nodes.find((n) => n.id === params.source);
+        const defType = String(
+          (sourceNode?.data as any)?.definitionType || sourceNode?.type || '',
+        ).toLowerCase();
+        const isBranching = defType === 'condition' || defType === 'router';
+
+        // For non-branching nodes, replace any existing edge between same source and target
+        const cleanedEdges = isBranching
+          ? eds.filter(
+              (e) =>
+                !(
+                  e.source === params.source &&
+                  e.target === params.target &&
+                  (e.sourceHandle || 'default') === (params.sourceHandle || 'default')
+                ),
+            )
+          : eds.filter((e) => !(e.source === params.source && e.target === params.target));
+
+        return addEdge(
           {
             ...params,
+            type: 'straight',
             animated: true,
             style: { stroke: 'var(--accent-primary)', strokeWidth: 2 },
           },
-          eds,
-        ),
-      );
+          cleanedEdges,
+        );
+      });
       setIsDirty(true);
     },
-    [setEdges],
+    [nodes, setEdges],
   );
 
   // Add node handler for both palette click and drag-drop onto canvas
@@ -270,14 +308,28 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
           }
         }
 
-        const pos = position || {
-          x: 250 + Math.random() * 80,
-          y: 120 + Math.random() * 80,
-        };
+        // If no explicit position is provided (i.e. the node was clicked from
+        // the left palette rather than drag-dropped), place it at the center of
+        // the currently visible viewport so it always appears in view.
+        const pos = position || (() => {
+          const { x: vx, y: vy, zoom } = reactFlow.getViewport();
+          const boardEl = document.querySelector('.flow-board-wrapper') as HTMLElement | null;
+          const boardWidth = boardEl ? boardEl.offsetWidth : window.innerWidth;
+          const boardHeight = boardEl ? boardEl.offsetHeight : window.innerHeight;
+          // Convert screen center → flow coordinates
+          const centerX = (boardWidth / 2 - vx) / zoom;
+          const centerY = (boardHeight / 2 - vy) / zoom;
+          return {
+            x: centerX + (Math.random() - 0.5) * 40,
+            y: centerY + (Math.random() - 0.5) * 40,
+          };
+        })();
 
         const outputs = extractNodeOutputs({
+          definitionType: definition.type,
           outputs: definition.outputs || [],
           config: initialConfig,
+          inputs: definition.inputs || [],
         });
 
         const newNode: Node<FlowNodeData> = {
@@ -286,6 +338,7 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
           position: pos,
           data: {
             name: uniqueName,
+            definitionId: definition.id,
             definitionType: definition.type,
             definitionName: definition.name,
             label: definition.name,
@@ -453,15 +506,49 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
         return graphId;
       }
     } catch (err: any) {
-      alert(`Save error: ${err.message}`);
+      showToast(err.message || 'Save failed', 'error');
+
+      // Highlight offending nodes on the canvas if the error names them
+      const errData = err?.data;
+      if (errData) {
+        const badNodeIds = new Set<string>();
+        if (errData.source) badNodeIds.add(errData.source);
+        if (errData.target) badNodeIds.add(errData.target);
+        // Also try top-level blockId (variable-ref errors)
+        if (errData.blockId) badNodeIds.add(errData.blockId);
+
+        if (badNodeIds.size > 0) {
+          const tip = err.message;
+          setNodes((prev) =>
+            prev.map((n) => ({
+              ...n,
+              data: {
+                ...n.data,
+                saveError: badNodeIds.has(n.id) ? tip : (n.data as any).saveError,
+              },
+            })),
+          );
+          // Auto-clear the highlight after 8 s
+          setTimeout(() => {
+            setNodes((prev) =>
+              prev.map((n) => ({
+                ...n,
+                data: { ...n.data, saveError: undefined },
+              })),
+            );
+          }, 8000);
+        }
+      }
+
       throw err;
+
     } finally {
       setIsSaving(false);
     }
   };
 
   // Execute graph using backend POST /graphs/:id/run
-  const handleRunGraph = async (inputPayload: any): Promise<RunResult> => {
+  const handleRunGraph = async (inputPayload: any, options?: { debugMode?: boolean; useCache?: boolean }): Promise<RunResult> => {
     if (nodes.length === 0) {
       alert('Cannot run an empty graph. Please add nodes first.');
       throw new Error('Graph has no nodes');
@@ -490,7 +577,10 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
         })),
       );
 
-      const result = await runGraph(targetGraphId, inputPayload);
+      const result = await runGraph(targetGraphId, inputPayload, {
+        debugMode: options?.debugMode,
+        useCache: options?.useCache,
+      });
       setActiveRunResult(result);
 
       // Annotate canvas nodes with execution results
@@ -553,6 +643,8 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
       } else if (result.status === 'listening') {
         const port = result.output?.port || result.output?.server?.port || 3000;
         showToast(result.output?.message || `Webserver listening on :${port}! Waiting for HTTP requests...`);
+      } else if (result.status === 'waiting' && result.waitingDescriptor?.debugBreakpoint) {
+        showToast(`Debug: paused after "${result.waitingDescriptor.nodeName}"`);
       } else {
         showToast(`Flow failed: ${result.error?.message || 'Check failed node logs'}`, 'error');
       }
@@ -635,6 +727,8 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
 
       if (result.status === 'completed') {
         showToast('Flow resumed and completed successfully!');
+      } else if (result.status === 'waiting' && result.waitingDescriptor?.debugBreakpoint) {
+        showToast(`Debug: paused after "${result.waitingDescriptor.nodeName}"`);
       } else if (result.status === 'waiting') {
         showToast('Flow paused: waiting for next human review.');
       } else {
@@ -657,12 +751,74 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
   });
 
   const lastKnownRunIdRef = useRef<string | null>(null);
+  const activeRunResultRef = useRef<RunResult | null>(activeRunResult);
 
   useEffect(() => {
+    activeRunResultRef.current = activeRunResult;
     if (activeRunResult?.runId) {
       lastKnownRunIdRef.current = activeRunResult.runId;
     }
-  }, [activeRunResult?.runId]);
+  }, [activeRunResult]);
+
+  // Centralized helper to apply run results to active state, canvas nodes, and selected drawer
+  const applyRunResult = useCallback((result: RunResult) => {
+    setActiveRunResult(result);
+    activeRunResultRef.current = result;
+    lastKnownRunIdRef.current = result.runId;
+
+    const nodeStatusMap = new Map<string, any>();
+    (result.nodes || []).forEach((rec) => {
+      nodeStatusMap.set(rec.nodeId, rec);
+    });
+
+    setNodes((prev) =>
+      prev.map((n) => {
+        const rec = nodeStatusMap.get(n.id);
+        if (rec) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              runStatus: rec.status,
+              runOutput: rec.output,
+              runError: rec.error?.message,
+              runErrorDetails: rec.error,
+            },
+          };
+        }
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            runStatus:
+              result.status === 'listening'
+                ? undefined
+                : result.status === 'failed'
+                ? (n.data.runStatus === 'running' ? 'skipped' : undefined)
+                : n.data.runStatus,
+          },
+        };
+      }),
+    );
+
+    setSelectedNode((prevSelected) => {
+      if (!prevSelected) return null;
+      const rec = nodeStatusMap.get(prevSelected.id);
+      if (rec) {
+        return {
+          ...prevSelected,
+          data: {
+            ...prevSelected.data,
+            runStatus: rec.status,
+            runOutput: rec.output,
+            runError: rec.error?.message,
+            runErrorDetails: rec.error,
+          },
+        };
+      }
+      return prevSelected;
+    });
+  }, [setNodes, setSelectedNode]);
 
   // Live polling for webserver runs
   useEffect(() => {
@@ -673,54 +829,34 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
         const recentRuns = await fetchRuns(undefined, graphId);
         if (recentRuns && recentRuns.length > 0) {
           const latest = recentRuns[0];
-          // If a new execution occurred that is not the 'listening' placeholder and not our currently displayed run
-          if (
-            latest.runId !== lastKnownRunIdRef.current &&
-            latest.status !== 'listening'
-          ) {
-            lastKnownRunIdRef.current = latest.runId;
-            setActiveRunResult(latest);
+          const current = activeRunResultRef.current;
+          const isNewRun = latest.runId !== lastKnownRunIdRef.current;
+          const isRunUpdated =
+            current?.runId === latest.runId &&
+            (latest.status !== current.status ||
+              (latest.nodes?.length || 0) > (current.nodes?.length || 0) ||
+              (latest.checkpointSequence || 0) > (current.checkpointSequence || 0));
 
-            // Annotate canvas nodes with real execution results
-            const nodeStatusMap = new Map<string, any>();
-            (latest.nodes || []).forEach((rec) => {
-              nodeStatusMap.set(rec.nodeId, rec);
-            });
+          if ((isNewRun || isRunUpdated) && latest.status !== 'listening') {
+            applyRunResult(latest);
 
-            setNodes((prev) =>
-              prev.map((n) => {
-                const rec = nodeStatusMap.get(n.id);
-                if (rec) {
-                  return {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      runStatus: rec.status,
-                      runOutput: rec.output,
-                      runError: rec.error?.message,
-                      runErrorDetails: rec.error,
-                    },
-                  };
-                }
-                return n;
-              }),
-            );
-
-            showToast(
-              latest.status === 'completed'
-                ? 'HTTP Request processed successfully!'
-                : `HTTP Request execution failed: ${latest.error?.message || 'Check logs'}`,
-              latest.status === 'completed' ? 'success' : 'error',
-            );
+            if (isNewRun) {
+              showToast(
+                latest.status === 'completed'
+                  ? 'HTTP Request processed successfully!'
+                  : `HTTP Request execution failed: ${latest.error?.message || 'Check logs'}`,
+                latest.status === 'completed' ? 'success' : 'error',
+              );
+            }
           }
         }
       } catch {
         // Ignore background polling errors
       }
-    }, 2500);
+    }, 2000);
 
     return () => clearInterval(interval);
-  }, [hasWebserver, graphId]);
+  }, [hasWebserver, graphId, applyRunResult]);
 
   return (
     <div className="app-container">
@@ -891,11 +1027,13 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
         onValidate={handleValidateGraph}
         runResult={activeRunResult}
         isExecuting={isExecuting}
+        onRunResult={applyRunResult}
       />
 
       {/* LLM Models & App Settings Modal */}
       <ModelSettingsModal
         isOpen={isSettingsModalOpen}
+        activeProjectId={activeProjectId}
         onClose={() => setIsSettingsModalOpen(false)}
         onModelsUpdated={() => {
           showToast('Model settings updated');
@@ -914,5 +1052,13 @@ export function FlowStudio({ initialFlowId }: FlowStudioProps) {
         </div>
       )}
     </div>
+  );
+}
+
+export function FlowStudio({ initialFlowId }: FlowStudioProps) {
+  return (
+    <ReactFlowProvider>
+      <FlowStudioInner initialFlowId={initialFlowId} />
+    </ReactFlowProvider>
   );
 }

@@ -7,7 +7,7 @@ description: Use when designing, selecting tools for, composing, or generating F
 
 This skill guides AI agents in selecting the right tools and generating complete, valid, and fully-wired **Flow Board graphs** for the LangGraph Flow Builder.
 
-For the current board-construction contract, read [board/llm.md](board/llm.md) before creating or changing a graph. Its semantic-only graph and layout rules take precedence over older canvas-coordinate examples in this document.
+For the current board-construction contract, read [../board/llm.md](../board/llm.md) before creating or changing a graph. Its canonical `flow.blocks` / `flow.connections` model and layout rules take precedence over older React Flow examples in this document.
 
 All tools in the builder have dedicated reference documentation located in [`backend/src/tools/doc/`](file:///Users/faraz/builder/backend/src/tools/doc/).
 
@@ -198,8 +198,8 @@ Nodes can configure custom execution policies to control retry loops, backoff de
 
 When generating graph JSON for a Flow Board:
 
-### 1. Semantic Graph Only
-- Generate nodes, edges, names, tool configuration, and valid handles.
+### 1. Canonical Flow Only
+- Generate `flow.blocks`, `flow.connections`, names, tool configuration, and valid outputs.
 - Do not generate positions, viewport, edge styling, animations, dimensions, or routing points.
 - `GraphShapeService` persists those canvas concerns separately as `layout` and reconstructs the React Flow representation when the graph is loaded.
 

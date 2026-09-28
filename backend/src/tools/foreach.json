@@ -1,20 +1,59 @@
 {
   "name": "Foreach",
   "type": "foreach",
-  "description": "Execute a saved child graph for each item in an input collection.",
+  "description": "Iterate over an input collection either by executing in-canvas nodes or a child graph, with sync or async dispatch.",
   "inputs": [
+    {
+      "name": "mode",
+      "label": "Execution Mode",
+      "type": "select",
+      "defaultValue": "canvas",
+      "options": [
+        {
+          "label": "In-Canvas Nodes",
+          "value": "canvas"
+        },
+        {
+          "label": "Child Subgraph",
+          "value": "subgraph"
+        }
+      ],
+      "helpText": "In-Canvas runs connected nodes directly on this board. Child Subgraph invokes a separate saved graph."
+    },
+    {
+      "name": "executionType",
+      "label": "Execution Type",
+      "type": "select",
+      "defaultValue": "sync",
+      "options": [
+        {
+          "label": "Synchronous (Wait & Aggregate)",
+          "value": "sync"
+        },
+        {
+          "label": "Asynchronous (Non-blocking / Background)",
+          "value": "async"
+        }
+      ],
+      "helpText": "Synchronous waits for all items to complete and aggregates results. Child graphs with human gates require synchronous execution and concurrency 1. Asynchronous dispatches iterations without blocking the parent run."
+    },
     {
       "name": "items",
       "label": "Items",
       "type": "valueOrVariable",
       "required": true,
+      "accepts": ["array", "object", "string", "any"],
       "helpText": "Array of items or an object containing an items array."
     },
     {
       "name": "graphId",
       "label": "Select Graph",
       "type": "select",
-      "required": true,
+      "required": false,
+      "dependsOn": {
+        "field": "mode",
+        "equals": "subgraph"
+      },
       "dataSource": {
         "type": "endpoint",
         "url": "/api/graphs",
@@ -47,20 +86,24 @@
       "defaultValue": 1,
       "minimum": 1,
       "maximum": 10,
-      "helpText": "Number of child graph executions to run in parallel (1 to 10)."
+      "helpText": "Number of executions to run in parallel (1 to 10). Set to 1 when a child graph can ask for human input."
     },
     {
       "name": "stopOnError",
       "label": "Stop On Error",
       "type": "checkbox",
       "defaultValue": false,
-      "helpText": "If enabled, stops initiating new child runs after the first failure."
+      "helpText": "If enabled, stops initiating new runs after the first failure."
     },
     {
       "name": "outputMode",
       "label": "Output Mode",
       "type": "select",
       "defaultValue": "result",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "subgraph"
+      },
       "options": [
         {
           "label": "Return Result",
@@ -74,12 +117,12 @@
     },
     {
       "name": "outputType",
-      "label": "Child Output Type",
+      "label": "Child / Iteration Output Type",
       "type": "code",
       "language": "typescript",
       "required": false,
       "placeholder": "{ id: string, status: string }",
-      "helpText": "Describes child graph result for downstream autocomplete."
+      "helpText": "Describes item result for downstream autocomplete."
     }
   ],
   "outputs": [

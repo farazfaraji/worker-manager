@@ -1,0 +1,269 @@
+{
+  "name": "Web Search",
+  "type": "web-search",
+  "description": "Searches the web via Tavily to discover pages, or scrapes website content, sanitizes HTML, resolves hyperlinks, and reads article text.",
+  "inputs": [
+    {
+      "name": "mode",
+      "label": "Operation Mode",
+      "type": "select",
+      "required": false,
+      "defaultValue": "search",
+      "options": [
+        {
+          "label": "Search Web by Query (Tavily)",
+          "value": "search"
+        },
+        {
+          "label": "Fetch & Clean HTML (from URL)",
+          "value": "fetch_and_clean"
+        },
+        {
+          "label": "Extract Links Only (from URL)",
+          "value": "extract_links"
+        },
+        {
+          "label": "Read Article Content (from URL)",
+          "value": "read_article"
+        }
+      ],
+      "helpText": "Choose between querying the web to discover relevant pages, or fetching and extracting content from a known URL."
+    },
+    {
+      "name": "query",
+      "label": "Search Query",
+      "type": "valueOrVariable",
+      "required": true,
+      "placeholder": "e.g. latest AI research benchmarks or {{input.topic}}",
+      "helpText": "The search query string to look up relevant web pages.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "provider",
+      "label": "Search Provider",
+      "type": "select",
+      "required": false,
+      "defaultValue": "tavily",
+      "options": [
+        {
+          "label": "Tavily Search",
+          "value": "tavily"
+        }
+      ],
+      "helpText": "Search engine provider to execute web search queries (defaults to Tavily).",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "maxResults",
+      "label": "Max Results",
+      "type": "number",
+      "required": false,
+      "defaultValue": 5,
+      "placeholder": "5",
+      "helpText": "Maximum number of search results to return (1-20, default 5).",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "searchDepth",
+      "label": "Search Depth",
+      "type": "select",
+      "required": false,
+      "defaultValue": "basic",
+      "options": [
+        {
+          "label": "Basic (Fast, 1 credit)",
+          "value": "basic"
+        },
+        {
+          "label": "Advanced (In-depth reranking, 2 credits)",
+          "value": "advanced"
+        }
+      ],
+      "helpText": "Search depth level. Basic is fast and cost-effective; Advanced performs deeper reranking.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "topic",
+      "label": "Topic Category",
+      "type": "select",
+      "required": false,
+      "defaultValue": "general",
+      "options": [
+        {
+          "label": "General Web",
+          "value": "general"
+        },
+        {
+          "label": "News Articles",
+          "value": "news"
+        },
+        {
+          "label": "Finance",
+          "value": "finance"
+        }
+      ],
+      "helpText": "Target category for the search results.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "timeRange",
+      "label": "Time Range",
+      "type": "select",
+      "required": false,
+      "defaultValue": "",
+      "options": [
+        {
+          "label": "Any Time",
+          "value": ""
+        },
+        {
+          "label": "Past Day",
+          "value": "day"
+        },
+        {
+          "label": "Past Week",
+          "value": "week"
+        },
+        {
+          "label": "Past Month",
+          "value": "month"
+        },
+        {
+          "label": "Past Year",
+          "value": "year"
+        }
+      ],
+      "helpText": "Filter results by relative publication timeframe.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "includeDomains",
+      "label": "Include Domains",
+      "type": "text",
+      "required": false,
+      "placeholder": "e.g. github.com, arxiv.org",
+      "helpText": "Comma-separated list of domains to restrict search results to.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "excludeDomains",
+      "label": "Exclude Domains",
+      "type": "text",
+      "required": false,
+      "placeholder": "e.g. pinterest.com, facebook.com",
+      "helpText": "Comma-separated list of domains to exclude from search results.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "includeAnswer",
+      "label": "Include AI Summary Answer",
+      "type": "select",
+      "required": false,
+      "defaultValue": "false",
+      "options": [
+        {
+          "label": "No",
+          "value": "false"
+        },
+        {
+          "label": "Yes (AI Summary Answer)",
+          "value": "true"
+        }
+      ],
+      "helpText": "If enabled, Tavily returns an LLM-generated direct answer based on search results.",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "search"
+      }
+    },
+    {
+      "name": "url",
+      "label": "Target URL",
+      "type": "valueOrVariable",
+      "required": true,
+      "placeholder": "https://example.com/blog",
+      "helpText": "URL to scrape, extract links from, or read article.",
+      "dependsOn": {
+        "field": "mode",
+        "notEquals": "search"
+      }
+    },
+    {
+      "name": "maxContentLength",
+      "label": "Max Content Length",
+      "type": "number",
+      "required": false,
+      "defaultValue": 25000,
+      "helpText": "Maximum character length of HTML/text to avoid exceeding LLM context limits.",
+      "dependsOn": {
+        "field": "mode",
+        "notEquals": "search"
+      }
+    },
+    {
+      "name": "engine",
+      "label": "Fetch Engine",
+      "type": "select",
+      "required": false,
+      "defaultValue": "fetch",
+      "options": [
+        {
+          "label": "Fast HTTP Fetch (Recommended)",
+          "value": "fetch"
+        },
+        {
+          "label": "Playwright Headless Browser (JS heavy)",
+          "value": "playwright"
+        }
+      ],
+      "helpText": "Fast fetch is ultra-fast for static content; Playwright executes client-side JavaScript.",
+      "dependsOn": {
+        "field": "mode",
+        "notEquals": "search"
+      }
+    },
+    {
+      "name": "cacheResult",
+      "label": "Cache Last Result",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "Store the latest execution result in the database cache. When running in Debug mode with 'Use Cache' enabled, this cached result will be reused instead of calling the web search or scraping service."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "done",
+      "label": "Done",
+      "type": "branch"
+    },
+    {
+      "name": "onFailed",
+      "label": "On Failed",
+      "type": "branch"
+    }
+  ]
+}

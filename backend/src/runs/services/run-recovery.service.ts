@@ -99,11 +99,40 @@ export class RunRecoveryService {
     if (run.waitingChildRunId) {
       const childRunId = run.waitingChildRunId;
       this.logger.log(`   🔗 Resuming waiting child run: ${childRunId}`);
-      const childResult = await this.resumeRun(childRunId, resumePayload, delegates);
+      let childResult: any;
+      try {
+        childResult = await this.resumeRun(childRunId, resumePayload, delegates);
+      } catch (error) {
+        run.status = 'waiting';
+        await run.save();
+        await this.leaseService.releaseLease(runId, workerId);
+        throw error;
+      }
+      if (childResult.status === 'waiting') {
+        run.status = 'waiting';
+        run.waitingChildRunId = childRunId;
+        run.waitingDescriptor = {
+          ...(run.waitingDescriptor || {}),
+          uiPayload: childResult.waitingDescriptor?.uiPayload,
+        } as any;
+        await run.save();
+        await this.leaseService.releaseLease(runId, workerId);
+        return this.storageService.publicRun(run, childResult.resumeToken ? { resumeToken: childResult.resumeToken } : undefined);
+      }
+      if (childResult.status !== 'completed') {
+        run.status = 'failed';
+        run.error = { message: `Waiting child run ${childRunId} ended with status ${childResult.status}`, code: 'CHILD_RUN_FAILED' };
+        run.finishedAt = new Date();
+        await run.save();
+        await this.leaseService.releaseLease(runId, workerId);
+        return this.storageService.publicRun(run);
+      }
 
-      // Record child completion in parent
+      // Iteration nodes need to run again so their existing child runs can be
+      // collected through their idempotency keys before continuing downstream.
       const waitingNode = priorRecords.find((r: any) => r.nodeId === run.waitingNodeId || r.childRunId === childRunId);
-      if (waitingNode) {
+      const resumeIteration = ['foreach', 'loop'].includes(String(waitingNode?.nodeType || '').toLowerCase());
+      if (waitingNode && !resumeIteration) {
         waitingNode.status = 'completed';
         waitingNode.output = childResult.output;
         waitingNode.finishedAt = new Date();
@@ -131,24 +160,45 @@ export class RunRecoveryService {
         parentRunId: run.parentRunId,
         rootRunId: run.rootRunId,
         context: restoredContext,
-        priorRecords,
-        executionQueue: [...restoredQueue, ...nextTargets],
+        priorRecords: resumeIteration ? priorRecords.filter((r: any) => r.nodeId !== waitingNode?.nodeId) : priorRecords,
+        executionQueue: resumeIteration ? [waitingNode.nodeId, ...restoredQueue] : [...restoredQueue, ...nextTargets],
         checkpointSequence: checkpointSequence + 1,
+        debugMode: run.debugMode || false,
+        useCache: run.useCache || false,
       });
     }
 
-    // Direct waiting node (e.g. human gate)
+    // Direct waiting node (e.g. human gate or debug breakpoint)
     const waitingNodeId = run.waitingNodeId || latestCheckpoint?.waitingNodeId;
     if (!waitingNodeId) {
       await this.leaseService.releaseLease(runId, workerId);
       throw new NotFoundException('No waiting node specified on run');
     }
 
-    // Inject submitted response into context
-    restoredContext.__resumeDecision = resumePayload;
+    // Check if this is a debug breakpoint (node already completed, just continue)
+    const isDebugBreakpoint = run.waitingDescriptor?.debugBreakpoint === true;
+
     run.waitingNodeId = undefined;
     run.waitingDescriptor = undefined;
     await run.save();
+
+    if (isDebugBreakpoint) {
+      // Debug breakpoint: node already completed, continue from remaining queue
+      return delegates.runGraph(String(run.graphId), run.input, {
+        existingRunId: runId,
+        parentRunId: run.parentRunId,
+        rootRunId: run.rootRunId,
+        context: restoredContext,
+        priorRecords,
+        executionQueue: restoredQueue,
+        checkpointSequence: checkpointSequence + 1,
+        debugMode: run.debugMode || false,
+        useCache: run.useCache || false,
+      });
+    }
+
+    // Inject submitted response into context
+    restoredContext.__resumeDecision = resumePayload;
 
     // Re-execute waiting node and continue
     return delegates.runGraph(String(run.graphId), run.input, {
@@ -160,6 +210,8 @@ export class RunRecoveryService {
       priorRecords: priorRecords.filter((r: any) => r.nodeId !== waitingNodeId),
       executionQueue: [waitingNodeId, ...restoredQueue],
       checkpointSequence: checkpointSequence + 1,
+      debugMode: run.debugMode || false,
+      useCache: run.useCache || false,
     });
   }
 

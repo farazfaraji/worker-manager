@@ -17,6 +17,32 @@ export interface GraphNodeLayout {
   hidden?: boolean;
 }
 
+/** Executable board definition. It has no React Flow-specific fields. */
+export interface GraphBlock {
+  id: string;
+  kind: string;
+  name: string;
+  label: string;
+  definitionId?: string;
+  definitionName?: string;
+  config: Record<string, any>;
+}
+
+export interface GraphConnection {
+  id: string;
+  from: string;
+  to: string;
+  output?: string;
+  input?: string;
+  data?: Record<string, any>;
+}
+
+export interface GraphFlow {
+  version: number;
+  blocks: GraphBlock[];
+  connections: GraphConnection[];
+}
+
 /** Canvas-only state. It intentionally lives apart from executable graph data. */
 export interface GraphLayout {
   version: number;
@@ -32,6 +58,12 @@ export const defaultGraphLayout = (): GraphLayout => ({
   edges: {},
 });
 
+export const defaultGraphFlow = (): GraphFlow => ({
+  version: 1,
+  blocks: [],
+  connections: [],
+});
+
 @Schema({ timestamps: true })
 export class Graph {
   @Prop({ required: true, index: true })
@@ -40,21 +72,11 @@ export class Graph {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop({ type: Array, default: [] })
-  nodes: Record<string, any>[];
-
-  @Prop({ type: Array, default: [] })
-  edges: Record<string, any>[];
+  @Prop({ type: Object, default: defaultGraphFlow })
+  flow: GraphFlow;
 
   @Prop({ type: Object, default: defaultGraphLayout })
   layout: GraphLayout;
-
-  /** @deprecated Stored in layout.viewport for new and updated graphs. */
-  @Prop({
-    type: Object,
-    default: { x: 0, y: 0, zoom: 1 },
-  })
-  viewport: GraphViewport;
 
   @Prop({ type: Object, default: {} })
   metadata: Record<string, any>;

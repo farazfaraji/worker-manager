@@ -20,6 +20,7 @@ import {
 } from '../events/event.types';
 import { ArtifactRelationService } from './artifact-relation.service';
 import { ArtifactIndexingService } from './artifact-indexing.service';
+import { VectorStoreService } from './vector-store.service';
 import {
   ArtifactCreateInput,
   ArtifactListQuery,
@@ -88,6 +89,28 @@ export function parseLinkedArtifactIds(raw: any): string[] {
   return [];
 }
 
+export function parseMetadata(raw: any): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return { ...raw };
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch {}
+    }
+    if (trimmed) {
+      return { commitHash: trimmed };
+    }
+  }
+  return {};
+}
+
 export function canonicalizeJson(obj: any): string {
   if (obj === null || typeof obj !== 'object') {
     return JSON.stringify(obj);
@@ -131,13 +154,14 @@ export class ArtifactService {
     private readonly eventEngine: EventEngineService,
     @Optional() private readonly relationService?: ArtifactRelationService,
     @Optional() private readonly indexingService?: ArtifactIndexingService,
+    @Optional() private readonly vectorStore?: VectorStoreService,
   ) {}
 
   /**
    * Create a new logical artifact (version 1)
    */
   async create(input: ArtifactCreateInput | any): Promise<ArtifactVersion> {
-    const projectId = input.projectId || input.namespace;
+    const projectId = input.projectId || input.namespace || 'default';
     const parent = input.parentArtifactId ? await this.get(input.parentArtifactId, projectId, false) : null;
     let content = input.content !== undefined ? input.content : (input.value !== undefined ? input.value : input.input);
     if (content === undefined || content === null) {
@@ -194,7 +218,7 @@ export class ArtifactService {
     );
 
     // Provenance & source metadata
-    const metadata = { ...(input.metadata || {}) };
+    const metadata = parseMetadata(input.metadata);
     if (input.runId && !metadata.sourceRunId) metadata.sourceRunId = input.runId;
     if (input.nodeId && !metadata.sourceNodeId) metadata.sourceNodeId = input.nodeId;
 
@@ -296,7 +320,7 @@ export class ArtifactService {
     const newContentHash = computeContentHash(format, nextContent);
 
     // Merge metadata shallowly at top level; union sourceEventIds
-    const nextMetadata = { ...(current.metadata || {}), ...(patch.metadata || {}) };
+    const nextMetadata = { ...(current.metadata || {}), ...parseMetadata(patch.metadata) };
     if (patch.runId && !nextMetadata.sourceRunId) nextMetadata.sourceRunId = patch.runId;
     if (patch.nodeId && !nextMetadata.sourceNodeId) nextMetadata.sourceNodeId = patch.nodeId;
     if (patch.updatedBy && !nextMetadata.updatedBy) nextMetadata.updatedBy = patch.updatedBy;
@@ -349,7 +373,7 @@ export class ArtifactService {
     let nextCreated: any;
 
     try {
-      session.startTransaction();
+      session.startTransaction({ maxCommitTimeMS: 5000 });
 
       // 1. Mark existing versions for this logicalId as isLatest: false
       await this.model.updateMany(
@@ -627,10 +651,11 @@ export class ArtifactService {
    */
   async approve(id: string, metadata: any = {}): Promise<any> {
     const current = await this.get(id, undefined, true);
+    const approvedMetadata = { ...(current.metadata || {}), ...parseMetadata(metadata) };
     const item = await this.model
       .findOneAndUpdate(
         { artifactId: current.artifactId },
-        { $set: { status: 'approved', metadata: { ...(current.metadata || {}), ...metadata } } },
+        { $set: { status: 'approved', metadata: approvedMetadata } },
         { new: true },
       )
       .lean()
@@ -712,6 +737,16 @@ export class ArtifactService {
       .exec();
 
     if (res.deletedCount > 0) {
+      if (this.vectorStore) {
+        try {
+          await this.vectorStore.deleteBySourceId(target?.artifactId || rawId);
+          if (target?.logicalId && target.logicalId !== (target?.artifactId || rawId)) {
+            await this.vectorStore.deleteBySourceId(target.logicalId);
+          }
+        } catch (err: any) {
+          this.logger.warn(`Failed to clean vector records for deleted artifact ${rawId}: ${err.message}`);
+        }
+      }
       await this.eventEngine.publish<ArtifactDeleteEventData>({
         topic: 'artifact.delete',
         entityName: 'artifact',

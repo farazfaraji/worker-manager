@@ -27,6 +27,7 @@ import {
   HelpCircle,
   Monitor,
   Zap,
+  Send,
   CheckCircle2,
   Compass,
 } from 'lucide-react';
@@ -35,33 +36,44 @@ interface ModelSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onModelsUpdated?: () => void;
+  activeProjectId?: string | null;
 }
 
 const PROVIDER_PRESETS: Record<string, { endpoint: string; defaultModel: string; label: string }> = {
   openai: {
-    endpoint: 'https://api.openai.com/v1',
+    endpoint: 'https://api.openai.com/v1/chat/completions',
     defaultModel: 'gpt-4o',
     label: 'OpenAI',
   },
   anthropic: {
-    endpoint: 'https://api.anthropic.com/v1',
+    endpoint: 'https://api.anthropic.com/v1/messages',
     defaultModel: 'claude-3-5-sonnet-20241022',
     label: 'Anthropic',
   },
   gemini: {
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     defaultModel: 'gemini-1.5-pro',
     label: 'Google Gemini',
   },
   ollama: {
-    endpoint: 'http://localhost:11434/v1',
+    endpoint: 'http://localhost:11434/v1/chat/completions',
     defaultModel: 'llama3.2',
     label: 'Ollama (Local)',
   },
+  lmstudio: {
+    endpoint: 'http://192.168.178.71:1234/api/v1/chat',
+    defaultModel: 'qwen3.8-27b',
+    label: 'LM Studio (Local)',
+  },
   custom: {
-    endpoint: 'https://api.together.xyz/v1',
+    endpoint: 'https://api.together.xyz/v1/chat/completions',
     defaultModel: 'meta-llama/Llama-3-70b-chat-hf',
     label: 'Custom / Proxy',
+  },
+  openrouter: {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    defaultModel: 'openai/gpt-6-luna',
+    label: 'OpenRouter',
   },
 };
 
@@ -71,9 +83,20 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   isOpen,
   onClose,
   onModelsUpdated,
+  activeProjectId,
 }) => {
   // Tab State
-  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'embeddings'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'models' | 'embeddings' | 'telegram'>('general');
+
+  // Telegram Settings State
+  const [telegramScope, setTelegramScope] = useState<'project' | 'global'>('project');
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramUpdateMode, setTelegramUpdateMode] = useState<'polling' | 'webhook'>('polling');
+  const [telegramPollIntervalSeconds, setTelegramPollIntervalSeconds] = useState<number>(3);
+  const [telegramWebhookUrl, setTelegramWebhookUrl] = useState('');
+  const [showTelegramToken, setShowTelegramToken] = useState(false);
+  const [isSavingTelegram, setIsSavingTelegram] = useState(false);
+  const [telegramStatusMessage, setTelegramStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Models State
   const [models, setModels] = useState<LLMModel[]>([]);
@@ -102,6 +125,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   const [formDescription, setFormDescription] = useState('');
 
   // General Settings State
+  const [flowHelperModel, setFlowHelperModel] = useState<string>('gpt-4o');
   const [typeGeneratorModel, setTypeGeneratorModel] = useState<string>('gpt-4o');
   const [typeGeneratorStrictMode, setTypeGeneratorStrictMode] = useState<boolean>(true);
   const [autoSaveInterval, setAutoSaveInterval] = useState<number>(30);
@@ -112,11 +136,50 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   const [isSavingGeneral, setIsSavingGeneral] = useState<boolean>(false);
   const [generalStatusMessage, setGeneralStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  const loadTelegramSettings = async (scope: 'project' | 'global') => {
+    try {
+      const pid = scope === 'project' && activeProjectId ? activeProjectId : undefined;
+      const data = await fetchSettings(pid);
+      if (data) {
+        setTelegramBotToken(data.telegramBotToken || '');
+        setTelegramUpdateMode(data.telegramUpdateMode || 'polling');
+        setTelegramPollIntervalSeconds(data.telegramPollIntervalSeconds ?? 3);
+        setTelegramWebhookUrl(data.telegramWebhookUrl || '');
+      }
+    } catch (err: any) {
+      console.error('Failed to load Telegram settings:', err);
+    }
+  };
+
+  const handleSaveTelegramSettings = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    try {
+      setIsSavingTelegram(true);
+      const pid = telegramScope === 'project' && activeProjectId ? activeProjectId : undefined;
+      await updateSettings({
+        telegramBotToken,
+        telegramUpdateMode,
+        telegramPollIntervalSeconds: Number(telegramPollIntervalSeconds) || 3,
+        telegramWebhookUrl,
+      }, pid);
+      setTelegramStatusMessage({
+        text: `Telegram settings saved successfully (${telegramScope === 'project' && activeProjectId ? `Project: ${activeProjectId}` : 'Global Default'})!`,
+        type: 'success',
+      });
+      setTimeout(() => setTelegramStatusMessage(null), 3500);
+    } catch (err: any) {
+      setTelegramStatusMessage({ text: err.message || 'Failed to save Telegram settings', type: 'error' });
+    } finally {
+      setIsSavingTelegram(false);
+    }
+  };
+
   // Load General Settings from DB (with localStorage fallback)
   const loadGeneralSettings = async () => {
     try {
       const dbSettings = await fetchSettings();
       if (dbSettings) {
+        if (dbSettings.flowHelperModel) setFlowHelperModel(dbSettings.flowHelperModel);
         if (dbSettings.typeGeneratorModel) setTypeGeneratorModel(dbSettings.typeGeneratorModel);
         if (dbSettings.typeGeneratorStrictMode !== undefined) setTypeGeneratorStrictMode(dbSettings.typeGeneratorStrictMode);
         if (dbSettings.autoSaveInterval !== undefined) setAutoSaveInterval(dbSettings.autoSaveInterval);
@@ -131,6 +194,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       const saved = localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        if (parsed.flowHelperModel) setFlowHelperModel(parsed.flowHelperModel);
         if (parsed.typeGeneratorModel) setTypeGeneratorModel(parsed.typeGeneratorModel);
         if (parsed.typeGeneratorStrictMode !== undefined) setTypeGeneratorStrictMode(parsed.typeGeneratorStrictMode);
         if (parsed.autoSaveInterval !== undefined) setAutoSaveInterval(parsed.autoSaveInterval);
@@ -149,6 +213,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     try {
       setIsSavingGeneral(true);
       const payload = {
+        flowHelperModel,
         typeGeneratorModel,
         typeGeneratorStrictMode,
         autoSaveInterval,
@@ -192,6 +257,14 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
           const defaultModel = list.find((m) => m.isDefault);
           return defaultModel?.modelId || list[0]?.modelId || 'gpt-4o';
         });
+        // If flowHelperModel isn't set yet, pick default model or first model
+        setFlowHelperModel((prev) => {
+          if (prev && list.some((m) => m.modelId === prev || m._id === prev)) {
+            return prev;
+          }
+          const defaultModel = list.find((m) => m.isDefault);
+          return defaultModel?.modelId || list[0]?.modelId || 'gpt-4o';
+        });
       }
     } catch {
       // Backend error or offline
@@ -204,8 +277,15 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     if (isOpen) {
       loadModels();
       loadGeneralSettings();
+      loadTelegramSettings(telegramScope);
     }
-  }, [isOpen]);
+  }, [isOpen, activeProjectId]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'telegram') {
+      loadTelegramSettings(telegramScope);
+    }
+  }, [telegramScope, activeTab]);
 
   const selectModelForEdit = (model: LLMModel) => {
     setIsCreatingNew(false);
@@ -324,6 +404,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   };
 
   const currentTypeModel = models.find((m) => m.modelId === typeGeneratorModel || m._id === typeGeneratorModel);
+  const currentFlowHelperModel = models.find((m) => m.modelId === flowHelperModel || m._id === flowHelperModel);
 
   if (!isOpen) return null;
 
@@ -498,6 +579,20 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
             <Layers size={16} />
             <span>Embeddings</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('telegram')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', fontSize: 13.5,
+              fontWeight: activeTab === 'telegram' ? 700 : 500,
+              color: activeTab === 'telegram' ? '#0284c7' : '#64748b', background: 'transparent', border: 'none',
+              borderBottom: `2.5px solid ${activeTab === 'telegram' ? '#0284c7' : 'transparent'}`, cursor: 'pointer', marginBottom: '-1px',
+            }}
+          >
+            <Send size={16} />
+            <span>Telegram</span>
+          </button>
         </div>
 
         {/* TAB CONTENT */}
@@ -523,6 +618,159 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                   <span>{generalStatusMessage.text}</span>
                 </div>
               )}
+
+              {/* Section 0: Flow Helper LLM */}
+              <div
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 12,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 20px',
+                    borderBottom: '1px solid #f1f5f9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: 'linear-gradient(to right, #f8faff, #ffffff)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 8,
+                        background: '#e0e7ff',
+                        color: '#4338ca',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Sparkles size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                        Flow Helper LLM
+                      </h3>
+                      <p style={{ fontSize: 12, color: '#64748b', margin: 0, marginTop: 1 }}>
+                        Default AI model used to revise agent prompts, assist flow creation, and synthesize instructions.
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      background: '#eef2ff',
+                      color: '#4f46e5',
+                      padding: '3px 8px',
+                      borderRadius: 6,
+                    }}
+                  >
+                    Assistant Engine
+                  </span>
+                </div>
+
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Dropdown for Flow Helper Model */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>
+                      Default Flow Helper Model <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: 0, marginBottom: 8 }}>
+                      Select which AI model will be called when clicking &quot;Revise&quot; on System Prompts in Agent nodes.
+                    </p>
+                    {isLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b', fontSize: 13 }}>
+                        <Loader2 size={16} className="animate-spin" /> Loading models...
+                      </div>
+                    ) : (
+                      <select
+                        value={flowHelperModel}
+                        onChange={(e) => setFlowHelperModel(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 8,
+                          border: '1px solid #cbd5e1',
+                          fontSize: 13.5,
+                          backgroundColor: '#ffffff',
+                          color: '#0f172a',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          outline: 'none',
+                        }}
+                      >
+                        {models.length === 0 ? (
+                          <option value="gpt-4o">gpt-4o (Default Fallback)</option>
+                        ) : (
+                          models.map((m) => (
+                            <option key={m._id || m.modelId} value={m.modelId}>
+                              {m.label} — {m.provider.toUpperCase()} ({m.modelId})
+                              {m.isDefault ? ' [System Default]' : ''}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Selected Flow Helper Model Preview Card */}
+                  {currentFlowHelperModel && (
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 8,
+                        backgroundColor: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#1e293b' }}>
+                            {currentFlowHelperModel.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              background: '#e2e8f0',
+                              color: '#475569',
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                            }}
+                          >
+                            {currentFlowHelperModel.modelId}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 11.5, color: '#64748b', margin: 0, marginTop: 3 }}>
+                          Endpoint: {currentFlowHelperModel.endpoint}
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <span style={{ fontSize: 10.5, background: '#ede9fe', color: '#6d28d9', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                          {currentFlowHelperModel.provider.toUpperCase()}
+                        </span>
+                        {currentFlowHelperModel.capabilities?.supportsVision && (
+                          <span style={{ fontSize: 10.5, background: '#e0e7ff', color: '#4338ca', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                            Vision
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Section 1: Type Generator */}
               <div
@@ -930,6 +1178,442 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
           </div>
         ) : activeTab === 'embeddings' ? (
           <EmbeddingModelsPanel />
+        ) : activeTab === 'telegram' ? (
+          /* ================= TELEGRAM TAB ================= */
+          <div style={{ flex: 1, overflowY: 'auto', backgroundColor: '#f8fafc', padding: '24px' }}>
+            <div style={{ maxWidth: '820px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {telegramStatusMessage && (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: telegramStatusMessage.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                    color: telegramStatusMessage.type === 'success' ? '#065f46' : '#991b1b',
+                    border: `1px solid ${telegramStatusMessage.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+                  }}
+                >
+                  {telegramStatusMessage.type === 'success' ? <Check size={16} /> : <X size={16} />}
+                  <span>{telegramStatusMessage.text}</span>
+                </div>
+              )}
+
+              {/* Card 1: Configuration Scope */}
+              <div
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 12,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 20px',
+                    borderBottom: '1px solid #f1f5f9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: 'linear-gradient(to right, #fcfdff, #ffffff)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 8,
+                        background: '#e0f2fe',
+                        color: '#0284c7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Globe size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                        Configuration Scope
+                      </h3>
+                      <p style={{ fontSize: 12, color: '#64748b', margin: 0, marginTop: 1 }}>
+                        Choose whether to configure Telegram for the current project or system-wide default.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ padding: '20px', display: 'flex', gap: 14 }}>
+                  <button
+                    type="button"
+                    onClick={() => setTelegramScope('project')}
+                    disabled={!activeProjectId}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      padding: '14px 16px',
+                      borderRadius: 10,
+                      border: `1.5px solid ${telegramScope === 'project' ? '#0284c7' : '#e2e8f0'}`,
+                      background: telegramScope === 'project' ? '#f0f9ff' : '#ffffff',
+                      cursor: activeProjectId ? 'pointer' : 'not-allowed',
+                      opacity: activeProjectId ? 1 : 0.6,
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: telegramScope === 'project' ? '#0369a1' : '#1e293b' }}>
+                        Project-Specific Settings
+                      </span>
+                      {activeProjectId && (
+                        <span style={{ fontSize: 10.5, background: '#e0f2fe', color: '#0284c7', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                          {activeProjectId}
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                      Applies when running workflows within this project. Overrides global defaults.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTelegramScope('global')}
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      padding: '14px 16px',
+                      borderRadius: 10,
+                      border: `1.5px solid ${telegramScope === 'global' ? '#0284c7' : '#e2e8f0'}`,
+                      background: telegramScope === 'global' ? '#f0f9ff' : '#ffffff',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: telegramScope === 'global' ? '#0369a1' : '#1e293b' }}>
+                        Global Default Settings
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                      System-wide fallback configuration for projects without their own Telegram credentials.
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Bot Credentials */}
+              <div
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 12,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 20px',
+                    borderBottom: '1px solid #f1f5f9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: '#e0f2fe',
+                      color: '#0284c7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Bot size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                      Telegram Bot Token
+                    </h3>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: 0, marginTop: 1 }}>
+                      Obtain your API token from @BotFather on Telegram.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ padding: '20px' }}>
+                  <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                    API Bot Token
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                    <input
+                      type={showTelegramToken ? 'text' : 'password'}
+                      value={telegramBotToken}
+                      onChange={(e) => setTelegramBotToken(e.target.value)}
+                      placeholder="e.g. 7123456789:AAHq_abcdefghijklmnopqrstuvwxyz"
+                      style={{
+                        width: '100%',
+                        padding: '9px 40px 9px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #cbd5e1',
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        color: '#0f172a',
+                        outline: 'none',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowTelegramToken(!showTelegramToken)}
+                      style={{
+                        position: 'absolute',
+                        right: 10,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#64748b',
+                        padding: 4,
+                      }}
+                    >
+                      {showTelegramToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: 11.5, color: '#64748b', marginTop: 6, marginBottom: 0 }}>
+                    Keep this token secret. The backend uses this token to dispatch messages and poll or handle webhooks.
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 3: Ingestion & Connection Mode */}
+              <div
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 12,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 20px',
+                    borderBottom: '1px solid #f1f5f9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: '#f0fdf4',
+                      color: '#16a34a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Radio size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                      Ingestion & Polling
+                    </h3>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: 0, marginTop: 1 }}>
+                      Configure how incoming Telegram updates (triggers and human replies) are received.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <div
+                      onClick={() => setTelegramUpdateMode('polling')}
+                      style={{
+                        padding: '14px',
+                        borderRadius: 10,
+                        border: `1.5px solid ${telegramUpdateMode === 'polling' ? '#16a34a' : '#e2e8f0'}`,
+                        background: telegramUpdateMode === 'polling' ? '#f0fdf4' : '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <div
+                          style={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: 999,
+                            border: `2px solid ${telegramUpdateMode === 'polling' ? '#16a34a' : '#cbd5e1'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {telegramUpdateMode === 'polling' && (
+                            <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: '#16a34a' }} />
+                          )}
+                        </div>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1e293b' }}>Local Polling</span>
+                      </div>
+                      <p style={{ fontSize: 12, color: '#64748b', margin: 0, paddingLeft: 24 }}>
+                        Automatically pulls updates using Telegram getUpdates. No public IP or domain required. Ideal for local dev.
+                      </p>
+                    </div>
+
+                    <div
+                      onClick={() => setTelegramUpdateMode('webhook')}
+                      style={{
+                        padding: '14px',
+                        borderRadius: 10,
+                        border: `1.5px solid ${telegramUpdateMode === 'webhook' ? '#16a34a' : '#e2e8f0'}`,
+                        background: telegramUpdateMode === 'webhook' ? '#f0fdf4' : '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <div
+                          style={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: 999,
+                            border: `2px solid ${telegramUpdateMode === 'webhook' ? '#16a34a' : '#cbd5e1'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {telegramUpdateMode === 'webhook' && (
+                            <div style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: '#16a34a' }} />
+                          )}
+                        </div>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1e293b' }}>Webhook</span>
+                      </div>
+                      <p style={{ fontSize: 12, color: '#64748b', margin: 0, paddingLeft: 24 }}>
+                        Telegram pushes updates directly to your public HTTPS webhook endpoint. Ideal for production servers.
+                      </p>
+                    </div>
+                  </div>
+
+                  {telegramUpdateMode === 'polling' ? (
+                    <div style={{ backgroundColor: '#f8fafc', borderRadius: 8, padding: '14px 16px', border: '1px solid #e2e8f0' }}>
+                      <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                        Polling Interval (Seconds)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={telegramPollIntervalSeconds}
+                        onChange={(e) => setTelegramPollIntervalSeconds(Math.max(1, Number(e.target.value)))}
+                        style={{
+                          width: '180px',
+                          padding: '7px 10px',
+                          borderRadius: 8,
+                          border: '1px solid #cbd5e1',
+                          fontSize: 13,
+                        }}
+                      />
+                      <span style={{ fontSize: 11.5, color: '#64748b', display: 'block', marginTop: 4 }}>
+                        Single poller rule: The system automatically ensures only one worker runs per bot token.
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ backgroundColor: '#f8fafc', borderRadius: 8, padding: '14px 16px', border: '1px solid #e2e8f0' }}>
+                      <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                        Public Webhook Endpoint URL
+                      </label>
+                      <input
+                        type="text"
+                        value={telegramWebhookUrl}
+                        onChange={(e) => setTelegramWebhookUrl(e.target.value)}
+                        placeholder="https://your-public-domain.com/api/telegram/webhook"
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: 8,
+                          border: '1px solid #cbd5e1',
+                          fontSize: 13,
+                          fontFamily: 'monospace',
+                        }}
+                      />
+                      <span style={{ fontSize: 11.5, color: '#64748b', display: 'block', marginTop: 4 }}>
+                        Incoming endpoint path is <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 4 }}>/api/telegram/webhook</code>.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bottom Buttons */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 12,
+                  paddingTop: 12,
+                  borderTop: '1px solid #e2e8f0',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveTelegramSettings}
+                  disabled={isSavingTelegram}
+                  style={{
+                    padding: '9px 20px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                    color: '#ffffff',
+                    cursor: isSavingTelegram ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)',
+                    opacity: isSavingTelegram ? 0.8 : 1,
+                  }}
+                >
+                  {isSavingTelegram ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                  <span>{isSavingTelegram ? 'Saving Telegram Settings...' : 'Save Telegram Settings'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
         ) : (
           /* ================= MODELS TAB ================= */
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -1201,13 +1885,13 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                 {/* Endpoint & API Key */}
                 <div>
                   <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
-                    API Endpoint / Base URL <span style={{ color: '#ef4444' }}>*</span>
+                    API Endpoint / Full URL <span style={{ color: '#ef4444' }}>*</span>
                   </label>
                   <input
                     type="text"
                     value={formEndpoint}
                     onChange={(e) => setFormEndpoint(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
+                    placeholder="e.g. http://192.168.178.71:1234/v1/chat/completions or https://api.openai.com/v1/chat/completions"
                     required
                     style={{
                       width: '100%',
@@ -1218,6 +1902,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                       fontFamily: 'monospace',
                     }}
                   />
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    Base URL (e.g. http://192.168.178.71:1234/v1) or full chat completions URL endpoint.
+                  </div>
                 </div>
 
                 <div>

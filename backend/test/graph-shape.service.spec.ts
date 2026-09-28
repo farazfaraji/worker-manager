@@ -36,10 +36,44 @@ function runTests() {
 
   const semanticFirst = saved.nodes[0] as Record<string, any>;
   assert.strictEqual(semanticFirst.position, undefined);
+  assert.deepStrictEqual(saved.flow, {
+    version: 1,
+    blocks: [
+      {
+        id: 'fetch',
+        kind: 'function',
+        name: 'fetch_data',
+        label: 'fetch_data',
+        config: { url: 'https://example.com' },
+      },
+      {
+        id: 'retry',
+        kind: 'function',
+        name: 'retry',
+        label: 'retry',
+        config: {},
+      },
+    ],
+    connections: [
+      {
+        id: 'fetch-retry',
+        from: 'fetch',
+        to: 'retry',
+        output: 'failure',
+      },
+    ],
+  });
   assert.deepStrictEqual(semanticFirst, {
     id: 'fetch',
     type: 'langgraphNode',
-    data: { name: 'fetch_data', config: { url: 'https://example.com' } },
+    data: {
+      name: 'fetch_data',
+      nodeName: 'fetch_data',
+      definitionType: 'function',
+      definitionName: 'fetch_data',
+      label: 'fetch_data',
+      config: { url: 'https://example.com' },
+    },
   });
   assert.deepStrictEqual(saved.layout.nodes.fetch, { x: 120, y: 80 });
   assert.deepStrictEqual(saved.layout.viewport, { x: 10, y: 20, zoom: 1.25 });

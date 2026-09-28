@@ -36,13 +36,14 @@ graph LR
 
 ## 2. Node Inputs & Configuration
 
-| Input Field | Type | Required | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `triggerType` | `select` | Yes | `"manual"` | Activation mechanism: `"manual"`, `"event"`, `"webhook"`, or `"schedule"`. |
-| `eventTopic` | `combobox` | No | `"artifact.*"` | Event topic pattern to listen for (e.g. `artifact.update`, `artifact.*`, `*.delete`). Supports wildcards. |
-| `eventProjectId` | `slug` | No | `""` | Optional project namespace filter. Only triggers if event belongs to this project. |
-| `eventEntityId` | `text` | No | `""` | Optional entity ID filter. Supports wildcards (e.g. `prd-*`). |
-| `inputSchema` | `code` (ts) | No | `z.object({...})` | Zod schema validating and typing manual/webhook payloads. |
+| Input Field | Type | Visible When | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `triggerType` | `select` | Always | Yes | `"manual"` | Activation mechanism: `"manual"`, `"event"`, `"webhook"`, or `"schedule"`. |
+| `eventTopic` | `combobox` | `triggerType = event` | No | `"artifact.*"` | Event topic pattern to listen for (e.g. `artifact.update`, `artifact.*`, `*.delete`). Supports wildcards. |
+| `eventProjectId` | `slug` | `triggerType = event` | No | `""` | Optional project namespace filter. Only triggers if event belongs to this project. |
+| `eventEntityId` | `text` | `triggerType = event` | No | `""` | Optional entity ID filter. Supports wildcards (e.g. `prd-*`). |
+| `description` | `textarea` | `triggerType = manual` | No | `""` | Plain-language description or human-readable prompt shown to the operator when manually running the flow. |
+| `inputSchema` | `code` (ts) | `triggerType = manual / webhook / schedule` | No | `z.object({...})` | Zod schema validating and typing manual/webhook/schedule payloads. |
 
 ---
 
@@ -51,6 +52,7 @@ graph LR
 ### Manual Execution
 - **Use Case**: Triggered manually from the Flow Builder UI using the "Run Flow" button or via test runs.
 - **Payload**: Can be supplied via the test execution modal in the UI as raw JSON.
+- **Human Text / Description** (`description`): An optional `textarea` field rendered in the node config modal that lets the flow author write a plain-language description or operator prompt — e.g. `"Paste the user's query here before running the flow."` This text is for documentation and UX guidance only; it is not emitted as an output variable.
 
 ### Event Listener Trigger
 - **Use Case**: Reactive flows activated automatically whenever a matching domain event (e.g., `artifact.create`, `artifact.update`, `artifact.delete`) is published into the Event Engine.
@@ -149,6 +151,7 @@ You can trigger any saved flow programmatically via the backend execution API:
 ```json
 {
   "triggerType": "manual",
+  "description": "Provide a target URL and audit depth. Optionally supply a Slack channel for the report notification.",
   "inputSchema": "z.object({\n  url: z.string().url(),\n  auditLevel: z.enum(['basic', 'deep']),\n  slackChannel: z.string().optional()\n})"
 }
 ```

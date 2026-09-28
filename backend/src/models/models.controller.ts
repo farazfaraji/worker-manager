@@ -12,9 +12,24 @@ import {
 import { ModelsService } from './models.service';
 import { LLMModel } from './schemas/llm-model.schema';
 
+import { RevisePromptDto } from './dto/revise-prompt.dto';
+import { GenerateSchemaDto } from './dto/generate-schema.dto';
+
 @Controller('models')
 export class ModelsController {
   constructor(private readonly modelsService: ModelsService) {}
+
+  @Post('revise-prompt')
+  @HttpCode(HttpStatus.OK)
+  async revisePrompt(@Body() body: RevisePromptDto) {
+    return this.modelsService.revisePrompt(body);
+  }
+
+  @Post('generate-schema')
+  @HttpCode(HttpStatus.OK)
+  async generateSchema(@Body() body: GenerateSchemaDto) {
+    return this.modelsService.generateSchema(body);
+  }
 
   @Get()
   async getAllModels() {

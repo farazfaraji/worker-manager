@@ -281,9 +281,13 @@
     {
       "name": "type",
       "label": "Artifact Type",
-      "type": "combobox",
+      "type": "valueOrVariable",
+      "accepts": [
+        "string",
+        "any"
+      ],
       "defaultValue": "document",
-      "placeholder": "Select or enter custom type",
+      "placeholder": "Select from existing, enter custom type, or wire variable (e.g. {{trigger.input.type}})",
       "helpText": "Canonical category of artifact.",
       "options": [
         {
@@ -330,7 +334,11 @@
     {
       "name": "filterType",
       "label": "Artifact Type Filter",
-      "type": "select",
+      "type": "valueOrVariable",
+      "accepts": [
+        "string",
+        "any"
+      ],
       "options": [
         {
           "label": "Any type",
@@ -595,328 +603,14 @@
   ],
   "outputs": [
     {
-      "name": "artifacts",
-      "label": "Artifacts",
-      "type": "array",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
+      "name": "onLoad",
+      "label": "On Load",
+      "type": "branch"
     },
     {
-      "name": "count",
-      "label": "Count",
-      "type": "number",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "list",
-          "listVersions",
-          "getRelations"
-        ]
-      }
-    },
-    {
-      "name": "status",
-      "label": "Status",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "list",
-          "update",
-          "approve",
-          "archive"
-        ]
-      }
-    },
-    {
-      "name": "existing",
-      "label": "Exists",
-      "type": "boolean",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "get",
-          "getLatest"
-        ]
-      }
-    },
-    {
-      "name": "artifact",
-      "label": "Artifact Object",
-      "type": "object",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "list",
-          "listVersions",
-          "update",
-          "approve",
-          "archive",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "artifactId",
-      "label": "Artifact ID",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "list",
-          "listVersions",
-          "update",
-          "approve",
-          "archive",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "logicalId",
-      "label": "Logical ID",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "list",
-          "listVersions",
-          "update",
-          "approve",
-          "archive",
-          "addRelation",
-          "getRelations"
-        ]
-      }
-    },
-    {
-      "name": "rootArtifactId",
-      "label": "Root Artifact ID",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update"
-        ]
-      }
-    },
-    {
-      "name": "isLatest",
-      "label": "Is Latest Version",
-      "type": "boolean",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update"
-        ]
-      }
-    },
-    {
-      "name": "contentHash",
-      "label": "Content Hash",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update"
-        ]
-      }
-    },
-    {
-      "name": "schemaVersion",
-      "label": "Schema Version",
-      "type": "number",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update"
-        ]
-      }
-    },
-    {
-      "name": "versions",
-      "label": "Versions List",
-      "type": "array",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "listVersions"
-      }
-    },
-    {
-      "name": "relations",
-      "label": "Relations List",
-      "type": "array",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "getRelations",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "linkedArtifactIds",
-      "label": "Linked Artifact IDs",
-      "type": "array",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "list",
-          "update",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "title",
-      "label": "Title",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "keyword",
-      "label": "Keywords",
-      "type": "array",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "content",
-      "label": "Content",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "format",
-      "label": "Format",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "version",
-      "label": "Version",
-      "type": "number",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "get",
-          "getLatest",
-          "update",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "parentArtifactId",
-      "label": "Parent Artifact ID",
-      "type": "string",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "update"
-      }
-    },
-    {
-      "name": "changed",
-      "label": "Has Changed",
-      "type": "boolean",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "update",
-          "diff"
-        ]
-      }
-    },
-    {
-      "name": "changedKeys",
-      "label": "Changed Keys",
-      "type": "array",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "diff"
-      }
-    },
-    {
-      "name": "before",
-      "label": "Previous Content",
-      "type": "object",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "diff"
-      }
-    },
-    {
-      "name": "after",
-      "label": "Next Content",
-      "type": "object",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "diff"
-      }
+      "name": "onFailed",
+      "label": "On Failed",
+      "type": "branch"
     }
   ]
 }

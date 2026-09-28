@@ -1,4 +1,4 @@
-import { Project, GraphSummary, GraphData, NodeDefinition, RunResult, ArtifactItem, ArtifactRelationItem } from './types';
+import { Project, GraphSummary, GraphData, NodeDefinition, RunResult, ArtifactItem, ArtifactRelationItem, NodeCacheItem } from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:6300/api';
 
@@ -108,15 +108,36 @@ export async function fetchGraphById(id: string): Promise<GraphData> {
   return res.json();
 }
 
-function formatApiError(errorData: any, fallback: string): string {
-  if (errorData?.reason && errorData?.message) {
-    if (errorData?.path) {
-      return `${errorData.message}: "${errorData.path}" (${errorData.reason})`;
-    }
-    return `${errorData.message}: ${errorData.reason}`;
+/** Structured API error — carries raw backend error payload alongside the formatted message */
+export class ApiError extends Error {
+  public readonly data: any;
+  constructor(message: string, data: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.data = data;
   }
+}
+
+function formatApiError(errorData: any, fallback: string): string {
+  if (!errorData) return fallback;
+
+  // Edge / handle validation errors — show full from→to context
   if (errorData?.reason) {
-    return errorData.reason;
+    let msg = errorData.reason;
+    // If the reason doesn't already embed the source/target labels, append them
+    const extra: string[] = [];
+    if (errorData.sourceHandle && !msg.includes(errorData.sourceHandle)) {
+      extra.push(`handle: "${errorData.sourceHandle}"`);
+    }
+    if (errorData.validHandles?.length && !msg.includes(errorData.validHandles[0])) {
+      extra.push(`valid: [${errorData.validHandles.join(', ')}]`);
+    }
+    if (extra.length) msg += ` (${extra.join(', ')})`;
+    return msg;
+  }
+
+  if (errorData?.message && errorData?.path) {
+    return `${errorData.message}: "${errorData.path}"`;
   }
   if (Array.isArray(errorData?.message)) {
     return errorData.message.join(', ');
@@ -129,6 +150,7 @@ export async function createGraph(data: {
   projectId?: string;
   nodes: any[];
   edges: any[];
+  flow?: any;
   layout?: any;
   viewport?: any;
   metadata?: any;
@@ -144,8 +166,9 @@ export async function createGraph(data: {
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(
+    throw new ApiError(
       formatApiError(errorData, `Failed to create graph: ${res.statusText}`),
+      errorData,
     );
   }
   return res.json();
@@ -158,6 +181,7 @@ export async function updateGraph(
     projectId?: string;
     nodes?: any[];
     edges?: any[];
+    flow?: any;
     layout?: any;
     viewport?: any;
     metadata?: any;
@@ -170,8 +194,9 @@ export async function updateGraph(
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(
+    throw new ApiError(
       formatApiError(errorData, `Failed to update graph: ${res.statusText}`),
+      errorData,
     );
   }
   return res.json();
@@ -232,11 +257,16 @@ export async function fetchUpstreamVariables(
 export async function runGraph(
   id: string,
   input?: any,
+  options?: { debugMode?: boolean; useCache?: boolean },
 ): Promise<RunResult> {
   const res = await fetch(`${API_BASE}/graphs/${id}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input: input !== undefined ? input : {} }),
+    body: JSON.stringify({
+      input: input !== undefined ? input : {},
+      ...(options?.debugMode ? { debugMode: true } : {}),
+      ...(options?.useCache ? { useCache: true } : {}),
+    }),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
@@ -421,9 +451,10 @@ export async function deleteEmbeddingModel(id: string): Promise<{ success: boole
   return res.json();
 }
 
-export async function fetchSettings(): Promise<any> {
+export async function fetchSettings(projectId?: string): Promise<any> {
   try {
-    const res = await fetch(`${API_BASE}/settings`, { cache: 'no-store' });
+    const url = projectId ? `${API_BASE}/settings?projectId=${encodeURIComponent(projectId)}` : `${API_BASE}/settings`;
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -431,8 +462,9 @@ export async function fetchSettings(): Promise<any> {
   }
 }
 
-export async function updateSettings(settings: any): Promise<any> {
-  const res = await fetch(`${API_BASE}/settings`, {
+export async function updateSettings(settings: any, projectId?: string): Promise<any> {
+  const url = projectId ? `${API_BASE}/settings?projectId=${encodeURIComponent(projectId)}` : `${API_BASE}/settings`;
+  const res = await fetch(url, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
@@ -445,6 +477,57 @@ export async function updateSettings(settings: any): Promise<any> {
   }
   return res.json();
 }
+export async function revisePrompt(data: {
+  prompt: string;
+  instruction?: string;
+  modelId?: string;
+  projectId?: string;
+}): Promise<{
+  revisedPrompt: string;
+  model: string;
+  modelId: string;
+  provider: string;
+}> {
+  const res = await fetch(`${API_BASE}/models/revise-prompt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData?.message || `Failed to revise prompt: ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
+export async function generateSchema(data: {
+  description: string;
+  schemaType?: string;
+  modelId?: string;
+  strictMode?: boolean;
+  projectId?: string;
+}): Promise<{
+  schema: string;
+  model: string;
+  modelId: string;
+  provider: string;
+}> {
+  const res = await fetch(`${API_BASE}/models/generate-schema`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData?.message || `Failed to generate schema: ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 export async function fetchArtifacts(query?: {
   projectId?: string;
   type?: string;
@@ -562,6 +645,32 @@ export async function createArtifact(payload: Partial<ArtifactItem>): Promise<Ar
   return res.json();
 }
 
+export async function updateArtifact(id: string, payload: Partial<ArtifactItem>): Promise<ArtifactItem> {
+  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(errorData, `Failed to update artifact: ${res.statusText}`));
+  }
+  return res.json();
+}
+
+export async function approveArtifact(id: string): Promise<ArtifactItem> {
+  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(errorData, `Failed to approve artifact: ${res.statusText}`));
+  }
+  return res.json();
+}
+
 export async function deleteArtifact(id: string): Promise<{ success: boolean; artifactId: string }> {
   const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}`, {
     method: 'DELETE',
@@ -629,3 +738,66 @@ export async function stopWebserver(graphId: string, nodeId?: string): Promise<{
   return res.json();
 }
 
+export async function fetchCaches(filters?: {
+  graphId?: string;
+  projectId?: string;
+  nodeType?: string;
+  search?: string;
+}): Promise<NodeCacheItem[]> {
+  const params = new URLSearchParams();
+  if (filters?.graphId) params.append('graphId', filters.graphId);
+  if (filters?.projectId) params.append('projectId', filters.projectId);
+  if (filters?.nodeType && filters.nodeType !== 'all') params.append('nodeType', filters.nodeType);
+  if (filters?.search && filters.search.trim()) params.append('search', filters.search.trim());
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/caches${query}`, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch node caches: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchNodeCache(graphId: string, nodeId: string): Promise<NodeCacheItem | null> {
+  const res = await fetch(`${API_BASE}/caches/${encodeURIComponent(graphId)}/${encodeURIComponent(nodeId)}`, {
+    cache: 'no-store',
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Failed to fetch node cache: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteNodeCache(graphId: string, nodeId: string): Promise<{ deletedCount: number }> {
+  const res = await fetch(`${API_BASE}/caches/${encodeURIComponent(graphId)}/${encodeURIComponent(nodeId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete node cache: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function clearAllCaches(graphId?: string): Promise<{ deletedCount: number }> {
+  const query = graphId ? `?graphId=${encodeURIComponent(graphId)}` : '';
+  const res = await fetch(`${API_BASE}/caches${query}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to clear caches: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateNodeCache(graphId: string, nodeId: string, result: any): Promise<NodeCacheItem> {
+  const res = await fetch(`${API_BASE}/caches/${encodeURIComponent(graphId)}/${encodeURIComponent(nodeId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to update node cache: ${res.statusText}`);
+  }
+  return res.json();
+}

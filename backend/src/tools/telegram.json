@@ -1,0 +1,109 @@
+{
+  "name": "Telegram",
+  "type": "telegram",
+  "description": "Telegram bot integration for triggering flows on incoming messages, asking questions with waiting replies, or sending outbound messages.",
+  "inputs": [
+    {
+      "name": "mode",
+      "label": "Operation Mode",
+      "type": "select",
+      "required": true,
+      "defaultValue": "trigger",
+      "options": [
+        {
+          "label": "Trigger (New message without reply)",
+          "value": "trigger"
+        },
+        {
+          "label": "Ask Question (Pauses flow & awaits user reply)",
+          "value": "question"
+        },
+        {
+          "label": "Send Message (One-way outbound message)",
+          "value": "message"
+        }
+      ],
+      "helpText": "Choose whether this node triggers on new Telegram messages, pauses execution awaiting a reply, or sends an outbound message."
+    },
+    {
+      "name": "question",
+      "label": "Question / Message Content",
+      "type": "textarea",
+      "required": true,
+      "defaultValue": "Please review this request and reply directly to this message.",
+      "placeholder": "Enter question or notification message...",
+      "helpText": "The message text to send to the user on Telegram.",
+      "dependsOn": {
+        "field": "mode",
+        "in": ["question", "message"]
+      }
+    },
+    {
+      "name": "chatId",
+      "label": "Telegram Chat ID / User ID",
+      "type": "valueOrVariable",
+      "required": true,
+      "placeholder": "e.g. 12345678 or {{nodes.trigger.chatId}}",
+      "helpText": "The recipient Telegram chat ID or user ID.",
+      "dependsOn": {
+        "field": "mode",
+        "in": ["question", "message"]
+      }
+    },
+    {
+      "name": "botToken",
+      "label": "Telegram Bot Token (Optional)",
+      "type": "text",
+      "placeholder": "123456:ABC-DEF... (Leave blank to use token configured in Settings)",
+      "helpText": "Optional custom bot token from @BotFather. If omitted, uses Telegram Bot Token configured in Settings."
+    },
+    {
+      "name": "timeoutMs",
+      "label": "Wait Timeout (ms)",
+      "type": "number",
+      "defaultValue": 86400000,
+      "helpText": "Maximum wait time in milliseconds before timing out when awaiting a reply (default: 24h).",
+      "dependsOn": {
+        "field": "mode",
+        "equals": "question"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "label": "Result",
+      "type": "object"
+    },
+    {
+      "name": "text",
+      "label": "Message / Reply Text",
+      "type": "string"
+    },
+    {
+      "name": "chatId",
+      "label": "Chat ID",
+      "type": "string"
+    },
+    {
+      "name": "userId",
+      "label": "User ID",
+      "type": "string"
+    },
+    {
+      "name": "username",
+      "label": "Username",
+      "type": "string"
+    },
+    {
+      "name": "threadId",
+      "label": "Thread ID",
+      "type": "string"
+    },
+    {
+      "name": "value",
+      "label": "Value",
+      "type": "object"
+    }
+  ]
+}

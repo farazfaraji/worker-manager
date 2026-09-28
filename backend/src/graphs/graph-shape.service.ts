@@ -1,18 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import { GraphLayout, GraphNodeLayout, GraphViewport } from './schemas/graph.schema';
+import {
+  GraphBlock,
+  GraphConnection,
+  GraphFlow,
+  GraphLayout,
+  GraphNodeLayout,
+  GraphViewport,
+} from './schemas/graph.schema';
 
 type GraphNode = Record<string, any>;
 type GraphEdge = Record<string, any>;
 
 export interface GraphShapeInput {
+  flow?: Partial<GraphFlow> | Record<string, any>;
   nodes?: GraphNode[];
   edges?: GraphEdge[];
   layout?: Partial<GraphLayout> | Record<string, any>;
-  /** Kept for documents and clients using the old top-level viewport field. */
   viewport?: Partial<GraphViewport>;
 }
 
 export interface ShapedGraph {
+  flow: GraphFlow;
   nodes: GraphNode[];
   edges: GraphEdge[];
   layout: GraphLayout;
@@ -34,62 +42,57 @@ function copyRecord(value: unknown): Record<string, any> | undefined {
   return isRecord(value) ? { ...value } : undefined;
 }
 
-/**
- * Converts React Flow payloads into a compact executable graph plus a separate
- * presentation model, then rebuilds React Flow objects when a graph is read.
- *
- * The graph stored in `nodes` and `edges` deliberately contains no coordinates,
- * styles, selection state, or other canvas-only properties.
- */
+/** The translation boundary between persisted flow data, runtime, and React Flow. */
 @Injectable()
 export class GraphShapeService {
   reshapeForSave(input: GraphShapeInput): ShapedGraph {
-    const sourceNodes = Array.isArray(input.nodes) ? input.nodes : [];
-    const sourceEdges = Array.isArray(input.edges) ? input.edges : [];
+    const flow = this.normalizeFlow(input.flow, input.nodes, input.edges);
+    const runtime = this.toRuntimeGraph(flow);
+    const sourceNodes = Array.isArray(input.nodes) ? input.nodes : runtime.nodes;
+    const sourceEdges = Array.isArray(input.edges) ? input.edges : runtime.edges;
     const layout = this.normalizeLayout(input.layout, input.viewport);
+    const runtimeNodeIds = new Set(runtime.nodes.map((node) => node.id));
+    const runtimeEdgeIds = new Set(runtime.edges.map((edge) => edge.id));
+    const sourceNodeById = new Map(
+      sourceNodes
+        .filter((node) => isRecord(node) && typeof node.id === 'string')
+        .map((node) => [node.id, node]),
+    );
+    const sourceEdgeById = new Map(
+      sourceEdges
+        .filter((edge) => isRecord(edge) && typeof edge.id === 'string')
+        .map((edge) => [edge.id, edge]),
+    );
 
-    const nodes = sourceNodes
-      .filter((node) => isRecord(node) && typeof node.id === 'string' && node.id.length > 0)
-      .map((node, index) => {
-        const previous = layout.nodes[node.id];
-        layout.nodes[node.id] = this.extractNodeLayout(node, previous, index);
-        return this.toSemanticNode(node);
-      });
-
-    const nodeIds = new Set(nodes.map((node) => node.id));
+    runtime.nodes.forEach((node, index) => {
+      layout.nodes[node.id] = this.extractNodeLayout(
+        sourceNodeById.get(node.id) || node,
+        layout.nodes[node.id],
+        index,
+      );
+    });
     layout.nodes = Object.fromEntries(
-      Object.entries(layout.nodes).filter(([nodeId]) => nodeIds.has(nodeId)),
+      Object.entries(layout.nodes).filter(([nodeId]) => runtimeNodeIds.has(nodeId)),
     );
-    const edges = sourceEdges
-      .filter(
-        (edge) =>
-          isRecord(edge) &&
-          typeof edge.source === 'string' &&
-          typeof edge.target === 'string' &&
-          nodeIds.has(edge.source) &&
-          nodeIds.has(edge.target),
-      )
-      .map((edge, index) => {
-        const semantic = this.toSemanticEdge(edge, index);
-        layout.edges[semantic.id] = this.extractEdgeLayout(edge, layout.edges[semantic.id]);
-        return semantic;
-      });
 
-    const edgeIds = new Set(edges.map((edge) => edge.id));
+    for (const edge of runtime.edges) {
+      layout.edges[edge.id] = this.extractEdgeLayout(
+        sourceEdgeById.get(edge.id) || edge,
+        layout.edges[edge.id],
+      );
+    }
     layout.edges = Object.fromEntries(
-      Object.entries(layout.edges).filter(([edgeId]) => edgeIds.has(edgeId)),
+      Object.entries(layout.edges).filter(([edgeId]) => runtimeEdgeIds.has(edgeId)),
     );
 
-    this.assignMissingPositions(nodes, edges, layout);
-    return { nodes, edges, layout };
+    this.assignMissingPositions(runtime.nodes, runtime.edges, layout);
+    return { flow, nodes: runtime.nodes, edges: runtime.edges, layout };
   }
 
   reshapeForLoad(input: GraphShapeInput): ShapedGraph {
-    // Feeding legacy graphs through the save shape first automatically extracts
-    // their old inline `position` and edge styling into the new layout object.
     const shaped = this.reshapeForSave(input);
-
     return {
+      flow: shaped.flow,
       layout: shaped.layout,
       nodes: shaped.nodes.map((node, index) => {
         const nodeLayout: GraphNodeLayout = shaped.layout.nodes[node.id] || this.fallbackPosition(index);
@@ -108,6 +111,135 @@ export class GraphShapeService {
     };
   }
 
+  private normalizeFlow(
+    candidate?: Partial<GraphFlow> | Record<string, any>,
+    legacyNodes?: GraphNode[],
+    legacyEdges?: GraphEdge[],
+  ): GraphFlow {
+    if (isRecord(candidate) && Array.isArray(candidate.blocks) && Array.isArray(candidate.connections)) {
+      const blocks = candidate.blocks
+        .filter((block: any) => isRecord(block) && typeof block.id === 'string' && block.id.length > 0)
+        .map((block: any) => this.normalizeBlock(block));
+      const blockIds = new Set(blocks.map((block) => block.id));
+      const connections = candidate.connections
+        .filter(
+          (connection: any) =>
+            isRecord(connection) &&
+            typeof connection.from === 'string' &&
+            typeof connection.to === 'string' &&
+            blockIds.has(connection.from) &&
+            blockIds.has(connection.to),
+        )
+        .map((connection: any, index: number) => this.normalizeConnection(connection, index));
+      return { version: 1, blocks, connections };
+    }
+
+    const blocks = (Array.isArray(legacyNodes) ? legacyNodes : [])
+      .filter((node) => isRecord(node) && typeof node.id === 'string' && node.id.length > 0)
+      .map((node) => this.nodeToBlock(node));
+    const blockIds = new Set(blocks.map((block) => block.id));
+    const connections = (Array.isArray(legacyEdges) ? legacyEdges : [])
+      .filter(
+        (edge) =>
+          isRecord(edge) &&
+          typeof edge.source === 'string' &&
+          typeof edge.target === 'string' &&
+          blockIds.has(edge.source) &&
+          blockIds.has(edge.target),
+      )
+      .map((edge, index) => this.edgeToConnection(edge, index));
+    return { version: 1, blocks, connections };
+  }
+
+  private normalizeBlock(block: Record<string, any>): GraphBlock {
+    const name = this.safeName(block.name, block.id);
+    return {
+      id: block.id,
+      kind: typeof block.kind === 'string' && block.kind ? block.kind : 'function',
+      name,
+      label: typeof block.label === 'string' && block.label ? block.label : name,
+      ...(typeof block.definitionId === 'string' ? { definitionId: block.definitionId } : {}),
+      ...(typeof block.definitionName === 'string' ? { definitionName: block.definitionName } : {}),
+      config: copyRecord(block.config) || {},
+    };
+  }
+
+  private nodeToBlock(node: GraphNode): GraphBlock {
+    const data = copyRecord(node.data) || {};
+    const kind =
+      typeof data.definitionType === 'string' && data.definitionType
+        ? data.definitionType
+        : typeof node.type === 'string' && node.type !== 'langgraphNode'
+          ? node.type
+          : 'function';
+    const name = this.safeName(data.name || data.nodeName, node.id);
+    return {
+      id: node.id,
+      kind,
+      name,
+      label: typeof data.label === 'string' && data.label ? data.label : name,
+      ...(typeof data.definitionId === 'string' ? { definitionId: data.definitionId } : {}),
+      ...(typeof data.definitionName === 'string' ? { definitionName: data.definitionName } : {}),
+      config: copyRecord(data.config) || {},
+    };
+  }
+
+  private normalizeConnection(connection: Record<string, any>, index: number): GraphConnection {
+    const output = typeof connection.output === 'string' ? connection.output : undefined;
+    const input = typeof connection.input === 'string' ? connection.input : undefined;
+    return {
+      id:
+        typeof connection.id === 'string' && connection.id
+          ? connection.id
+          : `${connection.from}:${output || 'default'}:${connection.to}:${index}`,
+      from: connection.from,
+      to: connection.to,
+      ...(output ? { output } : {}),
+      ...(input ? { input } : {}),
+      ...(copyRecord(connection.data) ? { data: copyRecord(connection.data) } : {}),
+    };
+  }
+
+  private edgeToConnection(edge: GraphEdge, index: number): GraphConnection {
+    return this.normalizeConnection(
+      {
+        id: edge.id,
+        from: edge.source,
+        to: edge.target,
+        output: edge.sourceHandle,
+        input: edge.targetHandle,
+        data: edge.data,
+      },
+      index,
+    );
+  }
+
+  private toRuntimeGraph(flow: GraphFlow): { nodes: GraphNode[]; edges: GraphEdge[] } {
+    return {
+      nodes: flow.blocks.map((block) => ({
+        id: block.id,
+        type: 'langgraphNode',
+        data: {
+          name: block.name,
+          nodeName: block.name,
+          definitionType: block.kind,
+          definitionName: block.definitionName || block.label,
+          ...(block.definitionId ? { definitionId: block.definitionId } : {}),
+          label: block.label,
+          config: copyRecord(block.config) || {},
+        },
+      })),
+      edges: flow.connections.map((connection) => ({
+        id: connection.id,
+        source: connection.from,
+        target: connection.to,
+        ...(connection.output ? { sourceHandle: connection.output } : {}),
+        ...(connection.input ? { targetHandle: connection.input } : {}),
+        ...(copyRecord(connection.data) ? { data: copyRecord(connection.data) } : {}),
+      })),
+    };
+  }
+
   private normalizeLayout(
     candidate?: Partial<GraphLayout> | Record<string, any>,
     legacyViewport?: Partial<GraphViewport>,
@@ -118,7 +250,6 @@ export class GraphShapeService {
       : isRecord(legacyViewport)
         ? legacyViewport
         : DEFAULT_VIEWPORT;
-
     const nodes: GraphLayout['nodes'] = {};
     if (isRecord(rawLayout.nodes)) {
       for (const [nodeId, rawNodeLayout] of Object.entries(rawLayout.nodes)) {
@@ -132,7 +263,6 @@ export class GraphShapeService {
         };
       }
     }
-
     return {
       version: 1,
       viewport: {
@@ -145,35 +275,11 @@ export class GraphShapeService {
     };
   }
 
-  private toSemanticNode(node: GraphNode): GraphNode {
-    return {
-      id: node.id,
-      type: typeof node.type === 'string' ? node.type : 'langgraphNode',
-      data: copyRecord(node.data) || {},
-    };
-  }
-
-  private toSemanticEdge(edge: GraphEdge, index: number): GraphEdge {
-    const id =
-      typeof edge.id === 'string' && edge.id.length > 0
-        ? edge.id
-        : `${edge.source}:${edge.sourceHandle || 'default'}:${edge.target}:${index}`;
-
-    return {
-      id,
-      source: edge.source,
-      target: edge.target,
-      ...(typeof edge.sourceHandle === 'string' ? { sourceHandle: edge.sourceHandle } : {}),
-      ...(typeof edge.targetHandle === 'string' ? { targetHandle: edge.targetHandle } : {}),
-      ...(copyRecord(edge.data) ? { data: copyRecord(edge.data) } : {}),
-    };
-  }
-
   private extractNodeLayout(
     node: GraphNode,
-    existing: GraphLayout['nodes'][string] | undefined,
+    existing: GraphNodeLayout | undefined,
     index: number,
-  ): GraphLayout['nodes'][string] {
+  ): GraphNodeLayout {
     const position = isRecord(node.position) ? node.position : existing || this.fallbackPosition(index);
     return {
       x: numberOr(position.x, existing?.x ?? this.fallbackPosition(index).x),
@@ -185,25 +291,18 @@ export class GraphShapeService {
   }
 
   private extractEdgeLayout(edge: GraphEdge, existing?: Record<string, any>): Record<string, any> {
-    const visual: Record<string, any> = {
-      ...(existing || {}),
-    };
-
+    const visual: Record<string, any> = { ...(existing || {}) };
     for (const key of ['type', 'animated', 'style', 'label', 'labelStyle', 'labelBgStyle', 'markerEnd', 'markerStart', 'className', 'zIndex']) {
-      if (edge[key] !== undefined) {
-        visual[key] = edge[key];
-      }
+      if (edge[key] !== undefined) visual[key] = edge[key];
     }
     return visual;
   }
 
-  /** A deterministic, simple fallback for legacy graphs or nodes without a position. */
   private assignMissingPositions(nodes: GraphNode[], edges: GraphEdge[], layout: GraphLayout) {
     const assigned = new Map<string, number>();
     const nodeIds = new Set(nodes.map((node) => node.id));
     const incoming = new Map<string, number>();
     const outgoing = new Map<string, string[]>();
-
     for (const node of nodes) {
       incoming.set(node.id, 0);
       outgoing.set(node.id, []);
@@ -213,10 +312,8 @@ export class GraphShapeService {
       outgoing.get(edge.source)!.push(edge.target);
       incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
     }
-
     const queue = nodes.filter((node) => incoming.get(node.id) === 0).map((node) => node.id);
     if (queue.length === 0 && nodes[0]) queue.push(nodes[0].id);
-
     while (queue.length > 0) {
       const nodeId = queue.shift()!;
       if (assigned.has(nodeId)) continue;
@@ -229,11 +326,9 @@ export class GraphShapeService {
         }
       }
     }
-
     for (const node of nodes) {
       if (!assigned.has(node.id)) assigned.set(node.id, assigned.size);
     }
-
     const nodesByLevel = new Map<number, string[]>();
     for (const node of nodes) {
       const level = assigned.get(node.id) || 0;
@@ -241,7 +336,6 @@ export class GraphShapeService {
       ids.push(node.id);
       nodesByLevel.set(level, ids);
     }
-
     for (const [level, ids] of nodesByLevel) {
       ids.forEach((nodeId, column) => {
         const current = layout.nodes[nodeId];
@@ -254,7 +348,12 @@ export class GraphShapeService {
     }
   }
 
-  private fallbackPosition(index: number) {
+  private fallbackPosition(index: number): GraphNodeLayout {
     return { x: 0, y: index * VERTICAL_GAP };
+  }
+
+  private safeName(value: unknown, fallback: string): string {
+    const raw = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+    return raw.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
   }
 }

@@ -4,6 +4,46 @@
   "description": "Pause flow execution for interactive human review, dynamic form input, approval, or draft editing (n8n style).",
   "inputs": [
     {
+      "name": "responseType",
+      "label": "Response Medium / Channel",
+      "type": "select",
+      "required": true,
+      "defaultValue": "panel",
+      "options": [
+        {
+          "label": "Flow Studio Panel (Web UI)",
+          "value": "panel"
+        },
+        {
+          "label": "Telegram Bot (Direct Message / Chat)",
+          "value": "telegram"
+        }
+      ],
+      "helpText": "Choose whether human responses are collected via the Flow Studio execution panel or Telegram."
+    },
+    {
+      "name": "chatId",
+      "label": "Telegram Chat ID / User ID",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. 12345678 or {{nodes.trigger.chatId}}",
+      "helpText": "Target Telegram Chat ID or User ID to send the question to.",
+      "dependsOn": {
+        "field": "responseType",
+        "equals": "telegram"
+      }
+    },
+    {
+      "name": "botToken",
+      "label": "Telegram Bot Token (Optional)",
+      "type": "text",
+      "placeholder": "123456:ABC-DEF... (Leave blank to use token configured in Settings)",
+      "helpText": "Optional bot token override. Defaults to Telegram Bot Token configured in Settings.",
+      "dependsOn": {
+        "field": "responseType",
+        "equals": "telegram"
+      }
+    },
+    {
       "name": "question",
       "label": "Question / Prompt",
       "type": "textarea",
@@ -18,12 +58,30 @@
       "required": true,
       "defaultValue": "approval",
       "options": [
-        { "label": "Approve / Reject Buttons (Boolean)", "value": "approval" },
-        { "label": "Textarea (Multi-line text)", "value": "textarea" },
-        { "label": "Text Input (Single-line string)", "value": "text" },
-        { "label": "Select (Dropdown choice)", "value": "select" },
-        { "label": "Radio (Single-choice pills)", "value": "radio" },
-        { "label": "Custom Dynamic Form (Multi-field, n8n style)", "value": "form" }
+        {
+          "label": "Approve / Reject Buttons (Boolean)",
+          "value": "approval"
+        },
+        {
+          "label": "Textarea (Multi-line text)",
+          "value": "textarea"
+        },
+        {
+          "label": "Text Input (Single-line string)",
+          "value": "text"
+        },
+        {
+          "label": "Select (Dropdown choice)",
+          "value": "select"
+        },
+        {
+          "label": "Radio (Single-choice pills)",
+          "value": "radio"
+        },
+        {
+          "label": "Custom Dynamic Form (Multi-field, n8n style)",
+          "value": "form"
+        }
       ],
       "helpText": "Specifies the UI control rendered for the user when the flow reaches this gate."
     },
@@ -31,7 +89,11 @@
       "name": "options",
       "label": "Choice Options",
       "type": "json",
-      "defaultValue": ["Approve", "Request Changes", "Reject"],
+      "defaultValue": [
+        "Approve",
+        "Request Changes",
+        "Reject"
+      ],
       "helpText": "List of options for Select or Radio component (e.g. [\"Staging\", \"Production\"]).",
       "dependsOn": {
         "field": "inputType",
@@ -43,8 +105,24 @@
       "label": "Custom Form Fields (JSON)",
       "type": "json",
       "defaultValue": [
-        { "name": "feedback", "label": "Review Notes", "type": "textarea", "required": true, "placeholder": "Enter feedback..." },
-        { "name": "priority", "label": "Priority", "type": "select", "options": ["Low", "Normal", "High", "Urgent"] }
+        {
+          "name": "feedback",
+          "label": "Review Notes",
+          "type": "textarea",
+          "required": true,
+          "placeholder": "Enter feedback..."
+        },
+        {
+          "name": "priority",
+          "label": "Priority",
+          "type": "select",
+          "options": [
+            "Low",
+            "Normal",
+            "High",
+            "Urgent"
+          ]
+        }
       ],
       "helpText": "Array of field definitions for multi-field form mode.",
       "dependsOn": {
@@ -64,8 +142,14 @@
       "type": "select",
       "defaultValue": "false",
       "options": [
-        { "label": "No (Read-only preview)", "value": "false" },
-        { "label": "Yes (User can edit draft before submitting)", "value": "true" }
+        {
+          "label": "No (Read-only preview)",
+          "value": "false"
+        },
+        {
+          "label": "Yes (User can edit draft before submitting)",
+          "value": "true"
+        }
       ],
       "helpText": "When enabled, the user can modify the draft text in place, and the revised text will be emitted downstream."
     },
@@ -78,8 +162,15 @@
     }
   ],
   "outputs": [
-    { "name": "result", "label": "Response", "type": "object" },
-    { "name": "approved", "label": "Approved", "type": "boolean" },
-    { "name": "value", "label": "Value", "type": "object" }
+    {
+      "name": "approved",
+      "label": "Approved",
+      "type": "branch"
+    },
+    {
+      "name": "rejected",
+      "label": "Rejected",
+      "type": "branch"
+    }
   ]
 }

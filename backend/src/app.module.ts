@@ -10,6 +10,7 @@ import { BlocksModule } from './blocks/blocks.module';
 import { EventsModule } from './events/events.module';
 import { ProjectsModule } from './projects/projects.module';
 import { WebserverModule } from './webserver/webserver.module';
+import { TelegramModule } from './telegram/telegram.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { WebserverModule } from './webserver/webserver.module';
     BlocksModule,
     EventsModule,
     WebserverModule,
+    TelegramModule,
   ],
 })
 export class AppModule {}

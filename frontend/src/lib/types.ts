@@ -12,7 +12,7 @@ export interface LLMModel {
   id?: string;
   label: string;
   modelId: string;
-  provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'custom' | string;
+  provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'custom' | string;
   endpoint: string;
   apiKey?: string;
   capabilities: ModelCapabilities;
@@ -62,6 +62,8 @@ export interface ToolInput {
   multiselect?: boolean;
   rows?: number;
   supportsUuid?: boolean;
+  canRevise?: boolean;
+  supportsAiGenerator?: boolean;
   prefixField?: string;
   dependsOn?: {
     field: string;
@@ -170,12 +172,34 @@ export interface GraphLayoutData {
   edges: Record<string, Record<string, any>>;
 }
 
+export interface GraphFlowData {
+  version: number;
+  blocks: Array<{
+    id: string;
+    kind: string;
+    name: string;
+    label: string;
+    definitionId?: string;
+    definitionName?: string;
+    config: Record<string, any>;
+  }>;
+  connections: Array<{
+    id: string;
+    from: string;
+    to: string;
+    output?: string;
+    input?: string;
+    data?: Record<string, any>;
+  }>;
+}
+
 export interface GraphData {
   _id?: string;
   name: string;
   projectId: string;
   nodes: Node<FlowNodeData>[];
   edges: Edge[];
+  flow?: GraphFlowData;
   layout?: GraphLayoutData;
   viewport?: Viewport;
   createdAt?: string;
@@ -217,6 +241,7 @@ export interface RunNodeRecord {
   waitingTokenId?: string;
   startedAt?: string;
   finishedAt?: string;
+  cached?: boolean;
 }
 
 export interface RunResult {
@@ -234,6 +259,8 @@ export interface RunResult {
   waitingDescriptor?: any;
   resumeToken?: string;
   checkpointSequence?: number;
+  debugMode?: boolean;
+  useCache?: boolean;
   input?: any;
   output?: any;
   nodes?: RunNodeRecord[];
@@ -296,4 +323,18 @@ export interface ArtifactRelationItem {
   metadata?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface NodeCacheItem {
+  _id?: string;
+  graphId: string;
+  graphName?: string;
+  projectId?: string;
+  nodeId: string;
+  nodeName?: string;
+  nodeType?: string;
+  result: any;
+  input?: any;
+  updatedAt: string;
+  createdAt?: string;
 }

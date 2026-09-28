@@ -1,0 +1,121 @@
+{
+  "name": "Research Quality Reviewer",
+  "type": "research-review",
+  "description": "Validates research provenance, checks question coverage and explicit conflicts, and routes a bounded review decision.",
+  "inputs": [
+    {
+      "name": "findings",
+      "label": "Research Findings",
+      "type": "variable",
+      "required": true,
+      "accepts": [
+        "array",
+        "object"
+      ],
+      "helpText": "Array of findings or an Agent result containing findings."
+    },
+    {
+      "name": "questions",
+      "label": "Research Questions",
+      "type": "variable",
+      "required": true,
+      "accepts": [
+        "array"
+      ],
+      "helpText": "Array of { id, question } from the research plan."
+    },
+    {
+      "name": "assessment",
+      "label": "Reviewer Assessment",
+      "type": "valueOrVariable",
+      "accepts": [
+        "object"
+      ],
+      "helpText": "Optional structured human or model assessment; issues must reference finding IDs or question IDs."
+    },
+    {
+      "name": "verifySources",
+      "label": "Verify Source Evidence",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "Fetch source pages and check that supporting evidence appears in the extracted text. Unreachable or unmatched sources are flagged for more research."
+    },
+    {
+      "name": "maxSources",
+      "label": "Maximum Sources to Verify",
+      "type": "number",
+      "defaultValue": 20,
+      "minimum": 1,
+      "maximum": 30,
+      "dependsOn": {
+        "field": "verifySources",
+        "equals": true
+      }
+    },
+    {
+      "name": "reviewCycle",
+      "label": "Review Cycle",
+      "type": "valueOrVariable",
+      "defaultValue": 1
+    },
+    {
+      "name": "maxReviewCycles",
+      "label": "Maximum Review Cycles",
+      "type": "number",
+      "defaultValue": 3
+    },
+    {
+      "name": "evidenceLimit",
+      "label": "Maximum Evidence Characters",
+      "type": "number",
+      "defaultValue": 2000
+    }
+  ],
+  "outputs": [
+    {
+      "name": "pass",
+      "label": "Pass",
+      "type": "branch"
+    },
+    {
+      "name": "needs_more_research",
+      "label": "Needs More Research",
+      "type": "branch"
+    },
+    {
+      "name": "revise_findings",
+      "label": "Revise Findings",
+      "type": "branch"
+    },
+    {
+      "name": "incomplete_needs_human_review",
+      "label": "Incomplete / Human Review",
+      "type": "branch"
+    },
+    {
+      "name": "result",
+      "label": "Review Result",
+      "type": "object"
+    },
+    {
+      "name": "decision",
+      "label": "Review Decision",
+      "type": "string"
+    },
+    {
+      "name": "findings",
+      "label": "Reviewed Findings",
+      "type": "array"
+    },
+    {
+      "name": "questions",
+      "label": "Research Questions",
+      "type": "array"
+    },
+    {
+      "name": "sourceChecks",
+      "label": "Source Verification Results",
+      "type": "array"
+    }
+  ]
+}

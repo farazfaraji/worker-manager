@@ -6,6 +6,7 @@ import { extractAvailableVariables, extractNodeOutputs, parseSchema } from '@/li
 import { DynamicFieldRenderer } from './DynamicFieldRenderer';
 import { BrowserActionBuilder } from './BrowserActionBuilder';
 import { fetchUpstreamVariables, fetchNodeDefinitions } from '@/lib/api';
+import { Rnd } from 'react-rnd';
 import {
   X,
   Save,
@@ -21,6 +22,10 @@ import {
   ChevronDown,
   ChevronRight,
   Terminal,
+  Minus,
+  Maximize2,
+  Minimize2,
+  ChevronUp,
 } from 'lucide-react';
 
 interface NodeConfigModalProps {
@@ -63,8 +68,31 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
   const [showStack, setShowStack] = useState(true);
   const [showInputPayload, setShowInputPayload] = useState(false);
 
+  // Floating & Resizable Window State
+  const [mounted, setMounted] = useState(false);
+  const [windowPosition, setWindowPosition] = useState<{ x: number; y: number }>({ x: 200, y: 70 });
+  const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 680, height: 620 });
+  const [isMinimized, setIsMinimized] = useState<boolean>(false);
+  const [isMaximized, setIsMaximized] = useState<boolean>(false);
+  const [prevBounds, setPrevBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    if (typeof window !== 'undefined') {
+      const defaultWidth = Math.min(680, window.innerWidth - 40);
+      const defaultHeight = Math.min(620, window.innerHeight - 90);
+      const defaultX = Math.max(20, Math.round((window.innerWidth - defaultWidth) / 2));
+      const defaultY = Math.max(60, Math.round((window.innerHeight - defaultHeight) / 2));
+      setWindowSize({ width: defaultWidth, height: defaultHeight });
+      setWindowPosition({ x: defaultX, y: defaultY });
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen && node) {
+      if (isMinimized) {
+        setIsMinimized(false);
+      }
       setLabel(node.data?.label || node.data?.definitionName || 'Node');
       setNodeName(node.data?.nodeName || 'node');
       setActionDefinitions(node.data?.actionDefinitions || []);
@@ -80,7 +108,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
           initialConfig[input.name] = input.defaultValue;
         }
       }
-      if (initialConfig.operation === undefined) {
+      if (initialConfig.operation === undefined && node.data?.definitionType === 'artifact') {
         initialConfig.operation = 'create';
       }
 
@@ -88,15 +116,19 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
 
       // Always fetch latest tool definitions from backend to ensure new inputs/actions appear
       const defType = String(node.data?.definitionType || '').toLowerCase();
+      const defName = String(node.data?.definitionName || node.data?.label || '').toLowerCase();
+      const defId = String(node.data?.definitionId || '').toLowerCase();
+
       fetchNodeDefinitions()
         .then((defs) => {
-          const matched = defs.find(
-            (d) =>
-              d.type.toLowerCase() === defType ||
-              d.id.toLowerCase() === defType ||
-              d.name.toLowerCase() === defType ||
-              (node.data?.definitionId && d.id.toLowerCase() === String(node.data.definitionId).toLowerCase())
-          );
+          const matched =
+            defs.find((d) => defId && d.id.toLowerCase() === defId) ||
+            defs.find((d) => defName && d.name.toLowerCase() === defName) ||
+            defs.find((d) => defName && d.id.toLowerCase() === defName.replace(/\s+/g, '-')) ||
+            defs.find((d) => d.id.toLowerCase() === defType) ||
+            defs.find((d) => d.name.toLowerCase() === defType) ||
+            defs.find((d) => d.type.toLowerCase() === defType);
+
           if (matched?.inputs && matched.inputs.length > 0) {
             setDefinitionInputs(matched.inputs);
             setFormConfig((prevConfig) => {
@@ -106,7 +138,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                   updated[inp.name] = inp.defaultValue;
                 }
               });
-              if (updated.operation === undefined) {
+              if (updated.operation === undefined && node.data?.definitionType === 'artifact') {
                 updated.operation = 'create';
               }
               return updated;
@@ -121,11 +153,15 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
         })
         .catch(() => {});
 
-      // Fetch upstream variables from backend API if graphId exists
+      // Extract live variables immediately from all canvas nodes
+      const clientVars = extractAvailableVariables(allNodes, edges, node.id);
+      setAvailableVariables(clientVars);
+
+      // If saved graph exists, query backend for topological ancestor variables and merge
       if (graphId) {
         fetchUpstreamVariables(graphId, node.id)
           .then((res) => {
-            if (res && Array.isArray(res.variables)) {
+            if (res && Array.isArray(res.variables) && res.variables.length > 0) {
               const mappedVars: VariableItem[] = res.variables.map((v: any) => ({
                 name: v.outputName,
                 label: v.path,
@@ -135,27 +171,22 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                 sourceNodeType: v.type,
                 type: v.type,
               }));
-              setAvailableVariables(mappedVars);
-            } else {
-              // Fallback to client extraction
-              const vars = extractAvailableVariables(allNodes, edges, node.id);
-              setAvailableVariables(vars);
+
+              // Merge backend variables with live client variables (live client state takes priority)
+              const combinedMap = new Map<string, VariableItem>();
+              mappedVars.forEach((v) => combinedMap.set(v.path, v));
+              clientVars.forEach((v) => combinedMap.set(v.path, v));
+              setAvailableVariables(Array.from(combinedMap.values()));
             }
           })
           .catch(() => {
-            // Fallback to client extraction
-            const vars = extractAvailableVariables(allNodes, edges, node.id);
-            setAvailableVariables(vars);
+            // Already initialized with clientVars
           });
-      } else {
-        // Client-side extraction for unsaved graphs
-        const vars = extractAvailableVariables(allNodes, edges, node.id);
-        setAvailableVariables(vars);
       }
     }
   }, [isOpen, node, allNodes, edges, graphId]);
 
-  if (!isOpen || !node) return null;
+  if (!isOpen || !node || !mounted) return null;
 
   const inputs = definitionInputs.length > 0 ? definitionInputs : (node.data?.inputs || []);
   let baseOutputs = (definitionOutputs.length > 0 ? definitionOutputs : (node.data?.definitionOutputs || node.data?.outputs || [])) as ToolOutput[];
@@ -245,134 +276,302 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
     setTimeout(() => setCopiedLog(false), 2000);
   };
 
+  const toggleMaximize = () => {
+    if (isMinimized) {
+      setIsMinimized(false);
+    }
+    if (!isMaximized) {
+      setPrevBounds({
+        x: windowPosition.x,
+        y: windowPosition.y,
+        width: windowSize.width,
+        height: windowSize.height,
+      });
+      setWindowPosition({ x: 16, y: 60 });
+      setWindowSize({
+        width: window.innerWidth - 32,
+        height: window.innerHeight - 76,
+      });
+      setIsMaximized(true);
+    } else {
+      if (prevBounds) {
+        setWindowPosition({ x: prevBounds.x, y: prevBounds.y });
+        setWindowSize({ width: prevBounds.width, height: prevBounds.height });
+      } else {
+        const defaultWidth = Math.min(680, window.innerWidth - 40);
+        const defaultHeight = Math.min(620, window.innerHeight - 90);
+        setWindowPosition({ x: Math.max(20, Math.round((window.innerWidth - defaultWidth) / 2)), y: 70 });
+        setWindowSize({ width: defaultWidth, height: defaultHeight });
+      }
+      setIsMaximized(false);
+    }
+  };
+
+  const toggleMinimize = () => {
+    if (!isMinimized) {
+      setPrevBounds({
+        x: windowPosition.x,
+        y: windowPosition.y,
+        width: windowSize.width,
+        height: windowSize.height,
+      });
+      setIsMinimized(true);
+      setIsMaximized(false);
+    } else {
+      setIsMinimized(false);
+      if (prevBounds) {
+        setWindowPosition({ x: prevBounds.x, y: prevBounds.y });
+        setWindowSize({ width: prevBounds.width, height: prevBounds.height });
+      }
+    }
+  };
+
+  const handleHeaderDoubleClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, select, textarea, a')) return;
+    if (isMinimized) {
+      toggleMinimize();
+    } else {
+      toggleMaximize();
+    }
+  };
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        style={{
-          maxWidth: 680,
-          border: isFailed ? '2px solid #ef4444' : undefined,
-          boxShadow: isFailed
-            ? '0 20px 45px -10px rgba(239, 68, 68, 0.35), 0 0 0 1px rgba(239, 68, 68, 0.2)'
-            : undefined,
+    <>
+      <Rnd
+        size={
+          isMinimized
+            ? { width: Math.min(windowSize.width, 460), height: 52 }
+            : isMaximized
+            ? { width: window.innerWidth - 32, height: window.innerHeight - 76 }
+            : { width: windowSize.width, height: windowSize.height }
+        }
+        position={
+          isMaximized
+            ? { x: 16, y: 60 }
+            : { x: windowPosition.x, y: windowPosition.y }
+        }
+        onDragStop={(e, d) => {
+          if (!isMaximized) {
+            setWindowPosition({ x: d.x, y: d.y });
+          }
         }}
-        onClick={(e) => e.stopPropagation()}
+        onResizeStop={(e, direction, ref, delta, position) => {
+          if (!isMaximized && !isMinimized) {
+            setWindowSize({
+              width: ref.offsetWidth,
+              height: ref.offsetHeight,
+            });
+            setWindowPosition(position);
+          }
+        }}
+        minWidth={isMinimized ? 320 : 460}
+        minHeight={isMinimized ? 52 : 280}
+        maxWidth={typeof window !== 'undefined' ? window.innerWidth - 20 : undefined}
+        maxHeight={typeof window !== 'undefined' ? window.innerHeight - 40 : undefined}
+        bounds="window"
+        dragHandleClassName="window-drag-handle"
+        cancel=".no-drag, button, input, select, textarea"
+        enableResizing={!isMinimized && !isMaximized}
+        style={{
+          zIndex: 1000,
+          position: 'fixed',
+        }}
+        className="floating-node-window-wrapper"
       >
-        {/* Modal Header */}
         <div
-          className="modal-header"
+          className={`floating-node-window ${isFailed ? 'failed-node-window' : ''} ${isMinimized ? 'minimized' : ''}`}
           style={{
-            background: isFailed ? '#fff5f5' : undefined,
-            borderBottom: isFailed ? '1px solid #fecaca' : undefined,
+            height: '100%',
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
           }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 'var(--radius-md)',
-                background: isFailed
-                  ? '#fee2e2'
-                  : isCompleted
-                  ? '#ecfdf5'
-                  : 'var(--accent-subtle)',
-                color: isFailed
-                  ? '#dc2626'
-                  : isCompleted
-                  ? '#059669'
-                  : 'var(--accent-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {isFailed ? (
-                <AlertCircle size={18} />
-              ) : isCompleted ? (
-                <CheckCircle2 size={18} />
-              ) : (
-                <Sliders size={18} />
-              )}
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h3 className="modal-title">{node.data?.definitionName || 'Node Configuration'}</h3>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    padding: '2px 8px',
-                    borderRadius: 9999,
-                    background: 'var(--accent-subtle)',
-                    color: 'var(--accent-primary)',
-                  }}
-                >
-                  {node.data?.definitionType}
-                </span>
-
-                {isFailed && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '2px 8px',
-                      borderRadius: 9999,
-                      background: '#fee2e2',
-                      color: '#dc2626',
-                      border: '1px solid #fecaca',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <AlertCircle size={11} />
-                    Failed
-                  </span>
-                )}
-
-                {isCompleted && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '2px 8px',
-                      borderRadius: 9999,
-                      background: '#ecfdf5',
-                      color: '#059669',
-                      border: '1px solid #a7f3d0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <CheckCircle2 size={11} />
-                    Completed
-                  </span>
+          {/* Modal Header / Window Titlebar */}
+          <div
+            className="modal-header window-drag-handle"
+            onDoubleClick={handleHeaderDoubleClick}
+            style={{
+              background: isFailed ? '#fff5f5' : '#ffffff',
+              borderBottom: isMinimized ? 'none' : isFailed ? '1px solid #fecaca' : '1px solid var(--border-color)',
+              borderRadius: isMinimized ? 'var(--radius-lg)' : undefined,
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'grab',
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden', minWidth: 0 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  flexShrink: 0,
+                  borderRadius: 'var(--radius-md)',
+                  background: isFailed
+                    ? '#fee2e2'
+                    : isCompleted
+                    ? '#ecfdf5'
+                    : 'var(--accent-subtle)',
+                  color: isFailed
+                    ? '#dc2626'
+                    : isCompleted
+                    ? '#059669'
+                    : 'var(--accent-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {isFailed ? (
+                  <AlertCircle size={17} />
+                ) : isCompleted ? (
+                  <CheckCircle2 size={17} />
+                ) : (
+                  <Sliders size={17} />
                 )}
               </div>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                Configure inputs, variable references, and execution parameters.
-              </p>
+              <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
+                  <h3
+                    className="modal-title"
+                    style={{
+                      fontSize: 15,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {node.data?.definitionName || 'Node Configuration'}
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      padding: '2px 8px',
+                      borderRadius: 9999,
+                      background: 'var(--accent-subtle)',
+                      color: 'var(--accent-primary)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {node.data?.definitionType}
+                  </span>
+
+                  {isFailed && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 9999,
+                        background: '#fee2e2',
+                        color: '#dc2626',
+                        border: '1px solid #fecaca',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <AlertCircle size={11} />
+                      Failed
+                    </span>
+                  )}
+
+                  {isCompleted && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 9999,
+                        background: '#ecfdf5',
+                        color: '#059669',
+                        border: '1px solid #a7f3d0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <CheckCircle2 size={11} />
+                      Completed
+                    </span>
+                  )}
+                </div>
+                {!isMinimized && (
+                  <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    Configure inputs, variable references, and execution parameters.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Window Controls (Minimize, Maximize, Close) */}
+            <div className="window-controls no-drag" style={{ flexShrink: 0 }}>
+              <button
+                type="button"
+                className="window-control-btn minimize-btn"
+                onClick={toggleMinimize}
+                title={isMinimized ? 'Restore window' : 'Minimize window'}
+                aria-label="Minimize"
+              >
+                {isMinimized ? <ChevronUp size={15} /> : <Minus size={15} />}
+              </button>
+
+              {!isMinimized && (
+                <button
+                  type="button"
+                  className="window-control-btn maximize-btn"
+                  onClick={toggleMaximize}
+                  title={isMaximized ? 'Restore size' : 'Maximize window'}
+                  aria-label="Maximize"
+                >
+                  {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="window-control-btn close-btn"
+                onClick={onClose}
+                title="Close window"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
             </div>
           </div>
 
-          <button
-            type="button"
-            className="collapse-btn"
-            onClick={onClose}
-            title="Close modal"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Modal Form Body */}
-        <form onSubmit={handleSave}>
-          <div className="modal-body" style={{ maxHeight: 520 }}>
+          {/* Modal Form Body & Footer (hidden when minimized) */}
+          {!isMinimized && (
+            <form
+              onSubmit={handleSave}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                className="modal-body window-body"
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  maxHeight: 'none',
+                  padding: '20px 22px',
+                }}
+              >
             {/* Execution Error Banner & Logs */}
             {isFailed && (
               <div
@@ -812,20 +1011,130 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Latest Execution Output Display */}
+            {(node.data?.runOutput !== undefined || node.data?.runStatus) && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: '12px 14px',
+                  background: 'var(--bg-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  border: `1px solid ${
+                    node.data?.runStatus === 'completed'
+                      ? '#a7f3d0'
+                      : node.data?.runStatus === 'failed'
+                      ? '#fecaca'
+                      : 'var(--border-color)'
+                  }`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <h4
+                    style={{
+                      margin: 0,
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      fontWeight: 700,
+                      color: 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Terminal size={14} color="var(--accent-primary)" />
+                    Latest Execution Output
+                  </h4>
+                  {node.data?.runStatus && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        background:
+                          node.data.runStatus === 'completed'
+                            ? '#d1fae5'
+                            : node.data.runStatus === 'failed'
+                            ? '#fee2e2'
+                            : '#f1f5f9',
+                        color:
+                          node.data.runStatus === 'completed'
+                            ? '#065f46'
+                            : node.data.runStatus === 'failed'
+                            ? '#991b1b'
+                            : '#475569',
+                      }}
+                    >
+                      {node.data.runStatus}
+                    </span>
+                  )}
+                </div>
+
+                {node.data?.runOutput !== undefined ? (
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: 10,
+                      background: '#0f172a',
+                      color: '#34d399',
+                      borderRadius: 6,
+                      fontSize: 11.5,
+                      fontFamily: 'monospace',
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {JSON.stringify(node.data.runOutput, null, 2)}
+                  </pre>
+                ) : (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    No output data produced for this node.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Modal Footer */}
-          <div className="modal-footer">
-            <button type="button" className="btn btn-default" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary">
-              <Save size={15} />
-              Save Configuration
-            </button>
-          </div>
-        </form>
+            {/* Modal Footer */}
+            <div className="modal-footer" style={{ flexShrink: 0 }}>
+              <button type="button" className="btn btn-default" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                <Save size={15} />
+                Save Configuration
+              </button>
+            </div>
+          </form>
+        )}
       </div>
-    </div>
+    </Rnd>
+
+    {/* Docked Pill when minimized for quick restore */}
+    {isMinimized && (
+      <div
+        className="docked-minimized-pill"
+        onClick={toggleMinimize}
+        title="Click to restore block configuration window"
+      >
+        <Sliders size={14} color="var(--accent-primary, #6366f1)" />
+        <span>Configuring: <strong>{node.data?.label || node.data?.definitionName || 'Node'}</strong></span>
+        <button
+          type="button"
+          className="docked-restore-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMinimize();
+          }}
+        >
+          Restore
+        </button>
+      </div>
+    )}
+  </>
   );
 };

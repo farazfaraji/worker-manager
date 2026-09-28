@@ -31,9 +31,13 @@
     {
       "name": "artifactType",
       "label": "Artifact Type Filter",
-      "type": "combobox",
+      "type": "valueOrVariable",
+      "accepts": [
+        "string",
+        "any"
+      ],
       "defaultValue": "",
-      "placeholder": "Select from existing or enter custom type (e.g. prd, tech-spec)",
+      "placeholder": "Select from existing, enter custom type, or wire variable (e.g. {{trigger.input.type}})",
       "dataSource": {
         "type": "endpoint",
         "url": "/artifacts/types",
@@ -120,24 +124,14 @@
   ],
   "outputs": [
     {
-      "name": "context",
-      "label": "Context Text",
-      "type": "string"
+      "name": "done",
+      "label": "Done",
+      "type": "branch"
     },
     {
-      "name": "results",
-      "label": "Results Array",
-      "type": "array"
-    },
-    {
-      "name": "count",
-      "label": "Count",
-      "type": "number"
-    },
-    {
-      "name": "result",
-      "label": "Result Object",
-      "type": "object"
+      "name": "onFailed",
+      "label": "On Failed",
+      "type": "branch"
     }
   ]
 }

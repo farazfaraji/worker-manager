@@ -19,6 +19,10 @@ export class UpdateGraphDto {
 
   @IsOptional()
   @IsObject()
+  flow?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
   viewport?: {
     x: number;
     y: number;

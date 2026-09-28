@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { FileText, History, Maximize2, Server, Play, Pause, Loader2 } from 'lucide-react';
+import { FileText, History, Database, Maximize2, Server, Play, Pause, Loader2 } from 'lucide-react';
 import { Node } from '@xyflow/react';
 import { FlowNodeData } from '@/lib/types';
 import { getWebserverStatus, startWebserver, stopWebserver } from '@/lib/api';
@@ -164,6 +164,20 @@ export const BoardRightToolbar: React.FC<BoardRightToolbarProps> = ({
       >
         <History size={18} />
         <span className="board-toolbar-tooltip">Runs</span>
+      </button>
+
+      {/* 3. Node Caches */}
+      <button
+        type="button"
+        className="board-toolbar-btn"
+        onClick={() => {
+          window.location.href = '/caches';
+        }}
+        title="Node Result Caches (LLM, Search, CLI)"
+        aria-label="Node Caches"
+      >
+        <Database size={18} />
+        <span className="board-toolbar-tooltip">Caches</span>
       </button>
 
       <div className="board-toolbar-divider" />

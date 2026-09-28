@@ -1,11 +1,31 @@
 {
   "name": "Orchestrator",
   "type": "orchestrator",
-  "description": "Delegate a goal to multiple configured agents and aggregate their results.",
+  "description": "Coordinate multi-agent workflows by fanning out to parallel Agent nodes on the canvas, with a dedicated 'done' output called only when all jobs finish.",
   "inputs": [
-    { "name": "goal", "label": "Goal", "type": "valueOrVariable", "required": true },
-    { "name": "agents", "label": "Agents", "type": "json", "required": true },
-    { "name": "strategy", "label": "Strategy", "type": "select", "defaultValue": "parallel", "options": [{ "label": "Parallel", "value": "parallel" }, { "label": "Sequential", "value": "sequential" }] }
+    { "name": "goal", "label": "Goal", "type": "valueOrVariable", "required": true, "placeholder": "Conduct 4-way PR review and security audit" },
+    {
+      "name": "agentOutputs",
+      "label": "Agent Outputs",
+      "type": "json",
+      "required": false,
+      "defaultValue": "[\n  { \"name\": \"agent_1\", \"label\": \"Agent 1\", \"role\": \"researcher\" },\n  { \"name\": \"agent_2\", \"label\": \"Agent 2\", \"role\": \"analyst\" },\n  { \"name\": \"agent_3\", \"label\": \"Agent 3\", \"role\": \"reviewer\" },\n  { \"name\": \"agent_4\", \"label\": \"Agent 4\", \"role\": \"architect\" }\n]",
+      "helpText": "Configured agent outputs to connect to Agent nodes on the canvas. Each entry dynamically generates an output socket on the block, alongside the 'done' socket that only triggers when all jobs finish."
+    },
+    { "name": "strategy", "label": "Strategy", "type": "select", "defaultValue": "parallel", "options": [{ "label": "Parallel", "value": "parallel" }, { "label": "Sequential", "value": "sequential" }] },
+    { "name": "sharedInput", "label": "Shared Input", "type": "valueOrVariable", "accepts": ["object"], "helpText": "Optional context provided to every delegated agent." },
+    { "name": "requireResearchOutput", "label": "Require Research Finding Contract", "type": "checkbox", "defaultValue": false, "helpText": "Require each delegated research agent to return findings with claim, evidence, source URL, date, confidence, limitations, area, and question IDs." },
+    { "name": "maxToolStepsPerAgent", "label": "Tool Steps Per Agent", "type": "number", "defaultValue": 5, "minimum": 1, "maximum": 10, "helpText": "Upper bound on search and page-reading calls for each delegated agent." },
+    { "name": "evidenceLimit", "label": "Evidence Character Limit", "type": "number", "defaultValue": 2000, "minimum": 100, "maximum": 10000, "dependsOn": { "field": "requireResearchOutput", "equals": true } },
+    { "name": "concurrency", "label": "Parallel Concurrency", "type": "number", "defaultValue": 4, "minimum": 1, "maximum": 8, "dependsOn": { "field": "strategy", "equals": "parallel" } },
+    { "name": "failFast", "label": "Fail on Agent Error", "type": "checkbox", "defaultValue": false, "helpText": "Stop sequential delegation on the first error or fail the parallel result after active agents finish." },
+    { "name": "agents", "label": "Legacy Sub-Agents JSON", "type": "json", "required": false, "helpText": "Optional legacy array of {id, role, task, model, allowedTools} for self-contained execution without canvas nodes." }
   ],
-  "outputs": [{ "name": "result", "label": "Delegated Results", "type": "object" }]
+  "outputs": [
+    { "name": "agent_1", "label": "agent_1", "type": "branch" },
+    { "name": "agent_2", "label": "agent_2", "type": "branch" },
+    { "name": "agent_3", "label": "agent_3", "type": "branch" },
+    { "name": "agent_4", "label": "agent_4", "type": "branch" },
+    { "name": "done", "label": "Done (Jobs Finish)", "type": "branch", "schema": { "goal": "string", "results": "array", "agentCount": "number", "lastResult": "object", "status": "string" } }
+  ]
 }

@@ -3,6 +3,10 @@ import { IsOptional, IsString, IsBoolean, IsNumber, IsObject } from 'class-valid
 export class UpdateSettingDto {
   @IsOptional()
   @IsString()
+  flowHelperModel?: string;
+
+  @IsOptional()
+  @IsString()
   typeGeneratorModel?: string;
 
   @IsOptional()
@@ -28,6 +32,26 @@ export class UpdateSettingDto {
   @IsOptional()
   @IsNumber()
   nodeTimeout?: number;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @IsOptional()
+  @IsString()
+  telegramBotToken?: string;
+
+  @IsOptional()
+  @IsString()
+  telegramUpdateMode?: string;
+
+  @IsOptional()
+  @IsNumber()
+  telegramPollIntervalSeconds?: number;
+
+  @IsOptional()
+  @IsString()
+  telegramWebhookUrl?: string;
 
   @IsOptional()
   @IsObject()

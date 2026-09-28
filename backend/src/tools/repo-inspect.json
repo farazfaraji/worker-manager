@@ -1,0 +1,36 @@
+{
+  "name": "Repository Inspector",
+  "type": "repo-inspect",
+  "description": "Inspect an existing codebase with Codex or Cursor CLI in read-only mode and return structured implementation context.",
+  "inputs": [
+    { "name": "provider", "label": "CLI Provider", "type": "select", "defaultValue": "codex", "options": [{ "label": "Codex CLI", "value": "codex" }, { "label": "Cursor CLI", "value": "cursor" }] },
+    {
+      "name": "prompt",
+      "label": "Prompt",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "Describe what to inspect or investigate, e.g. Analyze auth workflow for {{test}}",
+      "helpText": "Prompt sent to the CLI. Supports variables like {{test}}."
+    },
+    { "name": "repositoryPath", "label": "Repository Path Override", "type": "valueOrVariable", "accepts": ["string"], "helpText": "Optional override; it must remain inside the project's allowed repository roots." },
+    {
+      "name": "model",
+      "label": "Model Override",
+      "type": "string",
+      "placeholder": "gpt-5.6-terra",
+      "defaultValue": "gpt-5.6-terra",
+      "helpText": "Model to use for Codex CLI inspection (e.g. gpt-5.6-terra, gpt-6-astra, gpt-5.6-sol). Defaults to gpt-5.6-terra or CODEX_MODEL."
+    },
+    { "name": "timeoutMs", "label": "Timeout (ms)", "type": "number", "defaultValue": 300000 },
+    {
+      "name": "cacheResult",
+      "label": "Cache Last Result",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "Store the latest execution result in the database cache. When running in Debug mode with 'Use Cache' enabled, this cached result will be reused instead of calling the CLI."
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Repository Findings", "type": "object", "schema": { "provider": "string", "repositoryPath": "string", "revision": "string", "dirty": "boolean", "summary": "string", "relevantFiles": "array", "existingPatterns": "array", "integrationPoints": "array", "constraints": "array", "unknowns": "array" } }
+  ]
+}

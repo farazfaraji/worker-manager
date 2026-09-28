@@ -11,6 +11,7 @@ import { ArtifactIndexingService } from './artifact-indexing.service';
 import { MemoryService } from './memory.service';
 import { TraceService } from './trace.service';
 import { BlockRuntimeService } from './block-runtime.service';
+import { AgentToolRegistryService } from '../runs/services/agent-tool-registry.service';
 import { AgentRunnerService } from '../runs/services/agent-runner.service';
 import { VariableResolverService } from '../runs/services/variable-resolver.service';
 import { BrowserRunnerService } from '../runs/services/browser-runner.service';
@@ -45,6 +46,7 @@ import { ArtifactsController } from './artifacts.controller';
     EmbeddingService,
     VectorStoreService,
     BlockRuntimeService,
+    AgentToolRegistryService,
     AgentRunnerService,
     VariableResolverService,
     BrowserRunnerService,
@@ -58,6 +60,7 @@ import { ArtifactsController } from './artifacts.controller';
     EmbeddingService,
     VectorStoreService,
     BlockRuntimeService,
+    AgentToolRegistryService,
   ],
 })
 export class BlocksModule {}

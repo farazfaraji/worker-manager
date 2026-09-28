@@ -8,6 +8,13 @@ export class VariableResolverService {
   resolveNodeInput(node: RuntimeNode, context: Record<string, any>, initialInput: any): any {
     const config = node.data?.config || {};
     const resolved = this.resolveValue(config, context);
+    if (node.data?.definitionType === 'loop' && config.mode === 'research') {
+      // These fields describe paths inside the child output, not references to
+      // the current graph's context.
+      for (const key of ['completionPath', 'gapPath']) {
+        if (typeof config[key] === 'string') resolved[key] = config[key];
+      }
+    }
     if (Object.keys(resolved || {}).length > 0) return resolved;
     return initialInput;
   }
@@ -15,7 +22,29 @@ export class VariableResolverService {
   resolveValue(value: any, context: Record<string, any>): any {
     if (Array.isArray(value)) return value.map((item) => this.resolveValue(item, context));
     if (value && typeof value === 'object') {
-      if (value.mode === 'variable') return this.resolveReference(value.value, context);
+      if (value.mode === 'variable') {
+        const ref = String(value.value || '').trim();
+        if (ref.includes('||')) {
+          const parts = ref.split('||').map((p) => p.trim());
+          for (const part of parts) {
+            if ((part.startsWith('"') && part.endsWith('"')) || (part.startsWith("'") && part.endsWith("'"))) {
+              return part.slice(1, -1);
+            }
+            if (/^-?\d+(\.\d+)?$/.test(part)) {
+              return Number(part);
+            }
+            if (part === 'true') return true;
+            if (part === 'false') return false;
+            if (part === 'null') return null;
+            const val = this.resolveReference(part, context);
+            if (val !== undefined && val !== null && val !== '') {
+              return val;
+            }
+          }
+          return undefined;
+        }
+        return this.resolveReference(ref, context);
+      }
       if (value.mode === 'literal') return this.resolveValue(value.value, context);
       const result: Record<string, any> = {};
       for (const [key, item] of Object.entries(value)) result[key] = this.resolveValue(item, context);
@@ -43,8 +72,42 @@ export class VariableResolverService {
       if (lower === 'timestamp' || lower === '$timestamp') {
         return Date.now().toString();
       }
+
+      // Support fallback chain: e.g. "a.query.q || a.query.content || ''" or "a.query.limit || 5"
+      if (trimmed.includes('||')) {
+        const parts = trimmed.split('||').map((p) => p.trim());
+        for (const part of parts) {
+          if ((part.startsWith('"') && part.endsWith('"')) || (part.startsWith("'") && part.endsWith("'"))) {
+            return part.slice(1, -1);
+          }
+          if (/^-?\d+(\.\d+)?$/.test(part)) {
+            return part;
+          }
+          if (part === 'true' || part === 'false' || part === 'null') {
+            return part;
+          }
+          const val = this.resolveReference(part, context);
+          if (val !== undefined && val !== null && val !== '') {
+            if (typeof val === 'object') return JSON.stringify(val);
+            return String(val);
+          }
+        }
+        return '';
+      }
+
       const resolved = this.resolveReference(trimmed, context);
-      if (resolved === undefined || resolved === null) {
+      if (resolved === null) {
+        return '';
+      }
+      if (resolved === undefined) {
+        if (
+          trimmed.includes('.query') ||
+          trimmed.includes('.params') ||
+          trimmed.includes('.headers') ||
+          trimmed.endsWith('?')
+        ) {
+          return '';
+        }
         throw new BadRequestException(`Unable to resolve template variable: ${trimmed}`);
       }
       if (typeof resolved === 'object') return JSON.stringify(resolved);
@@ -132,7 +195,20 @@ export class VariableResolverService {
   assignReference(reference: string, value: any, context: Record<string, any>): void {
     const parts = reference.split('.');
     const root = parts.shift();
-    if (!root || !context[root] || !parts.length) return;
+    if (!root) return;
+
+    if (!parts.length) {
+      context[root] = value;
+      if (context.state && typeof context.state === 'object') {
+        context.state[root] = value;
+      }
+      return;
+    }
+
+    if (!context[root] || typeof context[root] !== 'object') {
+      context[root] = {};
+    }
+
     let current = context[root];
     for (const part of parts.slice(0, -1)) {
       if (!current[part] || typeof current[part] !== 'object') current[part] = {};
@@ -147,6 +223,13 @@ export class VariableResolverService {
     } else if (parts.length === 2 && parts[0] === 'value' && typeof context[root] === 'object') {
       context[root][finalKey] = value;
     }
+
+    // Synchronize state alias: state.counter <-> context.counter
+    if (root === 'state' && parts.length === 1) {
+      context[finalKey] = value;
+    } else if (root !== 'state' && context.state && typeof context.state === 'object' && parts.length === 1) {
+      context.state[finalKey] = value;
+    }
   }
 
   normalizeOutput(node: RuntimeNode, rawOutput: any): any {
@@ -154,6 +237,24 @@ export class VariableResolverService {
     if (!outputs.length) return rawOutput;
 
     const outputNames = outputs.map((output: any) => output.name).filter(Boolean);
+    // Safeguard: Never leak raw float vector arrays into graph execution state
+    if (rawOutput && typeof rawOutput === 'object') {
+      if (Array.isArray(rawOutput.embedding) && rawOutput.embedding.length > 32) {
+        delete rawOutput.embedding;
+      }
+      if (Array.isArray(rawOutput.embeddings) && rawOutput.embeddings.length > 0 && Array.isArray(rawOutput.embeddings[0])) {
+        delete rawOutput.embeddings;
+      }
+      if (rawOutput.result && typeof rawOutput.result === 'object') {
+        if (Array.isArray(rawOutput.result.embedding) && rawOutput.result.embedding.length > 32) {
+          delete rawOutput.result.embedding;
+        }
+        if (Array.isArray(rawOutput.result.embeddings) && rawOutput.result.embeddings.length > 0 && Array.isArray(rawOutput.result.embeddings[0])) {
+          delete rawOutput.result.embeddings;
+        }
+      }
+    }
+
     if (
       rawOutput &&
       typeof rawOutput === 'object' &&

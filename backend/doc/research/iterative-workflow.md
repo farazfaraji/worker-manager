@@ -1,0 +1,7 @@
+# Documentation-only research workflow
+
+A parent graph can use a Human Input Trigger to collect an idea and constraints, then an Orchestrator to assign distinct questions to market, users, competitors, technical feasibility, and risk researchers. Each tool-using Agent may call `search_web` and `read_url`, and its research output should use the shared finding contract.
+
+Use a Research Rounds Loop with a saved child graph for the initial and follow-up research rounds. The child graph receives `iteration`, `gaps`, and `priorResult`. It can delegate research, combine findings, then run the Research Quality Reviewer against the original questions. If the final child node is named `review`, the child run output is wrapped as `{ "review": { "decision": "pass", "gaps": [] } }`. Set the parent Loop's `completionPath` to `review.decision` and `gapPath` to `review.gaps`. The loop stops on `pass` or its maximum round count; an incomplete result goes to human review.
+
+Place a Human Gate in the parent graph after the loop to collect feedback or approval. After approval, a synthesis Agent can build a report whose conclusions name stable finding IDs and preserve source URLs, titles, and uncertainty labels. Save the report and planning documents with Artifact `create`; use a stable `logicalId` and Artifact `update` for later versions. Do not place a waiting gate inside Foreach or a research-round child graph. This workflow stores documents only; it does not create tickets, publish, or deploy.

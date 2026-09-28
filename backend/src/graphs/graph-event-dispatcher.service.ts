@@ -5,6 +5,7 @@ import { EventEngineService, matchesTopicPattern } from '../events/event-engine.
 import { AppEvent } from '../events/event.types';
 import { Graph, GraphDocument } from './schemas/graph.schema';
 import { GraphRunnerService } from '../runs/graph-runner.service';
+import { GraphShapeService } from './graph-shape.service';
 
 @Injectable()
 export class GraphEventDispatcherService implements OnModuleInit {
@@ -14,6 +15,7 @@ export class GraphEventDispatcherService implements OnModuleInit {
     private readonly eventEngine: EventEngineService,
     @InjectModel(Graph.name) private readonly graphModel: Model<GraphDocument>,
     private readonly graphRunner: GraphRunnerService,
+    private readonly graphShapeService: GraphShapeService,
   ) {}
 
   onModuleInit() {
@@ -28,8 +30,15 @@ export class GraphEventDispatcherService implements OnModuleInit {
       const graphs = await this.graphModel.find().lean().exec();
       const dispatchedRunIds: string[] = [];
 
-      for (const graph of graphs) {
-        const nodes = graph.nodes || [];
+      for (const rawGraph of graphs) {
+        const graph: any = rawGraph;
+        const nodes = this.graphShapeService.reshapeForSave({
+          flow: graph.flow,
+          nodes: graph.nodes,
+          edges: graph.edges,
+          layout: graph.layout,
+          viewport: graph.viewport,
+        }).nodes;
         const matchingTriggerNodes = nodes.filter((node: any) => {
           const type = String(node.data?.definitionType || node.type || '').toLowerCase();
           if (type !== 'trigger') return false;

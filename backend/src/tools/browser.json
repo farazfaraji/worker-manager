@@ -1,603 +1,568 @@
 {
-    "name": "Browser",
-    "type": "app",
-    "description": "Creates a browser app instance and executes browser actions against its active page.",
-    "inputs": [
+  "name": "Browser",
+  "type": "app",
+  "description": "Creates a browser app instance and executes browser actions against its active page.",
+  "inputs": [
+    {
+      "name": "viewport",
+      "label": "Viewport",
+      "type": "object",
+      "required": false
+    },
+    {
+      "name": "deviceScaleFactor",
+      "label": "Device Scale (DPI)",
+      "type": "number",
+      "required": false,
+      "defaultValue": 2,
+      "helpText": "Pixel density scale. 2 = 2x Retina resolution (default), 3 = 4K."
+    }
+  ],
+  "actionDefinitions": [
+    {
+      "type": "goto",
+      "name": "Go to URL",
+      "description": "Navigate the active browser page to a URL.",
+      "inputs": [
         {
-            "name": "viewport",
-            "label": "Viewport",
-            "type": "object",
-            "required": false
+          "name": "url",
+          "label": "URL",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "https://example.com/{{page.path}}"
         },
         {
-            "name": "deviceScaleFactor",
-            "label": "Device Scale (DPI)",
-            "type": "number",
-            "required": false,
-            "defaultValue": 2,
-            "helpText": "Pixel density scale. 2 = 2x Retina resolution (default), 3 = 4K."
+          "name": "waitUntil",
+          "label": "Wait Until",
+          "type": "select",
+          "required": false,
+          "defaultValue": "domcontentloaded",
+          "options": [
+            {
+              "label": "DOM Content Loaded",
+              "value": "domcontentloaded"
+            },
+            {
+              "label": "Load",
+              "value": "load"
+            },
+            {
+              "label": "Network Idle",
+              "value": "networkidle"
+            }
+          ]
         }
-    ],
-    "actionDefinitions": [
+      ],
+      "outputs": [
         {
-            "type": "goto",
-            "name": "Go to URL",
-            "description": "Navigate the active browser page to a URL.",
-            "inputs": [
-                {
-                    "name": "url",
-                    "label": "URL",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "https://example.com/{{page.path}}"
-                },
-                {
-                    "name": "waitUntil",
-                    "label": "Wait Until",
-                    "type": "select",
-                    "required": false,
-                    "defaultValue": "domcontentloaded",
-                    "options": [
-                        {
-                            "label": "DOM Content Loaded",
-                            "value": "domcontentloaded"
-                        },
-                        {
-                            "label": "Load",
-                            "value": "load"
-                        },
-                        {
-                            "label": "Network Idle",
-                            "value": "networkidle"
-                        }
-                    ]
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "url",
-                    "label": "Current URL",
-                    "type": "string"
-                },
-                {
-                    "name": "title",
-                    "label": "Page Title",
-                    "type": "string"
-                }
-            ]
+          "name": "url",
+          "label": "Current URL",
+          "type": "string"
         },
         {
-            "type": "click",
-            "name": "Click",
-            "description": "Click an element using a CSS or text selector.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "#submit-button or text=Continue"
-                },
-                {
-                    "name": "clickCount",
-                    "label": "Click Count",
-                    "type": "number",
-                    "required": false,
-                    "defaultValue": 1
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                },
-                {
-                    "name": "screenshot",
-                    "label": "Screenshot",
-                    "type": "image"
-                }
-            ]
-        },
-        {
-            "type": "fill",
-            "name": "Fill Input",
-            "description": "Replace the value of an input or textarea.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "#email"
-                },
-                {
-                    "name": "value",
-                    "label": "Value",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "user@example.com or {{user.email}}"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                }
-            ]
-        },
-        {
-            "type": "type",
-            "name": "Type Text",
-            "description": "Type text into an element character by character.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "#search"
-                },
-                {
-                    "name": "text",
-                    "label": "Text",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "Text to type"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                }
-            ]
-        },
-        {
-            "type": "hover",
-            "name": "Hover",
-            "description": "Move the pointer over an element.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "[data-tooltip]"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                }
-            ]
-        },
-        {
-            "type": "press",
-            "name": "Press Key",
-            "description": "Press a keyboard key on an element.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "#search"
-                },
-                {
-                    "name": "key",
-                    "label": "Key",
-                    "type": "select",
-                    "required": true,
-                    "options": [
-                        {
-                            "label": "Enter",
-                            "value": "Enter"
-                        },
-                        {
-                            "label": "Escape",
-                            "value": "Escape"
-                        },
-                        {
-                            "label": "Tab",
-                            "value": "Tab"
-                        },
-                        {
-                            "label": "Arrow Down",
-                            "value": "ArrowDown"
-                        },
-                        {
-                            "label": "Custom Key",
-                            "value": "custom"
-                        }
-                    ]
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                }
-            ]
-        },
-        {
-            "type": "waitForSelector",
-            "name": "Wait for Element",
-            "description": "Wait until an element reaches a desired state.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "#app"
-                },
-                {
-                    "name": "state",
-                    "label": "State",
-                    "type": "select",
-                    "required": true,
-                    "defaultValue": "visible",
-                    "options": [
-                        {
-                            "label": "Visible",
-                            "value": "visible"
-                        },
-                        {
-                            "label": "Attached",
-                            "value": "attached"
-                        },
-                        {
-                            "label": "Hidden",
-                            "value": "hidden"
-                        },
-                        {
-                            "label": "Detached",
-                            "value": "detached"
-                        }
-                    ]
-                },
-                {
-                    "name": "timeout",
-                    "label": "Timeout (ms)",
-                    "type": "number",
-                    "required": false,
-                    "defaultValue": 10000
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                }
-            ]
-        },
-        {
-            "type": "screenshot",
-            "name": "Take Screenshot",
-            "description": "Capture the current browser page or full page.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Element Selector (Optional)",
-                    "type": "valueOrVariable",
-                    "required": false,
-                    "placeholder": "#storybook-root or .my-card (leave empty for viewport/page)"
-                },
-                {
-                    "name": "filename",
-                    "label": "Filename",
-                    "type": "valueOrVariable",
-                    "required": false,
-                    "accepts": [
-                        "string"
-                    ],
-                    "defaultValue": "browser-step.png",
-                    "placeholder": "screenshot-{{item.id}}.png"
-                },
-                {
-                    "name": "fullPage",
-                    "label": "Full Page",
-                    "type": "radio",
-                    "required": true,
-                    "defaultValue": false,
-                    "options": [
-                        {
-                            "label": "Viewport",
-                            "value": false
-                        },
-                        {
-                            "label": "Full Page",
-                            "value": true
-                        }
-                    ]
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "screenshot",
-                    "label": "Screenshot",
-                    "type": "image"
-                },
-                {
-                    "name": "path",
-                    "label": "File Path",
-                    "type": "string"
-                }
-            ]
-        },
-        {
-            "type": "setViewport",
-            "name": "Set Viewport",
-            "description": "Set the browser viewport dimensions.",
-            "inputs": [
-                {
-                    "name": "width",
-                    "label": "Width",
-                    "type": "number",
-                    "required": true,
-                    "defaultValue": 1280
-                },
-                {
-                    "name": "height",
-                    "label": "Height",
-                    "type": "number",
-                    "required": true,
-                    "defaultValue": 720
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "success",
-                    "label": "Success",
-                    "type": "boolean"
-                },
-                {
-                    "name": "viewport",
-                    "label": "Viewport",
-                    "type": "object"
-                }
-            ]
-        },
-        {
-            "type": "getText",
-            "name": "Read Text",
-            "description": "Read visible text from an element.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "h1"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "text",
-                    "label": "Text",
-                    "type": "string"
-                }
-            ]
-        },
-        {
-            "type": "getHtml",
-            "name": "Read HTML",
-            "description": "Read the current page HTML or an element's HTML.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector (optional)",
-                    "type": "valueOrVariable",
-                    "required": false,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "main"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "html",
-                    "label": "HTML",
-                    "type": "string"
-                }
-            ]
-        },
-        {
-            "type": "extractElement",
-            "name": "Element Extractor",
-            "description": "Extract raw HTML, matching CSS stylesheet rules, and computed inlined HTML for an element ID or selector.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector / ID",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "#my-card, .my-card, or element ID"
-                },
-                {
-                    "name": "filename",
-                    "label": "Save HTML to File (Optional)",
-                    "type": "valueOrVariable",
-                    "required": false,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "extracted_element.html"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "html",
-                    "label": "HTML",
-                    "type": "string"
-                },
-                {
-                    "name": "css",
-                    "label": "CSS Rules",
-                    "type": "string"
-                },
-                {
-                    "name": "standaloneHtml",
-                    "label": "Inlined HTML",
-                    "type": "string"
-                },
-                {
-                    "name": "path",
-                    "label": "File Path",
-                    "type": "string"
-                }
-            ]
-        },
-        {
-            "type": "assertVisible",
-            "name": "Assert Visible",
-            "description": "Fail the flow unless an element is visible.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "button[type=submit]"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "passed",
-                    "label": "Passed",
-                    "type": "boolean"
-                }
-            ]
-        },
-        {
-            "type": "assertText",
-            "name": "Assert Text",
-            "description": "Fail the flow unless an element contains expected text.",
-            "inputs": [
-                {
-                    "name": "selector",
-                    "label": "Selector",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "h1"
-                },
-                {
-                    "name": "expected",
-                    "label": "Expected Text",
-                    "type": "valueOrVariable",
-                    "required": true,
-                    "accepts": [
-                        "string"
-                    ],
-                    "placeholder": "Dashboard"
-                }
-            ],
-            "outputs": [
-                {
-                    "name": "passed",
-                    "label": "Passed",
-                    "type": "boolean"
-                },
-                {
-                    "name": "actual",
-                    "label": "Actual Text",
-                    "type": "string"
-                }
-            ]
+          "name": "title",
+          "label": "Page Title",
+          "type": "string"
         }
-    ],
-    "outputs": [
+      ]
+    },
+    {
+      "type": "click",
+      "name": "Click",
+      "description": "Click an element using a CSS or text selector.",
+      "inputs": [
         {
-            "name": "path",
-            "label": "Screenshot / File Path",
-            "type": "string"
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "#submit-button or text=Continue"
         },
         {
-            "name": "screenshot",
-            "label": "Screenshot Image",
-            "type": "image"
-        },
-        {
-            "name": "url",
-            "label": "Current URL",
-            "type": "string"
-        },
-        {
-            "name": "title",
-            "label": "Page Title",
-            "type": "string"
-        },
-        {
-            "name": "text",
-            "label": "Extracted Text",
-            "type": "string"
-        },
-        {
-            "name": "html",
-            "label": "Page / Element HTML",
-            "type": "string"
-        },
-        {
-            "name": "css",
-            "label": "Extracted CSS",
-            "type": "string"
-        },
-        {
-            "name": "standaloneHtml",
-            "label": "Standalone Inlined HTML",
-            "type": "string"
-        },
-        {
-            "name": "actions",
-            "label": "Actions",
-            "type": "array"
+          "name": "clickCount",
+          "label": "Click Count",
+          "type": "number",
+          "required": false,
+          "defaultValue": 1
         }
-    ]
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        },
+        {
+          "name": "screenshot",
+          "label": "Screenshot",
+          "type": "image"
+        }
+      ]
+    },
+    {
+      "type": "fill",
+      "name": "Fill Input",
+      "description": "Replace the value of an input or textarea.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "#email"
+        },
+        {
+          "name": "value",
+          "label": "Value",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "user@example.com or {{user.email}}"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "type",
+      "name": "Type Text",
+      "description": "Type text into an element character by character.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "#search"
+        },
+        {
+          "name": "text",
+          "label": "Text",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "Text to type"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "hover",
+      "name": "Hover",
+      "description": "Move the pointer over an element.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "[data-tooltip]"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "press",
+      "name": "Press Key",
+      "description": "Press a keyboard key on an element.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "#search"
+        },
+        {
+          "name": "key",
+          "label": "Key",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "label": "Enter",
+              "value": "Enter"
+            },
+            {
+              "label": "Escape",
+              "value": "Escape"
+            },
+            {
+              "label": "Tab",
+              "value": "Tab"
+            },
+            {
+              "label": "Arrow Down",
+              "value": "ArrowDown"
+            },
+            {
+              "label": "Custom Key",
+              "value": "custom"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "waitForSelector",
+      "name": "Wait for Element",
+      "description": "Wait until an element reaches a desired state.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "#app"
+        },
+        {
+          "name": "state",
+          "label": "State",
+          "type": "select",
+          "required": true,
+          "defaultValue": "visible",
+          "options": [
+            {
+              "label": "Visible",
+              "value": "visible"
+            },
+            {
+              "label": "Attached",
+              "value": "attached"
+            },
+            {
+              "label": "Hidden",
+              "value": "hidden"
+            },
+            {
+              "label": "Detached",
+              "value": "detached"
+            }
+          ]
+        },
+        {
+          "name": "timeout",
+          "label": "Timeout (ms)",
+          "type": "number",
+          "required": false,
+          "defaultValue": 10000
+        }
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "screenshot",
+      "name": "Take Screenshot",
+      "description": "Capture the current browser page or full page.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Element Selector (Optional)",
+          "type": "valueOrVariable",
+          "required": false,
+          "placeholder": "#storybook-root or .my-card (leave empty for viewport/page)"
+        },
+        {
+          "name": "filename",
+          "label": "Filename",
+          "type": "valueOrVariable",
+          "required": false,
+          "accepts": [
+            "string"
+          ],
+          "defaultValue": "browser-step.png",
+          "placeholder": "screenshot-{{item.id}}.png"
+        },
+        {
+          "name": "fullPage",
+          "label": "Full Page",
+          "type": "radio",
+          "required": true,
+          "defaultValue": false,
+          "options": [
+            {
+              "label": "Viewport",
+              "value": false
+            },
+            {
+              "label": "Full Page",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "screenshot",
+          "label": "Screenshot",
+          "type": "image"
+        },
+        {
+          "name": "path",
+          "label": "File Path",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "type": "setViewport",
+      "name": "Set Viewport",
+      "description": "Set the browser viewport dimensions.",
+      "inputs": [
+        {
+          "name": "width",
+          "label": "Width",
+          "type": "number",
+          "required": true,
+          "defaultValue": 1280
+        },
+        {
+          "name": "height",
+          "label": "Height",
+          "type": "number",
+          "required": true,
+          "defaultValue": 720
+        }
+      ],
+      "outputs": [
+        {
+          "name": "success",
+          "label": "Success",
+          "type": "boolean"
+        },
+        {
+          "name": "viewport",
+          "label": "Viewport",
+          "type": "object"
+        }
+      ]
+    },
+    {
+      "type": "getText",
+      "name": "Read Text",
+      "description": "Read visible text from an element.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "h1"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "label": "Text",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "type": "getHtml",
+      "name": "Read HTML",
+      "description": "Read the current page HTML or an element's HTML.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector (optional)",
+          "type": "valueOrVariable",
+          "required": false,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "main"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "html",
+          "label": "HTML",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "type": "extractElement",
+      "name": "Element Extractor",
+      "description": "Extract raw HTML, matching CSS stylesheet rules, and computed inlined HTML for an element ID or selector.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector / ID",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "#my-card, .my-card, or element ID"
+        },
+        {
+          "name": "filename",
+          "label": "Save HTML to File (Optional)",
+          "type": "valueOrVariable",
+          "required": false,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "extracted_element.html"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "html",
+          "label": "HTML",
+          "type": "string"
+        },
+        {
+          "name": "css",
+          "label": "CSS Rules",
+          "type": "string"
+        },
+        {
+          "name": "standaloneHtml",
+          "label": "Inlined HTML",
+          "type": "string"
+        },
+        {
+          "name": "path",
+          "label": "File Path",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "type": "assertVisible",
+      "name": "Assert Visible",
+      "description": "Fail the flow unless an element is visible.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "button[type=submit]"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "passed",
+          "label": "Passed",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "type": "assertText",
+      "name": "Assert Text",
+      "description": "Fail the flow unless an element contains expected text.",
+      "inputs": [
+        {
+          "name": "selector",
+          "label": "Selector",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "h1"
+        },
+        {
+          "name": "expected",
+          "label": "Expected Text",
+          "type": "valueOrVariable",
+          "required": true,
+          "accepts": [
+            "string"
+          ],
+          "placeholder": "Dashboard"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "passed",
+          "label": "Passed",
+          "type": "boolean"
+        },
+        {
+          "name": "actual",
+          "label": "Actual Text",
+          "type": "string"
+        }
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "done",
+      "label": "Done",
+      "type": "branch"
+    },
+    {
+      "name": "onFailed",
+      "label": "On Failed",
+      "type": "branch"
+    }
+  ]
 }
