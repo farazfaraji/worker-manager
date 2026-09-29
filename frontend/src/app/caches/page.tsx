@@ -263,11 +263,14 @@ export default function CachesPage() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        height: '100vh',
+        maxHeight: '100vh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
         background: 'linear-gradient(180deg, var(--bg-primary, #090d16) 0%, #06080e 100%)',
         color: 'var(--text-primary, #f1f5f9)',
-        padding: '28px 36px',
-        overflowY: 'auto',
+        padding: '28px 36px 60px',
+        boxSizing: 'border-box',
       }}
     >
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>

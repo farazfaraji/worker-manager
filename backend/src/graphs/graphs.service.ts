@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, isValidObjectId } from 'mongoose';
 import { Graph, GraphDocument } from './schemas/graph.schema';
@@ -6,6 +6,7 @@ import { CreateGraphDto } from './dto/create-graph.dto';
 import { UpdateGraphDto } from './dto/update-graph.dto';
 import { NodeDefinitionsService } from '../node-definitions/node-definitions.service';
 import { GraphShapeService } from './graph-shape.service';
+import { ToolPluginRegistry } from '../runs/plugins/tool-plugin.registry';
 
 /**
  * Splits a type string by delimiters (, ; \n) only at the top level (outside braces, brackets, and generics).
@@ -144,6 +145,7 @@ export class GraphsService {
     @InjectModel(Graph.name) private graphModel: Model<GraphDocument>,
     private readonly nodeDefinitionsService: NodeDefinitionsService,
     private readonly graphShapeService: GraphShapeService,
+    @Optional() private readonly pluginRegistry?: ToolPluginRegistry,
   ) {}
 
   /** Converts either canonical flow input or legacy React Flow input for validation. */
@@ -793,78 +795,10 @@ export class GraphsService {
           if (out.name) validHandles.add(String(out.name).toLowerCase());
         }
 
-        const isVarNode =
-          sourceDefType === 'variable' ||
-          sourceDefType === 'set-variable' ||
-          (sourceData.definitionId && String(sourceData.definitionId).toLowerCase() === 'set-variable') ||
-          (sourceNodeName && String(sourceNodeName).toLowerCase().includes('setvariable'));
-        if (isVarNode) {
-          validHandles.add('value');
-          if (sourceData.config?.key) {
-            validHandles.add(String(sourceData.config.key).trim().toLowerCase());
-          }
-        }
-
-        if (sourceDefType === 'foreach') {
-          validHandles.add('item');
-          validHandles.add('done');
-          validHandles.add('result');
-        }
-
-        if (sourceDefType === 'orchestrator' || sourceDefType === 'delegator') {
-          validHandles.add('done');
-          validHandles.add('result');
-          let agentOutputs = sourceData.config?.agentOutputs ?? sourceData.config?.outputs;
-          if (typeof agentOutputs === 'string') {
-            try { agentOutputs = JSON.parse(agentOutputs); } catch {}
-          }
-          if (Array.isArray(agentOutputs)) {
-            for (const ao of agentOutputs) {
-              const name = typeof ao === 'string' ? ao : (ao?.name || ao?.id);
-              if (name) validHandles.add(String(name).toLowerCase());
-            }
-          }
-        }
-
-        if (sourceDefType === 'artifact') {
-          validHandles.add('onload');
-          validHandles.add('onfailed');
-          validHandles.add('content');
-          validHandles.add('artifact');
-          validHandles.add('artifactid');
-          validHandles.add('status');
-        }
-
-        if (sourceDefType === 'human-gate') {
-          validHandles.add('approved');
-          validHandles.add('rejected');
-          validHandles.add('result');
-          validHandles.add('value');
-        }
-
-        if (sourceDefType === 'browser' || sourceDefType === 'app') {
-          validHandles.add('done');
-          validHandles.add('onfailed');
-          validHandles.add('screenshot');
-          validHandles.add('text');
-          validHandles.add('result');
-        }
-
-        if (sourceDefType === 'retrieval' || sourceDefType === 'embedding') {
-          validHandles.add('done');
-          validHandles.add('onfailed');
-          validHandles.add('result');
-          validHandles.add('results');
-        }
-
-        if (sourceDefType === 'web-search') {
-          validHandles.add('done');
-          validHandles.add('onfailed');
-          validHandles.add('results');
-          validHandles.add('answer');
-          validHandles.add('query');
-          validHandles.add('text');
-          validHandles.add('result');
+        const plugin = this.pluginRegistry?.get(sourceDefType, sourceNode);
+        if (plugin?.getValidHandles) {
+          const handles = plugin.getValidHandles(sourceData.config, outputs, sourceData, sourceNodeName);
+          for (const h of handles) validHandles.add(h);
         }
 
         if (!validHandles.has(handle)) {
@@ -1065,65 +999,13 @@ export class GraphsService {
         }
       }
 
-      // Add direct key references for variable / set-variable nodes (e.g. setvariable.key, state.key)
+      // Add direct key references and plugin produced paths
       const defType = String(data.definitionType || node.type || '').toLowerCase();
-      if ((defType === 'variable' || defType === 'set-variable') && data.config?.key) {
-        const keyName = String(data.config.key).trim();
-        if (keyName) {
-          producedPaths.add(`${nodeName}.${keyName}`);
-          producedPaths.add(`state.${keyName}`);
-          producedPaths.add(keyName);
-        }
-      }
-
-      // Add well-known produced variable paths for action nodes whose canvas outputs are now event/branch-based
-      if (defType === 'artifact') {
-        const artifactKeys = ['content', 'artifact', 'artifactId', 'status', 'version', 'metadata', 'title', 'type', 'count', 'artifacts', 'latestVersion', 'history', 'relations'];
-        for (const k of artifactKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-        }
-      } else if (defType === 'human-gate') {
-        const gateKeys = ['approved', 'feedback', 'status', 'data', 'action', 'value', 'draft', 'timestamp'];
-        for (const k of gateKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-          producedPaths.add(`${nodeName}.result.${k}`);
-        }
-      } else if (defType === 'research-review') {
-        const reviewKeys = ['decision', 'feedback', 'score', 'quality', 'missingEvidence', 'findings', 'questions', 'sourceChecks'];
-        producedPaths.add(`${nodeName}.result`);
-        for (const k of reviewKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-          producedPaths.add(`${nodeName}.result.${k}`);
-        }
-      } else if (defType === 'browser' || defType === 'app') {
-        const browserKeys = ['screenshot', 'text', 'url', 'title', 'html', 'css', 'path', 'actions'];
-        for (const k of browserKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-        }
-      } else if (defType === 'retrieval') {
-        const retrievalKeys = ['results', 'count', 'query', 'context', 'result'];
-        for (const k of retrievalKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-        }
-      } else if (defType === 'embedding') {
-        const embedKeys = ['embeddings', 'dimensions', 'model', 'count', 'artifactId', 'logicalId', 'result'];
-        for (const k of embedKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-        }
-      } else if (defType === 'web-search') {
-        const webSearchKeys = [
-          'results', 'query', 'provider', 'resultsCount', 'title', 'url',
-          'originalUrl', 'resolvedUrl', 'accessedAt', 'publishedAt',
-          'text', 'answer', 'responseTime', 'status', 'html', 'links', 'result'
-        ];
-        for (const k of webSearchKeys) {
-          producedPaths.add(`${nodeName}.${k}`);
-        }
-      } else if (defType === 'foreach') {
-        // The canvas Foreach result has a stable envelope even though the
-        // per-item payload itself is user-defined.
-        for (const k of ['status', 'count', 'processed', 'truncated', 'items', 'errors']) {
-          producedPaths.add(`${nodeName}.result.${k}`);
+      const plugin = this.pluginRegistry?.get(defType, node);
+      if (plugin?.getProducedPaths) {
+        const paths = plugin.getProducedPaths(nodeName, data.config, data);
+        for (const p of paths) {
+          producedPaths.add(p);
         }
       }
 

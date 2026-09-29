@@ -313,7 +313,7 @@ export const ExecutionStudioHeader: React.FC<ExecutionStudioHeaderProps> = ({
                   border: useCache ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid var(--border-color, rgba(255,255,255,0.08))',
                   transition: 'all 0.15s ease',
                 }}
-                title="When enabled, Debug execution reuses cached results for nodes that have caching enabled"
+                title="When enabled, execution reuses cached results for nodes that have caching enabled"
               >
                 <input
                   type="checkbox"

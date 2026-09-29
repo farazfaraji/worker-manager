@@ -80,6 +80,7 @@ export class RunStorageService {
       nodes: sanitized.nodes,
       error: sanitized.error,
       metrics: sanitized.metrics,
+      metadata: sanitized.metadata,
       dataSizeBytes: sanitized.dataSizeBytes || this.calculateDataSize(sanitized),
       createdAt: sanitized.createdAt,
       updatedAt: sanitized.updatedAt,

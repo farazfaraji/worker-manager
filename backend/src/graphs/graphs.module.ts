@@ -35,6 +35,44 @@ import { RepoInspectorService } from '../runs/services/repo-inspector.service';
 import { WebserverModule } from '../webserver/webserver.module';
 import { TelegramModule } from '../telegram/telegram.module';
 
+import {
+  ToolPluginRegistry,
+  TriggerPlugin,
+  RoutePlugin,
+  WebserverPlugin,
+  HttpResponsePlugin,
+  IncrementVariablePlugin,
+  DecrementVariablePlugin,
+  SetVariablePlugin,
+  AgentPlugin,
+  RepoInspectPlugin,
+  ResearchReviewPlugin,
+  ScriptPlugin,
+  TransformPlugin,
+  ConditionPlugin,
+  ValidatorPlugin,
+  BrowserPlugin,
+  WebSearchPlugin,
+  JsonParserPlugin,
+  OutputPlugin,
+  SubgraphPlugin,
+  ArtifactPlugin,
+  HumanGatePlugin,
+  ActionPlugin,
+  MemoryPlugin,
+  RetrievalPlugin,
+  EmbeddingPlugin,
+  RouterPlugin,
+  TelegramPlugin,
+  OrchestratorPlugin,
+  LoopPlugin,
+  ForeachPlugin,
+  AggregatePlugin,
+  ExecutionPlugin,
+  NotificationPlugin,
+} from '../runs/plugins';
+import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -73,6 +111,46 @@ import { TelegramModule } from '../telegram/telegram.module';
     WebSearchRunnerService,
     NodeCacheService,
     GraphEventDispatcherService,
+
+    // Tool Plugins & Registry
+    TriggerPlugin,
+    RoutePlugin,
+    WebserverPlugin,
+    HttpResponsePlugin,
+    IncrementVariablePlugin,
+    DecrementVariablePlugin,
+    SetVariablePlugin,
+    AgentPlugin,
+    RepoInspectPlugin,
+    ResearchReviewPlugin,
+    ScriptPlugin,
+    TransformPlugin,
+    ConditionPlugin,
+    ValidatorPlugin,
+    BrowserPlugin,
+    WebSearchPlugin,
+    JsonParserPlugin,
+    OutputPlugin,
+    SubgraphPlugin,
+    ArtifactPlugin,
+    HumanGatePlugin,
+    ActionPlugin,
+    MemoryPlugin,
+    RetrievalPlugin,
+    EmbeddingPlugin,
+    RouterPlugin,
+    TelegramPlugin,
+    OrchestratorPlugin,
+    LoopPlugin,
+    ForeachPlugin,
+    AggregatePlugin,
+    ExecutionPlugin,
+    NotificationPlugin,
+    ToolPluginRegistry,
+
+    // LangGraph Compiler & Checkpointing
+    MongoCheckpointSaver,
+    GraphCompilerService,
   ],
   exports: [
     GraphsService,
@@ -92,6 +170,10 @@ import { TelegramModule } from '../telegram/telegram.module';
     WebSearchRunnerService,
     NodeCacheService,
     GraphEventDispatcherService,
+    ToolPluginRegistry,
+    MongoCheckpointSaver,
+    GraphCompilerService,
   ],
 })
 export class GraphsModule {}
+

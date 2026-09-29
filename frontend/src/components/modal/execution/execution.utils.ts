@@ -36,7 +36,8 @@ export function generateSampleJsonFromRoute(routeNode: Node<FlowNodeData>): Reco
   return {
     title: 'Architecture Plan v1',
     content: 'Comprehensive system design for microservices and vector search.',
-    keywords: ['system', 'vector', 'architecture'],
+    category: 'architecture',
+    tags: ['system', 'vector'],
   };
 }
 

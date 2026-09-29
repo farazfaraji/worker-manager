@@ -5,11 +5,13 @@ import { ModelsService } from './models.service';
 import { ModelsController } from './models.controller';
 
 import { SettingsModule } from '../settings/settings.module';
+import { NodeDefinitionsModule } from '../node-definitions/node-definitions.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: LLMModel.name, schema: LLMModelSchema }]),
     SettingsModule,
+    NodeDefinitionsModule,
   ],
   controllers: [ModelsController],
   providers: [ModelsService],

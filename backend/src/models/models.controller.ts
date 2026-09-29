@@ -14,10 +14,17 @@ import { LLMModel } from './schemas/llm-model.schema';
 
 import { RevisePromptDto } from './dto/revise-prompt.dto';
 import { GenerateSchemaDto } from './dto/generate-schema.dto';
+import { FlowAssistantChatDto } from './dto/flow-assistant.dto';
 
 @Controller('models')
 export class ModelsController {
   constructor(private readonly modelsService: ModelsService) {}
+
+  @Post('flow-assistant')
+  @HttpCode(HttpStatus.OK)
+  async flowAssistant(@Body() body: FlowAssistantChatDto) {
+    return this.modelsService.executeFlowAssistant(body);
+  }
 
   @Post('revise-prompt')
   @HttpCode(HttpStatus.OK)

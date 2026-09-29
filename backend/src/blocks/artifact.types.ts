@@ -14,9 +14,11 @@ export type CanonicalArtifactType =
 
 export type ArtifactType = CanonicalArtifactType | (string & {});
 
-export type ArtifactStatus = 'draft' | 'approved' | 'archived' | (string & {});
+export type ArtifactStatus = 'draft' | 'in-review' | 'approved' | 'rejected' | 'archived';
 
 export type ArtifactContentFormat = 'markdown' | 'text' | 'json' | 'code' | (string & {});
+
+export type ArtifactIfExists = 'error' | 'return' | 'update';
 
 export type ArtifactRelationType =
   | 'refines'
@@ -53,23 +55,16 @@ export const RELATION_INVERSE_MAP: Record<ArtifactRelationType, ArtifactRelation
   'relates-to': 'relates-to',
 };
 
-export interface ArtifactIdentity {
-  logicalId: string;
-  rootArtifactId: string;
-  artifactId: string;
-  version: number;
-  isLatest: boolean;
-  contentHash: string;
-  schemaVersion: number;
-}
-
 export interface ArtifactVersion {
   artifactId: string;
   logicalId: string;
   rootArtifactId: string;
   projectId?: string;
   type: ArtifactType;
+  category: string;
+  tags: string[];
   format: ArtifactContentFormat;
+  language?: string;
   title: string;
   content: any;
   status: ArtifactStatus;
@@ -78,13 +73,15 @@ export interface ArtifactVersion {
   contentHash: string;
   schemaVersion: number;
   parentArtifactId?: string;
-  keyword?: string[];
-  keywords?: string[];
-  linkedArtifactIds?: string[];
+  author?: string;
+  changeSummary?: string;
+  idempotencyKey?: string;
   sourceEventIds?: string[];
   metadata?: Record<string, any>;
   createdAt?: string | Date;
   updatedAt?: string | Date;
+  changed?: boolean;
+  created?: boolean;
 }
 
 export interface ArtifactRelation {
@@ -102,24 +99,22 @@ export interface ArtifactRelation {
 
 export interface ArtifactCreateInput {
   logicalId?: string;
-  artifactId?: string;
-  idPrefix?: string;
   projectId?: string;
   type?: ArtifactType;
+  category?: string;
+  tags?: string | string[];
   format?: ArtifactContentFormat;
+  language?: string;
   title?: string;
   content?: any;
   value?: any;
   input?: any;
-  keyword?: string | string[];
-  keywords?: string | string[];
-  status?: ArtifactStatus;
   schemaVersion?: number;
   metadata?: Record<string, any>;
-  linkedArtifactIds?: string | string[];
-  relations?: string | string[];
-  linkedArtifactId?: string | string[];
-  parentArtifactId?: string;
+  author?: string;
+  changeSummary?: string;
+  idempotencyKey?: string;
+  ifExists?: ArtifactIfExists;
   sourceEventIds?: string[];
   source?: any;
   runId?: string;
@@ -128,20 +123,21 @@ export interface ArtifactCreateInput {
 
 export interface ArtifactUpdateInput {
   logicalId?: string;
-  artifactId?: string;
   projectId?: string;
   type?: ArtifactType;
+  category?: string;
+  tags?: string | string[];
   format?: ArtifactContentFormat;
+  language?: string;
   title?: string;
   content?: any;
   value?: any;
-  keyword?: string | string[];
-  keywords?: string | string[];
-  status?: ArtifactStatus;
   schemaVersion?: number;
   metadata?: Record<string, any>;
-  linkedArtifactIds?: string | string[];
-  relations?: string | string[];
+  author?: string;
+  changeSummary?: string;
+  expectedVersion?: number;
+  idempotencyKey?: string;
   sourceEventIds?: string[];
   source?: any;
   runId?: string;
@@ -151,13 +147,24 @@ export interface ArtifactUpdateInput {
 export interface ArtifactListQuery {
   projectId?: string;
   type?: string;
+  filterType?: string;
+  category?: string;
+  filterCategory?: string;
   status?: string;
+  filterStatus?: string;
+  tags?: string | string[];
+  filterTags?: string | string[];
+  query?: string;
   search?: string;
-  keyword?: string;
-  artifactId?: string;
   logicalId?: string;
   latestOnly?: boolean;
+  includeContent?: boolean;
   limit?: number;
+  offset?: number;
+  sortBy?: 'updatedAt' | 'createdAt' | 'title' | 'version';
+  sortOrder?: 'asc' | 'desc';
+  createdAfter?: string;
+  updatedAfter?: string;
 }
 
 export interface ArtifactRelationInput {
@@ -171,6 +178,5 @@ export interface ArtifactRelationInput {
 export interface ArtifactListResult {
   artifacts: ArtifactVersion[];
   count: number;
-  artifact: ArtifactVersion | null;
-  artifactId: string;
+  total: number;
 }

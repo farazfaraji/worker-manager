@@ -214,7 +214,7 @@ export const RunModal: React.FC<RunModalProps> = ({
 
     setValidationStatus(null);
     try {
-      await onRun(parsedInput);
+      await onRun(parsedInput, { useCache });
     } catch {
       // Error handled by parent / result display
     }

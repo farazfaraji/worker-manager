@@ -78,11 +78,12 @@ export class GraphsController {
   @Post(':id/run')
   @HttpCode(HttpStatus.OK)
   run(@Param('id') id: string, @Body() body?: { input?: any; debugMode?: boolean; useCache?: boolean }) {
-    this.logger.log(`📥 POST /api/graphs/${id}/run requested${body?.debugMode ? ' [DEBUG MODE]' : ''}${body?.useCache ? ' [USE CACHE]' : ''}`);
+    const useCache = body?.useCache !== false;
+    this.logger.log(`📥 POST /api/graphs/${id}/run requested${body?.debugMode ? ' [DEBUG MODE]' : ''}${useCache ? ' [USE CACHE]' : ' [NO CACHE]'}`);
     return this.graphRunnerService.runGraph(
       id,
       body?.input !== undefined ? body.input : {},
-      { debugMode: body?.debugMode || false, useCache: body?.useCache || false },
+      { debugMode: body?.debugMode || false, useCache },
     );
   }
 

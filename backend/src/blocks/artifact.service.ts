@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -17,6 +18,7 @@ import {
   ArtifactDeleteEventData,
   ArtifactApproveEventData,
   ArtifactArchiveEventData,
+  EventAction,
 } from '../events/event.types';
 import { ArtifactRelationService } from './artifact-relation.service';
 import { ArtifactIndexingService } from './artifact-indexing.service';
@@ -24,6 +26,7 @@ import { VectorStoreService } from './vector-store.service';
 import {
   ArtifactCreateInput,
   ArtifactListQuery,
+  ArtifactStatus,
   ArtifactUpdateInput,
   ArtifactVersion,
 } from './artifact.types';
@@ -32,6 +35,13 @@ function wildcardToRegex(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   const regexPattern = '^' + escaped.replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
   return new RegExp(regexPattern, 'i');
+}
+
+export function slugValue(raw: any, fallback = ''): string {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (!value) return fallback;
+  const slug = value.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || fallback;
 }
 
 export function parseKeywords(raw: any): string[] {
@@ -133,6 +143,19 @@ export function computeContentHash(format: string, content: any): string {
   return createHash('sha256').update(`${format}:${normalizedStr}`).digest('hex');
 }
 
+export function lineDiff(before: string, after: string): string {
+  const a = String(before ?? '').split('\n');
+  const b = String(after ?? '').split('\n');
+  const lines: string[] = [];
+  const max = Math.max(a.length, b.length);
+  for (let i = 0; i < max; i++) {
+    if (a[i] === b[i]) continue;
+    if (a[i] !== undefined) lines.push(`- ${a[i]}`);
+    if (b[i] !== undefined) lines.push(`+ ${b[i]}`);
+  }
+  return lines.join('\n');
+}
+
 export function shallowEqual(a: any, b: any): boolean {
   if (a === b) return true;
   if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
@@ -146,7 +169,7 @@ export function shallowEqual(a: any, b: any): boolean {
 }
 
 @Injectable()
-export class ArtifactService {
+export class ArtifactService implements OnModuleInit {
   private readonly logger = new Logger(ArtifactService.name);
 
   constructor(
@@ -157,12 +180,26 @@ export class ArtifactService {
     @Optional() private readonly vectorStore?: VectorStoreService,
   ) {}
 
+  async onModuleInit() {
+    await this.model.collection.dropIndex('projectId_1_idempotencyKey_1').catch(() => undefined);
+    await this.model.syncIndexes().catch((err) => {
+      this.logger.warn(`Artifact index sync skipped: ${err?.message || err}`);
+    });
+  }
+
   /**
-   * Create a new logical artifact (version 1)
+   * Create a new logical artifact (version 1). The physical artifactId is always server-generated.
    */
   async create(input: ArtifactCreateInput | any): Promise<ArtifactVersion> {
-    const projectId = input.projectId || input.namespace || 'default';
-    const parent = input.parentArtifactId ? await this.get(input.parentArtifactId, projectId, false) : null;
+    const projectId = String(input.projectId || input.namespace || 'default').trim() || 'default';
+    const idempotencyKey = String(input.idempotencyKey || '').trim();
+    if (idempotencyKey) {
+      const existingByKey = await this.model.findOne({ projectId, idempotencyKey }).lean().exec();
+      if (existingByKey) {
+        return { ...this.public(existingByKey), created: false, changed: false };
+      }
+    }
+
     let content = input.content !== undefined ? input.content : (input.value !== undefined ? input.value : input.input);
     if (content === undefined || content === null) {
       content = '';
@@ -176,48 +213,33 @@ export class ArtifactService {
     }
 
     const format = input.format || (typeof content === 'object' && content !== null ? 'json' : 'markdown');
-    const type = input.type || 'document';
+    const type = slugValue(input.type, 'document');
+    const category = slugValue(input.category, 'general');
+    const tags = parseKeywords(input.tags);
+    const language = input.language ? String(input.language).trim() : undefined;
 
-    // 1. Artifact ID determination
-    let rawId = input.artifactId ? String(input.artifactId).trim() : '';
-    if (!rawId || rawId === '{{uuid}}') {
-      const prefix = input.idPrefix ? String(input.idPrefix).trim() : '';
-      rawId = `${prefix}${randomUUID()}`;
-    } else if (rawId.includes('{{uuid}}') || rawId.includes('{{UUID}}') || rawId.includes('{{$uuid}}')) {
-      rawId = rawId.replace(/{{\s*\$?uuid\s*}}/gi, () => randomUUID());
-    }
-    const artifactId = rawId;
-
-    // 2. Logical ID determination
     let logicalId = input.logicalId ? String(input.logicalId).trim() : '';
     if (logicalId) {
-      // Reject if logicalId already exists
-      const existingLogical = await this.model.findOne({ logicalId }).lean().exec();
+      const existingLogical = await this.model.findOne({ projectId, logicalId, isLatest: true }).lean().exec();
       if (existingLogical) {
+        const ifExists = String(input.ifExists || 'error').toLowerCase();
+        if (ifExists === 'return') {
+          return { ...this.public(existingLogical), created: false, changed: false };
+        }
+        if (ifExists === 'update') {
+          return this.update(logicalId, { ...input, projectId });
+        }
         throw new ConflictException(
-          `Artifact with logicalId "${logicalId}" already exists. Creating a new artifact with an existing logicalId is rejected; use update to create a new version.`,
+          `Artifact with logicalId "${logicalId}" already exists in project "${projectId}". Use update to create a new version, or set ifExists to "return" or "update".`,
         );
       }
-    } else if (input.artifactId && !input.artifactId.includes('{{uuid}}')) {
-      logicalId = artifactId;
     } else {
       logicalId = `${type}-${randomUUID()}`;
     }
 
-    // 3. First version rootArtifactId must equal its own artifactId
-    const rootArtifactId = parent?.rootArtifactId || artifactId;
-    const version = Number(input.version || (parent ? (parent.version || 1) + 1 : 1));
+    const artifactId = randomUUID();
     const schemaVersion = Number(input.schemaVersion || 1);
     const contentHash = computeContentHash(format, content);
-
-    const keywords = parseKeywords(input.keywords !== undefined ? input.keywords : input.keyword);
-    const linkedArtifactIds = parseLinkedArtifactIds(
-      input.linkedArtifactIds !== undefined
-        ? input.linkedArtifactIds
-        : (input.relations !== undefined ? input.relations : input.linkedArtifactId),
-    );
-
-    // Provenance & source metadata
     const metadata = parseMetadata(input.metadata);
     if (input.runId && !metadata.sourceRunId) metadata.sourceRunId = input.runId;
     if (input.nodeId && !metadata.sourceNodeId) metadata.sourceNodeId = input.nodeId;
@@ -229,26 +251,28 @@ export class ArtifactService {
     const artifact = await this.model.create({
       artifactId,
       logicalId,
-      rootArtifactId,
+      rootArtifactId: artifactId,
       projectId,
       type,
+      category,
+      tags,
       format,
+      language,
       title: input.title || 'Untitled artifact',
       content,
-      keyword: keywords,
-      keywords,
-      status: input.status || 'draft',
-      version,
+      status: 'draft',
+      version: 1,
       isLatest: true,
       contentHash,
       schemaVersion,
-      parentArtifactId: input.parentArtifactId,
-      linkedArtifactIds,
+      author: input.author ? String(input.author).trim() : undefined,
+      changeSummary: input.changeSummary ? String(input.changeSummary).trim() : undefined,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       sourceEventIds,
       metadata,
     });
 
-    const result = this.public(artifact);
+    const result = { ...this.public(artifact), created: true, changed: true };
 
     // Index artifact vectors
     if (this.indexingService) {
@@ -276,10 +300,11 @@ export class ArtifactService {
         schemaVersion: result.schemaVersion,
         title: result.title,
         type: result.type,
+        category: result.category,
+        tags: result.tags || [],
         format: result.format,
         version: result.version,
         content: result.content,
-        keywords: result.keywords || result.keyword || [],
         status: result.status,
         projectId: result.projectId,
         parentArtifactId: result.parentArtifactId,
@@ -296,7 +321,21 @@ export class ArtifactService {
    */
   async update(id: string, patch: ArtifactUpdateInput | any): Promise<ArtifactVersion | any> {
     const patchProjectId = patch.projectId || patch.namespace;
-    const current = await this.get(id, patchProjectId, true);
+    const requestedVersion = patch.version !== undefined && patch.version !== '' && String(patch.version).toLowerCase() !== 'latest'
+      ? Number(patch.version)
+      : undefined;
+    const current = await this.get(id, patchProjectId, true, Number.isFinite(requestedVersion) ? requestedVersion : undefined);
+    this.assertExpectedVersion(current, patch.expectedVersion);
+    const idempotencyKey = String(patch.idempotencyKey || '').trim();
+    if (idempotencyKey) {
+      const existingByKey = await this.model.findOne({
+        projectId: patchProjectId || current.projectId,
+        idempotencyKey,
+      }).lean().exec();
+      if (existingByKey) {
+        return { ...this.public(existingByKey), created: false, changed: false };
+      }
+    }
     const logicalId = current.logicalId || current.artifactId;
     const rootArtifactId = current.rootArtifactId || current.artifactId;
 
@@ -308,14 +347,13 @@ export class ArtifactService {
     }
     const format = patch.format ?? current.format ?? (typeof nextContent === 'object' && nextContent !== null ? 'json' : 'markdown');
     const title = patch.title ?? current.title;
-    const type = patch.type ?? current.type;
-    const status = patch.status || current.status || 'draft';
+    const type = patch.type !== undefined ? slugValue(patch.type, current.type) : current.type;
+    const category = patch.category !== undefined ? slugValue(patch.category, 'general') : (current.category || 'general');
+    const language = patch.language !== undefined ? (String(patch.language).trim() || undefined) : current.language;
     const schemaVersion = Number(patch.schemaVersion || current.schemaVersion || 1);
-
-    const nextKeywords =
-      patch.keyword !== undefined || patch.keywords !== undefined
-        ? parseKeywords(patch.keyword !== undefined ? patch.keyword : patch.keywords)
-        : (current.keywords || current.keyword || []);
+    const nextTags = patch.tags !== undefined ? parseKeywords(patch.tags) : (current.tags || []);
+    const author = patch.author !== undefined ? String(patch.author).trim() : current.author;
+    const changeSummary = patch.changeSummary !== undefined ? String(patch.changeSummary).trim() : '';
 
     const newContentHash = computeContentHash(format, nextContent);
 
@@ -329,31 +367,25 @@ export class ArtifactService {
     const patchEventIds = Array.isArray(patch.sourceEventIds) ? patch.sourceEventIds : [];
     const nextSourceEventIds = Array.from(new Set([...currentEventIds, ...patchEventIds]));
 
-    const nextLinkedIds =
-      patch.linkedArtifactIds !== undefined || patch.relations !== undefined
-        ? parseLinkedArtifactIds(patch.linkedArtifactIds !== undefined ? patch.linkedArtifactIds : patch.relations)
-        : (current.linkedArtifactIds || []);
-
-    // -------------------------------------------------------------
-    // No-op update detection
-    // -------------------------------------------------------------
     const isContentUnchanged = newContentHash === current.contentHash;
     const isTitleUnchanged = title === current.title;
     const isTypeUnchanged = type === current.type;
+    const isCategoryUnchanged = category === (current.category || 'general');
     const isFormatUnchanged = format === current.format;
-    const isStatusUnchanged = status === current.status;
+    const isLanguageUnchanged = (language || '') === (current.language || '');
     const isSchemaVersionUnchanged = schemaVersion === current.schemaVersion;
-    const areKeywordsUnchanged = JSON.stringify(nextKeywords) === JSON.stringify(current.keywords || current.keyword || []);
+    const areTagsUnchanged = JSON.stringify(nextTags) === JSON.stringify(current.tags || []);
     const isMetadataUnchanged = shallowEqual(current.metadata || {}, nextMetadata);
 
     if (
       isContentUnchanged &&
       isTitleUnchanged &&
       isTypeUnchanged &&
+      isCategoryUnchanged &&
       isFormatUnchanged &&
-      isStatusUnchanged &&
+      isLanguageUnchanged &&
       isSchemaVersionUnchanged &&
-      areKeywordsUnchanged &&
+      areTagsUnchanged &&
       isMetadataUnchanged
     ) {
       this.logger.log(`No-op update for artifact "${current.artifactId}" (${logicalId}): no material change detected`);
@@ -366,7 +398,7 @@ export class ArtifactService {
     // -------------------------------------------------------------
     // Create new version in transaction
     // -------------------------------------------------------------
-    const newArtifactId = patch.artifactId || randomUUID();
+    const newArtifactId = randomUUID();
     const newVersionNumber = Number(current.version || 1) + 1;
 
     const session = await this.model.db.startSession();
@@ -391,19 +423,22 @@ export class ArtifactService {
             rootArtifactId,
             projectId: patchProjectId ?? current.projectId,
             type,
+            category,
+            tags: nextTags,
             format,
+            language,
             title,
             content: nextContent,
-            keyword: nextKeywords,
-            keywords: nextKeywords,
-            status,
+            status: 'draft',
             version: newVersionNumber,
             isLatest: true,
             contentHash: newContentHash,
             schemaVersion,
             parentArtifactId: current.artifactId || id,
+            author,
+            changeSummary: changeSummary || undefined,
+            ...(idempotencyKey ? { idempotencyKey } : {}),
             metadata: nextMetadata,
-            linkedArtifactIds: nextLinkedIds,
             sourceEventIds: nextSourceEventIds,
           },
         ],
@@ -452,19 +487,22 @@ export class ArtifactService {
         version: result.version,
         parentArtifactId: current.artifactId || id,
         changedKeys: diff.changedKeys || [],
+        changeSummary: result.changeSummary,
         previous: {
           version: current.version,
           title: current.title,
           content: current.content,
           status: current.status,
-          keywords: current.keywords || current.keyword || [],
+          category: current.category,
+          tags: current.tags || [],
         },
         current: {
           version: result.version,
           title: result.title,
           content: result.content,
           status: result.status,
-          keywords: result.keywords || result.keyword || [],
+          category: result.category,
+          tags: result.tags || [],
         },
         fileChanges: {
           diff,
@@ -480,7 +518,7 @@ export class ArtifactService {
    * Retrieve an artifact by exact artifactId, logicalId, or wildcard pattern.
    * If logicalId matches, returns latest version (isLatest: true).
    */
-  async get(id: string, projectId?: string, throwOnNotFound = true): Promise<any> {
+  async get(id: string, projectId?: string, throwOnNotFound = true, version?: number | 'latest'): Promise<any> {
     const rawId = String(id || '').trim();
     if (!rawId) {
       if (throwOnNotFound) throw new NotFoundException('Artifact ID cannot be empty');
@@ -496,7 +534,19 @@ export class ArtifactService {
     const exact = await this.model.findOne({ ...baseFilter, artifactId: rawId }).lean().exec();
     if (exact) return this.public(exact);
 
-    // 2. LogicalId lookup -> returns latest version
+    // 2. LogicalId + explicit version
+    const versionNumber = version !== undefined && version !== 'latest' ? Number(version) : undefined;
+    if (versionNumber !== undefined && Number.isFinite(versionNumber)) {
+      const exactVersion = await this.model
+        .findOne({ ...baseFilter, logicalId: rawId, version: versionNumber })
+        .lean()
+        .exec();
+      if (exactVersion) return this.public(exactVersion);
+      if (throwOnNotFound) throw new NotFoundException(`Artifact "${id}" version ${versionNumber} not found`);
+      return null;
+    }
+
+    // 3. LogicalId lookup -> returns latest version
     const latestLogical = await this.model
       .findOne({ ...baseFilter, logicalId: rawId, isLatest: true })
       .lean()
@@ -581,76 +631,81 @@ export class ArtifactService {
    * List artifacts with optional latestOnly filter
    */
   async list(query: ArtifactListQuery | any = {}): Promise<any[]> {
-    const filter: any = {};
+    const clauses: any[] = [];
     const listProjectId = query.projectId || query.namespace;
-    if (listProjectId) filter.projectId = listProjectId;
+    if (listProjectId) clauses.push({ projectId: listProjectId });
     const targetType = query.filterType || query.type;
-    if (targetType) filter.type = targetType;
+    if (targetType) clauses.push({ type: slugValue(targetType) });
+    const targetCategory = query.filterCategory || query.category;
+    if (targetCategory) clauses.push({ category: slugValue(targetCategory) });
     const targetStatus = query.filterStatus || query.status;
-    if (targetStatus) filter.status = targetStatus;
+    if (targetStatus) clauses.push({ status: String(targetStatus).trim() });
 
     if (query.latestOnly === true || query.latestOnly === 'true') {
-      filter.isLatest = true;
+      clauses.push({ isLatest: true });
     }
 
     if (query.logicalId) {
-      filter.logicalId = String(query.logicalId).trim();
+      clauses.push({ logicalId: String(query.logicalId).trim() });
     }
 
-    const rawArtifactId = (query.filterArtifactId || query.artifactId) ? String(query.filterArtifactId || query.artifactId).trim() : '';
-    if (rawArtifactId && rawArtifactId !== '{{uuid}}') {
-      if (rawArtifactId.includes('*') || rawArtifactId.includes('?')) {
-        filter.$or = filter.$or || [];
-        const rx = wildcardToRegex(rawArtifactId);
-        filter.$or.push({ artifactId: rx }, { logicalId: rx });
-      } else {
-        filter.$or = filter.$or || [];
-        filter.$or.push({ artifactId: rawArtifactId }, { logicalId: rawArtifactId });
-      }
+    const tagList = parseKeywords(query.filterTags !== undefined ? query.filterTags : query.tags);
+    if (tagList.length > 0) {
+      clauses.push({ tags: { $in: tagList } });
     }
 
-    if (query.keyword) {
-      const kw = String(query.keyword).trim();
-      const kwRegex = new RegExp(kw.replace(/[.+^${}()|[\]\\]/g, '\\$&'), 'i');
-      filter.$or = filter.$or || [];
-      filter.$or.push({ keywords: kwRegex }, { keyword: kwRegex });
-    }
-
-    if (query.search) {
-      const searchStr = String(query.search).trim();
-      if (searchStr) {
-        let searchRegex: RegExp;
-        if (searchStr.includes('*') || searchStr.includes('?')) {
-          searchRegex = wildcardToRegex(searchStr);
-        } else {
-          searchRegex = new RegExp(searchStr.replace(/[.+^${}()|[\]\\]/g, '\\$&'), 'i');
-        }
-        filter.$or = [
-          ...(filter.$or || []),
+    const searchStr = String(query.query || query.search || '').trim();
+    if (searchStr) {
+      const searchRegex = searchStr.includes('*') || searchStr.includes('?')
+        ? wildcardToRegex(searchStr)
+        : new RegExp(searchStr.replace(/[.+^${}()|[\]\\]/g, '\\$&'), 'i');
+      clauses.push({
+        $or: [
           { title: searchRegex },
-          { artifactId: searchRegex },
           { logicalId: searchRegex },
-          { keywords: searchRegex },
-          { keyword: searchRegex },
-        ];
-      }
+          { category: searchRegex },
+          { tags: searchRegex },
+        ],
+      });
     }
+
+    if (query.createdAfter) {
+      const createdAfter = new Date(query.createdAfter);
+      if (!Number.isNaN(createdAfter.getTime())) clauses.push({ createdAt: { $gte: createdAfter } });
+    }
+    if (query.updatedAfter) {
+      const updatedAfter = new Date(query.updatedAfter);
+      if (!Number.isNaN(updatedAfter.getTime())) clauses.push({ updatedAt: { $gte: updatedAfter } });
+    }
+
+    const filter = clauses.length > 0 ? { $and: clauses } : {};
+    const sortField = ['updatedAt', 'createdAt', 'title', 'version'].includes(query.sortBy) ? query.sortBy : 'updatedAt';
+    const sortDir = String(query.sortOrder || 'desc').toLowerCase() === 'asc' ? 1 : -1;
+    const limit = Math.min(Math.max(Number(query.limit || 50), 1), 200);
+    const offset = Math.max(Number(query.offset || 0), 0);
+    const includeContent = query.includeContent !== false && query.includeContent !== 'false';
 
     const items = await this.model
       .find(filter)
-      .sort({ updatedAt: -1, version: -1 })
-      .limit(Number(query.limit || 50))
+      .sort({ [sortField]: sortDir, version: -1 })
+      .skip(offset)
+      .limit(limit)
       .lean()
       .exec();
 
-    return items.map((i) => this.public(i));
+    return items.map((item) => {
+      const pub = this.public(item);
+      if (!includeContent) delete pub.content;
+      return pub;
+    });
   }
 
   /**
    * Approve an artifact version (or latest version of logical artifact)
    */
-  async approve(id: string, metadata: any = {}): Promise<any> {
-    const current = await this.get(id, undefined, true);
+  async approve(id: string, metadata: any = {}, projectId?: string, expectedVersion?: number): Promise<any> {
+    const current = await this.get(id, projectId || metadata?.projectId, true);
+    this.assertExpectedVersion(current, expectedVersion ?? metadata?.expectedVersion);
     const approvedMetadata = { ...(current.metadata || {}), ...parseMetadata(metadata) };
     const item = await this.model
       .findOneAndUpdate(
@@ -689,8 +744,40 @@ export class ArtifactService {
   /**
    * Archive an artifact version (or latest version of logical artifact)
    */
-  async archive(id: string): Promise<any> {
-    const current = await this.get(id, undefined, true);
+  async reject(id: string, reason = '', metadata: any = {}, projectId?: string, expectedVersion?: number): Promise<any> {
+    const current = await this.get(id, projectId || metadata?.projectId, true);
+    this.assertExpectedVersion(current, expectedVersion ?? metadata?.expectedVersion);
+    const nextMetadata = { ...(current.metadata || {}), ...parseMetadata(metadata) };
+    if (reason) nextMetadata.rejectionReason = reason;
+    return this.setStatus(current, 'rejected', nextMetadata, 'artifact.reject', 'reject');
+  }
+
+  async unarchive(id: string, projectId?: string, expectedVersion?: number): Promise<any> {
+    const current = await this.get(id, projectId, true);
+    this.assertExpectedVersion(current, expectedVersion);
+    return this.setStatus(current, 'draft', current.metadata || {}, 'artifact.unarchive', 'unarchive');
+  }
+
+  async restore(logicalId: string, version: number, patch: any = {}): Promise<any> {
+    const projectId = patch.projectId || patch.namespace;
+    const source = await this.get(logicalId, projectId, true, Number(version));
+    return this.update(source.logicalId, {
+      ...patch,
+      projectId: projectId || source.projectId,
+      content: source.content,
+      title: patch.title ?? source.title,
+      type: patch.type ?? source.type,
+      category: patch.category ?? source.category,
+      tags: patch.tags ?? source.tags,
+      format: patch.format ?? source.format,
+      language: patch.language ?? source.language,
+      changeSummary: patch.changeSummary || `Restored from version ${source.version}`,
+    });
+  }
+
+  async archive(id: string, projectId?: string, expectedVersion?: number): Promise<any> {
+    const current = await this.get(id, projectId, true);
+    this.assertExpectedVersion(current, expectedVersion);
     const item = await this.model
       .findOneAndUpdate(
         { artifactId: current.artifactId },
@@ -727,14 +814,13 @@ export class ArtifactService {
   /**
    * Delete an artifact version or entire logical artifact
    */
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, projectId?: string): Promise<boolean> {
     const rawId = String(id || '').trim();
-    const target = await this.get(id, undefined, false);
-    const res = await this.model
-      .deleteOne({
-        $or: [{ artifactId: rawId }, { _id: rawId.match(/^[0-9a-fA-F]{24}$/) ? rawId : undefined }].filter(Boolean) as any,
-      })
-      .exec();
+    const target = await this.get(id, projectId, false);
+    const filter: any = target?.logicalId
+      ? { logicalId: target.logicalId, ...(target.projectId ? { projectId: target.projectId } : {}) }
+      : { artifactId: rawId };
+    const res = await this.model.deleteMany(filter).exec();
 
     if (res.deletedCount > 0) {
       if (this.vectorStore) {
@@ -764,48 +850,26 @@ export class ArtifactService {
     return false;
   }
 
-  /**
-   * Legacy relation support & bridge to typed relations.
-   * Does NOT mutate artifact content or bump artifact version.
-   */
-  async addRelation(id: string, newRelations: any, source?: any): Promise<any> {
-    const current = await this.get(id);
-    const toAdd = parseLinkedArtifactIds(newRelations);
-    const existing = Array.isArray(current.linkedArtifactIds) ? current.linkedArtifactIds : [];
-    const merged = Array.from(new Set([...existing, ...toAdd]));
-
-    // 1. If relationService is available, resolve each target and create typed 'relates-to' relation
-    if (this.relationService && current.logicalId) {
-      for (const targetId of toAdd) {
-        const targetDoc = await this.get(targetId, current.projectId, false);
-        if (targetDoc && targetDoc.logicalId && targetDoc.logicalId !== current.logicalId) {
-          try {
-            await this.relationService.addRelation({
-              sourceLogicalId: current.logicalId,
-              targetLogicalId: targetDoc.logicalId,
-              type: 'relates-to',
-              projectId: current.projectId,
-              source,
-            });
-          } catch (relErr: any) {
-            this.logger.warn(`Could not bridge typed relation: ${relErr.message}`);
-          }
-        }
-      }
+  async diffVersions(logicalId: string, fromVersion: number, toVersion: number, projectId?: string, diffFormat = 'summary'): Promise<any> {
+    const previous = await this.get(logicalId, projectId, true, Number(fromVersion));
+    const next = await this.get(logicalId, projectId, true, Number(toVersion));
+    const base = this.diff(previous.content, next.content);
+    const beforeText = typeof previous.content === 'string' ? previous.content : JSON.stringify(previous.content, null, 2);
+    const afterText = typeof next.content === 'string' ? next.content : JSON.stringify(next.content, null, 2);
+    const format = String(diffFormat || 'summary').toLowerCase();
+    if (format === 'unified') {
+      return { ...base, diff: lineDiff(beforeText, afterText), fromVersion: previous.version, toVersion: next.version };
     }
-
-    // 2. Preserve linkedArtifactIds on the record for backwards compatibility
-    const item = await this.model
-      .findOneAndUpdate(
-        { artifactId: current.artifactId },
-        { $set: { linkedArtifactIds: merged } },
-        { new: true },
-      )
-      .lean()
-      .exec();
-
-    if (!item) throw new NotFoundException(`Artifact "${id}" not found`);
-    return this.public(item);
+    if (format === 'json' || format === 'json-patch') {
+      return { ...base, fromVersion: previous.version, toVersion: next.version };
+    }
+    return {
+      changed: base.changed,
+      fromVersion: previous.version,
+      toVersion: next.version,
+      changedKeys: base.changedKeys || [],
+      summary: base.changed ? `Version ${previous.version} differs from version ${next.version}` : 'Versions are identical',
+    };
   }
 
   diff(previous: any, next: any): any {
@@ -852,6 +916,48 @@ export class ArtifactService {
       { label: 'All Artifact Types', value: '' },
       ...options,
     ];
+  }
+
+  private assertExpectedVersion(current: any, expected: any) {
+    if (expected === undefined || expected === null || expected === '') return;
+    const n = Number(expected);
+    if (!Number.isFinite(n) || n !== Number(current.version)) {
+      throw new ConflictException(
+        `expectedVersion ${expected} does not match current version ${current.version} of "${current.logicalId}"`,
+      );
+    }
+  }
+
+  private async setStatus(current: any, status: ArtifactStatus, metadata: Record<string, any>, topic: string, eventType: EventAction) {
+    const item = await this.model
+      .findOneAndUpdate(
+        { artifactId: current.artifactId },
+        { $set: { status, metadata } },
+        { new: true },
+      )
+      .lean()
+      .exec();
+    if (!item) throw new NotFoundException(`Artifact "${current.logicalId}" not found`);
+    const result = this.public(item);
+    if (this.indexingService) {
+      void this.indexingService.indexArtifact(result);
+    }
+    await this.eventEngine.publish({
+      topic,
+      entityName: 'artifact',
+      entityId: result.artifactId,
+      eventType,
+      projectId: result.projectId,
+      source: { origin: 'api' },
+      data: {
+        artifactId: result.artifactId,
+        logicalId: result.logicalId,
+        version: result.version,
+        status,
+        metadata: result.metadata,
+      },
+    });
+    return result;
   }
 
   private public(item: any) {

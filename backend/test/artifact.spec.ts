@@ -62,6 +62,8 @@ async function runTests() {
   await eventModel.deleteMany({});
 
   // Ensure indexes are fully built before running tests to prevent background index building locks
+  await artifactModel.collection.dropIndex('projectId_1_idempotencyKey_1').catch(() => undefined);
+  await artifactModel.syncIndexes();
   await artifactModel.init();
   await relationModel.init();
   await vectorModel.init();
@@ -86,16 +88,19 @@ async function runTests() {
   let createdDoc1: any;
   await test('New artifacts receive logicalId and first version rootArtifactId equals artifactId', async () => {
     createdDoc1 = await artifactService.create({
-      artifactId: 'art-identity-test-1',
+      logicalId: 'art-identity-test-1',
       title: 'Identity Test Document',
       type: 'prd',
+      category: 'identity',
       content: '# Hello World\nInitial version.',
       projectId: 'proj-alpha',
     });
 
-    assert.strictEqual(createdDoc1.artifactId, 'art-identity-test-1');
-    assert.strictEqual(createdDoc1.rootArtifactId, 'art-identity-test-1');
+    assert.ok(createdDoc1.artifactId);
+    assert.strictEqual(createdDoc1.rootArtifactId, createdDoc1.artifactId);
     assert.strictEqual(createdDoc1.logicalId, 'art-identity-test-1');
+    assert.strictEqual(createdDoc1.category, 'identity');
+    assert.strictEqual(createdDoc1.status, 'draft');
     assert.strictEqual(createdDoc1.version, 1);
     assert.strictEqual(createdDoc1.isLatest, true);
     assert.strictEqual(createdDoc1.schemaVersion, 1);
@@ -123,6 +128,7 @@ async function runTests() {
           logicalId: 'custom-logical-id-xyz',
           title: 'Duplicate Logical Document',
           content: 'Conflicting content',
+          projectId: 'proj-alpha',
         });
       },
       (err: any) => {
@@ -133,9 +139,9 @@ async function runTests() {
   });
 
   await test('Exact artifactId lookup returns the requested version', async () => {
-    const fetched = await artifactService.getByArtifactId('art-identity-test-1');
+    const fetched = await artifactService.getByArtifactId(createdDoc1.artifactId);
     assert.ok(fetched, 'Found by exact artifactId');
-    assert.strictEqual(fetched.artifactId, 'art-identity-test-1');
+    assert.strictEqual(fetched.artifactId, createdDoc1.artifactId);
   });
 
   await test('LogicalId lookup returns the latest version', async () => {
@@ -158,15 +164,16 @@ async function runTests() {
     });
 
     assert.strictEqual(updatedDoc2.changed, true);
-    assert.notStrictEqual(updatedDoc2.artifactId, 'art-identity-test-1');
+    assert.notStrictEqual(updatedDoc2.artifactId, createdDoc1.artifactId);
     assert.strictEqual(updatedDoc2.logicalId, 'art-identity-test-1');
-    assert.strictEqual(updatedDoc2.rootArtifactId, 'art-identity-test-1');
-    assert.strictEqual(updatedDoc2.parentArtifactId, 'art-identity-test-1');
+    assert.strictEqual(updatedDoc2.rootArtifactId, createdDoc1.artifactId);
+    assert.strictEqual(updatedDoc2.parentArtifactId, createdDoc1.artifactId);
+    assert.strictEqual(updatedDoc2.status, 'draft');
     assert.strictEqual(updatedDoc2.version, 2);
     assert.strictEqual(updatedDoc2.isLatest, true);
 
     // Verify previous version record remains unchanged and non-latest
-    const prev = await artifactService.getByArtifactId('art-identity-test-1');
+    const prev = await artifactService.getByArtifactId(createdDoc1.artifactId);
     assert.strictEqual(prev.version, 1);
     assert.strictEqual(prev.isLatest, false);
     assert.strictEqual(prev.content, '# Hello World\nInitial version.');
@@ -210,19 +217,34 @@ async function runTests() {
   // -------------------------------------------------------------
   console.log('\n--- 3. Keyword Tests ---');
 
-  await test('Canonical keywords written and legacy keyword mirrored for backwards compatibility', async () => {
+  await test('Category is a single subject and tags are stored as a list', async () => {
     const kwDoc = await artifactService.create({
       title: 'Keyword Test Doc',
-      keywords: ['auth', 'jwt', 'security'],
+      category: 'Authentication',
+      tags: ['auth', 'jwt', 'security'],
       content: 'JWT token details',
+      projectId: 'proj-alpha',
     });
 
-    assert.deepStrictEqual(kwDoc.keywords, ['auth', 'jwt', 'security']);
-    assert.deepStrictEqual(kwDoc.keyword, ['auth', 'jwt', 'security']);
+    assert.strictEqual(kwDoc.category, 'authentication');
+    assert.deepStrictEqual(kwDoc.tags, ['auth', 'jwt', 'security']);
 
-    const read = await artifactService.get(kwDoc.artifactId);
-    assert.deepStrictEqual(read.keywords, ['auth', 'jwt', 'security']);
-    assert.deepStrictEqual(read.keyword, ['auth', 'jwt', 'security']);
+    const read = await artifactService.get(kwDoc.logicalId, 'proj-alpha');
+    assert.strictEqual(read.category, 'authentication');
+    assert.deepStrictEqual(read.tags, ['auth', 'jwt', 'security']);
+  });
+
+  await test('expectedVersion rejects an update against a stale version', async () => {
+    await assert.rejects(
+      async () => {
+        await artifactService.update('art-identity-test-1', {
+          content: 'stale write',
+          projectId: 'proj-alpha',
+          expectedVersion: 1,
+        });
+      },
+      (err: any) => err.message.includes('expectedVersion') || err.status === 409,
+    );
   });
 
   // -------------------------------------------------------------

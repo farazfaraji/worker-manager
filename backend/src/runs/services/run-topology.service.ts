@@ -155,6 +155,19 @@ export class RunTopologyService {
           nextTargets.add(edge.target);
         }
       }
+    } else if (nodeType === 'artifact') {
+      const branch = String(lastNodeOutput?.branch || 'onsuccess').toLowerCase().trim();
+      let matched = false;
+      for (const edge of nodeEdges) {
+        const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+        if (handle === branch) {
+          nextTargets.add(edge.target);
+          matched = true;
+        }
+      }
+      if (!matched && nodeEdges.length === 1 && !String(nodeEdges[0].sourceHandle || '').trim()) {
+        nextTargets.add(nodeEdges[0].target);
+      }
     } else if (nodeType === 'orchestrator' || nodeType === 'delegator') {
       const jobNodes = (allNodes && allEdges)
         ? this.getOrchestratedJobNodeIds(node.id, allNodes, allEdges)

@@ -1,7 +1,7 @@
 {
   "name": "Artifact",
   "type": "artifact",
-  "description": "Create, read, update, version, approve and archive durable artifacts (Markdown docs, PRDs, specs, JSON records) with logical identity and bidirectional relations.",
+  "description": "Store and version project documents. Each artifact has a stable logical ID, a type, one category, and optional tags.",
   "inputs": [
     {
       "name": "operation",
@@ -9,410 +9,146 @@
       "type": "select",
       "defaultValue": "create",
       "options": [
-        {
-          "label": "Create Artifact",
-          "value": "create"
-        },
-        {
-          "label": "Get Artifact",
-          "value": "get"
-        },
-        {
-          "label": "Get Latest Version",
-          "value": "getLatest"
-        },
-        {
-          "label": "List Artifacts",
-          "value": "list"
-        },
-        {
-          "label": "List All Versions",
-          "value": "listVersions"
-        },
-        {
-          "label": "Update / Version",
-          "value": "update"
-        },
-        {
-          "label": "Add Relation",
-          "value": "addRelation"
-        },
-        {
-          "label": "Get Relations",
-          "value": "getRelations"
-        },
-        {
-          "label": "Remove Relation",
-          "value": "removeRelation"
-        },
-        {
-          "label": "Diff Versions",
-          "value": "diff"
-        },
-        {
-          "label": "Approve",
-          "value": "approve"
-        },
-        {
-          "label": "Archive",
-          "value": "archive"
-        }
+        { "label": "Create", "value": "create" },
+        { "label": "Get", "value": "get" },
+        { "label": "List", "value": "list" },
+        { "label": "List versions", "value": "listVersions" },
+        { "label": "Update", "value": "update" },
+        { "label": "Compare versions", "value": "diff" },
+        { "label": "Approve", "value": "approve" },
+        { "label": "Reject", "value": "reject" },
+        { "label": "Archive", "value": "archive" },
+        { "label": "Unarchive", "value": "unarchive" },
+        { "label": "Restore version", "value": "restore" },
+        { "label": "Delete", "value": "delete" },
+        { "label": "Add relation", "value": "addRelation" },
+        { "label": "Get relations", "value": "getRelations" },
+        { "label": "Remove relation", "value": "removeRelation" }
       ]
     },
     {
       "name": "projectId",
-      "label": "Namespace",
+      "label": "Project",
       "type": "slug",
-      "placeholder": "e.g. default, customer-portal, checkout-service",
-      "helpText": "Namespace or project slug for organizing and scoping artifacts.",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "list",
-          "get",
-          "getLatest",
-          "listVersions",
-          "getRelations"
-        ]
-      }
+      "placeholder": "e.g. checkout, customer-portal",
+      "helpText": "Project that owns this artifact. When the flow runs inside a project, this defaults to that project."
     },
     {
       "name": "logicalId",
       "label": "Logical ID",
       "type": "valueOrVariable",
-      "placeholder": "e.g. auth-service-prd, spec-core-api",
-      "helpText": "Stable logical artifact identity across all versions. If omitted on create, generated automatically from type and UUID.",
+      "placeholder": "e.g. checkout-prd",
+      "helpText": "Stable name for the artifact across every version. Leave blank on create to generate one.",
       "dependsOn": {
         "field": "operation",
-        "in": [
-          "create",
-          "getLatest",
-          "listVersions",
-          "getRelations"
-        ]
+        "in": ["create", "get", "listVersions", "update", "diff", "approve", "reject", "archive", "unarchive", "restore", "delete", "addRelation", "getRelations"]
       }
     },
     {
-      "name": "artifactId",
-      "label": "Artifact ID",
+      "name": "version",
+      "label": "Version",
       "type": "valueOrVariable",
-      "defaultValue": "{{uuid}}",
-      "supportsUuid": true,
-      "placeholder": "e.g. prd-{{uuid}}, doc-{{uuid}}, or click 'Generate UUID'",
-      "helpText": "Unique version identifier. Use {{uuid}} for auto-generation (e.g. prd-{{uuid}} or doc-{{uuid}}), enter a custom ID, or click 'Generate UUID'.",
+      "placeholder": "latest, or a version number",
+      "helpText": "Which version to use. Leave blank or enter latest for the current version. Restore copies this version into a new draft.",
       "dependsOn": {
         "field": "operation",
-        "equals": "create"
+        "in": ["get", "approve", "reject", "archive", "unarchive", "restore", "delete"]
       }
     },
     {
-      "name": "artifactId",
-      "label": "Artifact ID / Target ID",
-      "type": "valueOrVariable",
-      "dataSource": {
-        "type": "endpoint",
-        "url": "/artifacts",
-        "labelKey": "label",
-        "valueKey": "value"
-      },
-      "placeholder": "e.g. faraz-doc-*, doc-123, or choose from list",
-      "helpText": "Target artifact identifier (Artifact ID or Logical ID) to fetch, update, approve, or archive.",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "get",
-          "update",
-          "approve",
-          "archive",
-          "addRelation"
-        ]
-      }
-    },
-    {
-      "name": "filterArtifactId",
-      "label": "Artifact ID / Pattern Filter",
-      "type": "valueOrVariable",
-      "dataSource": {
-        "type": "endpoint",
-        "url": "/artifacts",
-        "labelKey": "label",
-        "valueKey": "value"
-      },
-      "placeholder": "e.g. faraz-doc-*, doc-*, or choose from list",
-      "helpText": "Filter artifacts by exact Artifact ID, Logical ID, or wildcard pattern. Supports wildcards (*) or variable references. Leave blank to match all.",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
-    },
-    {
-      "name": "relationId",
-      "label": "Relation ID",
-      "type": "valueOrVariable",
-      "placeholder": "e.g. rel_12345678-...",
-      "helpText": "Identifier of the relation to delete.",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "removeRelation"
-      }
-    },
-    {
-      "name": "targetLogicalId",
-      "label": "Target Logical ID",
-      "type": "valueOrVariable",
-      "dataSource": {
-        "type": "endpoint",
-        "url": "/artifacts",
-        "labelKey": "label",
-        "valueKey": "value"
-      },
-      "placeholder": "Select or enter target logical artifact ID...",
-      "helpText": "Logical ID of the target artifact to link via typed bidirectional relation.",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "addRelation"
-      }
-    },
-    {
-      "name": "relationType",
-      "label": "Relation Type",
+      "name": "ifExists",
+      "label": "If it already exists",
       "type": "select",
-      "defaultValue": "relates-to",
+      "defaultValue": "error",
+      "helpText": "What to do when the logical ID is already used in this project.",
       "options": [
-        {
-          "label": "Refines (refined-by)",
-          "value": "refines"
-        },
-        {
-          "label": "Has Tech Spec (techspec-for)",
-          "value": "has-techspec"
-        },
-        {
-          "label": "Decomposes To (decomposed-from)",
-          "value": "decomposes-to"
-        },
-        {
-          "label": "Depends On (required-by)",
-          "value": "depends-on"
-        },
-        {
-          "label": "Constrains (constrained-by)",
-          "value": "constrains"
-        },
-        {
-          "label": "Derived From (source-of)",
-          "value": "derived-from"
-        },
-        {
-          "label": "Conflicts With",
-          "value": "conflicts-with"
-        },
-        {
-          "label": "Relates To",
-          "value": "relates-to"
-        }
+        { "label": "Fail", "value": "error" },
+        { "label": "Return the existing artifact", "value": "return" },
+        { "label": "Update the existing artifact", "value": "update" }
       ],
-      "helpText": "Typed semantic relationship. The inverse relation is automatically created in the opposite direction.",
+      "dependsOn": { "field": "operation", "equals": "create" }
+    },
+    {
+      "name": "expectedVersion",
+      "label": "Expected version",
+      "type": "number",
+      "helpText": "Fails with a conflict if the current version is not this number. Use it so two runs cannot overwrite each other.",
       "dependsOn": {
         "field": "operation",
-        "equals": "addRelation"
+        "in": ["update", "approve", "reject", "archive", "restore"]
       }
     },
     {
-      "name": "relationDirection",
-      "label": "Relation Direction",
-      "type": "select",
-      "defaultValue": "both",
-      "options": [
-        {
-          "label": "Both Directions",
-          "value": "both"
-        },
-        {
-          "label": "Outgoing Only",
-          "value": "outgoing"
-        },
-        {
-          "label": "Incoming Only",
-          "value": "incoming"
-        }
-      ],
-      "dependsOn": {
-        "field": "operation",
-        "equals": "getRelations"
-      }
-    },
-    {
-      "name": "relationMetadata",
-      "label": "Relation Metadata",
+      "name": "idempotencyKey",
+      "label": "Idempotency key",
       "type": "valueOrVariable",
-      "placeholder": "e.g. { \"confidence\": 0.95, \"notes\": \"Generated by PRD flow\" }",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "addRelation"
-      }
-    },
-    {
-      "name": "latestOnly",
-      "label": "Latest Version Only",
-      "type": "boolean",
-      "defaultValue": true,
-      "helpText": "If true, only returns records that are currently the latest version of their logical chain.",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
+      "placeholder": "e.g. {{run.id}}-checkout-prd",
+      "helpText": "If this key was already used in the project, the original artifact is returned and no second copy is created.",
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
     },
     {
       "name": "title",
       "label": "Title",
       "type": "valueOrVariable",
-      "placeholder": "e.g. Product Requirements Document, or {{trigger.input.title}}",
-      "helpText": "Human-readable name for the artifact. Supports literal text or variable reference.",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
+      "placeholder": "e.g. Checkout PRD",
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
     },
     {
       "name": "type",
-      "label": "Artifact Type",
+      "label": "Type",
       "type": "valueOrVariable",
-      "accepts": [
-        "string",
-        "any"
-      ],
       "defaultValue": "document",
-      "placeholder": "Select from existing, enter custom type, or wire variable (e.g. {{trigger.input.type}})",
-      "helpText": "Canonical category of artifact.",
+      "helpText": "What this artifact is. Choose a suggestion or type your own.",
       "options": [
-        {
-          "label": "High-Level Concept",
-          "value": "high-level"
-        },
-        {
-          "label": "Product Requirements Document (PRD)",
-          "value": "prd"
-        },
-        {
-          "label": "Technical Specification",
-          "value": "tech-spec"
-        },
-        {
-          "label": "Task / Plan",
-          "value": "task"
-        },
-        {
-          "label": "Human Review Decision",
-          "value": "decision"
-        },
-        {
-          "label": "Change Request",
-          "value": "change"
-        },
-        {
-          "label": "General Document",
-          "value": "document"
-        },
-        {
-          "label": "Code / Patch",
-          "value": "code"
-        }
+        { "label": "High-level concept", "value": "high-level" },
+        { "label": "Product requirements (PRD)", "value": "prd" },
+        { "label": "Technical specification", "value": "tech-spec" },
+        { "label": "Task / plan", "value": "task" },
+        { "label": "Decision", "value": "decision" },
+        { "label": "Change request", "value": "change" },
+        { "label": "Document", "value": "document" },
+        { "label": "Code", "value": "code" }
       ],
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
     },
     {
-      "name": "filterType",
-      "label": "Artifact Type Filter",
+      "name": "category",
+      "label": "Category",
       "type": "valueOrVariable",
-      "accepts": [
-        "string",
-        "any"
-      ],
-      "options": [
-        {
-          "label": "Any type",
-          "value": ""
-        },
-        {
-          "label": "High-Level Concept",
-          "value": "high-level"
-        },
-        {
-          "label": "Product Requirements Document (PRD)",
-          "value": "prd"
-        },
-        {
-          "label": "Technical Specification",
-          "value": "tech-spec"
-        },
-        {
-          "label": "Task / Plan",
-          "value": "task"
-        },
-        {
-          "label": "Human Review Decision",
-          "value": "decision"
-        },
-        {
-          "label": "Change Request",
-          "value": "change"
-        },
-        {
-          "label": "General Document",
-          "value": "document"
-        },
-        {
-          "label": "Code / Patch",
-          "value": "code"
-        }
-      ],
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
+      "defaultValue": "general",
+      "placeholder": "e.g. authentication, billing, checkout",
+      "helpText": "The one subject this artifact belongs to, like a folder. Use tags for extra labels.",
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
+    },
+    {
+      "name": "tags",
+      "label": "Tags",
+      "type": "valueOrVariable",
+      "placeholder": "auth, jwt, token-rotation",
+      "helpText": "Optional search labels. Separate them with commas or new lines.",
+      "accepts": ["array", "string"],
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
     },
     {
       "name": "format",
-      "label": "Content Format",
+      "label": "Format",
       "type": "select",
       "defaultValue": "markdown",
-      "helpText": "Format of the content payload.",
       "options": [
-        {
-          "label": "Markdown / Rich Text",
-          "value": "markdown"
-        },
-        {
-          "label": "Plain Text",
-          "value": "text"
-        },
-        {
-          "label": "JSON Object / Array",
-          "value": "json"
-        },
-        {
-          "label": "Code / Script",
-          "value": "code"
-        }
+        { "label": "Markdown", "value": "markdown" },
+        { "label": "Plain text", "value": "text" },
+        { "label": "JSON", "value": "json" },
+        { "label": "Code", "value": "code" }
       ],
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
+    },
+    {
+      "name": "language",
+      "label": "Language",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. typescript, python, sql",
+      "helpText": "Programming language when the format is code.",
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
     },
     {
       "name": "content",
@@ -420,197 +156,224 @@
       "type": "valueOrVariable",
       "multiline": true,
       "rows": 8,
-      "required": true,
-      "placeholder": "Type or paste content (Markdown, text, or JSON), or switch to 'Variable Reference' to bind upstream output (e.g. {{human_gate_1.value}})",
-      "helpText": "The artifact body. Supports literal text/markdown or direct upstream variable references.",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
+      "placeholder": "Markdown, text, JSON, or {{agent_1.content}}",
+      "dependsOn": { "field": "operation", "in": ["create", "update"] }
     },
     {
-      "name": "keyword",
-      "label": "Keywords",
+      "name": "changeSummary",
+      "label": "Change summary",
       "type": "valueOrVariable",
-      "multiline": true,
-      "rows": 3,
-      "placeholder": "Comma or newline separated keywords (e.g. auth, jwt, security, token rotation)",
-      "helpText": "Keywords for search & semantic retrieval indexing (e.g. Retrieval tool). Enter comma/line-separated text or bind an upstream variable.",
-      "accepts": [
-        "array",
-        "string"
-      ],
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
+      "placeholder": "What changed in this version",
+      "dependsOn": { "field": "operation", "in": ["update", "restore"] }
     },
     {
-      "name": "schemaVersion",
-      "label": "Schema Version",
-      "type": "number",
-      "defaultValue": 1,
-      "helpText": "Version of the payload schema (defaults to 1).",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
-    },
-    {
-      "name": "status",
-      "label": "Status",
-      "type": "select",
-      "defaultValue": "draft",
-      "options": [
-        {
-          "label": "Draft",
-          "value": "draft"
-        },
-        {
-          "label": "Approved",
-          "value": "approved"
-        },
-        {
-          "label": "Archived",
-          "value": "archived"
-        }
-      ],
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update"
-        ]
-      }
-    },
-    {
-      "name": "filterStatus",
-      "label": "Status Filter",
-      "type": "select",
-      "options": [
-        {
-          "label": "Any status",
-          "value": ""
-        },
-        {
-          "label": "Draft",
-          "value": "draft"
-        },
-        {
-          "label": "Approved",
-          "value": "approved"
-        },
-        {
-          "label": "Archived",
-          "value": "archived"
-        }
-      ],
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
-    },
-    {
-      "name": "search",
-      "label": "Search Title / Keyword",
-      "type": "text",
-      "placeholder": "Search by title substring or keyword pattern...",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
-    },
-    {
-      "name": "limit",
-      "label": "Result Limit",
-      "type": "number",
-      "defaultValue": 50,
-      "dependsOn": {
-        "field": "operation",
-        "equals": "list"
-      }
-    },
-    {
-      "name": "previous",
-      "label": "Previous Content",
+      "name": "author",
+      "label": "Author",
       "type": "valueOrVariable",
-      "multiline": true,
-      "rows": 5,
-      "placeholder": "Previous content or artifact ID (e.g. faraz-doc-v1 or {{node.artifactId}})",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "diff"
-      }
+      "placeholder": "person, agent, or flow name",
+      "dependsOn": { "field": "operation", "in": ["create", "update", "approve", "reject"] }
     },
     {
-      "name": "next",
-      "label": "Next Content",
+      "name": "reason",
+      "label": "Reason",
       "type": "valueOrVariable",
-      "multiline": true,
-      "rows": 5,
-      "placeholder": "Next content or artifact ID (e.g. faraz-doc-v2 or {{node.artifactId}})",
-      "dependsOn": {
-        "field": "operation",
-        "equals": "diff"
-      }
+      "placeholder": "Why this version was rejected",
+      "dependsOn": { "field": "operation", "equals": "reject" }
     },
     {
       "name": "metadata",
-      "label": "Metadata / Provenance",
+      "label": "Metadata",
       "type": "valueOrVariable",
-      "placeholder": "e.g. { \"confidence\": 0.9, \"riskLevel\": \"low\", \"openQuestions\": [] }",
-      "helpText": "Provenance and traceability metadata (e.g. sourceRequestId, riskLevel, confidence).",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update",
-          "approve"
-        ]
-      }
+      "placeholder": "{ \"confidence\": 0.9 }",
+      "helpText": "Extra JSON stored with this version.",
+      "dependsOn": { "field": "operation", "in": ["create", "update", "approve", "reject"] }
     },
     {
-      "name": "linkedArtifactIds",
-      "label": "Linked Artifacts (Legacy Relations)",
+      "name": "fromVersion",
+      "label": "From version",
+      "type": "number",
+      "dependsOn": { "field": "operation", "equals": "diff" }
+    },
+    {
+      "name": "toVersion",
+      "label": "To version",
+      "type": "number",
+      "dependsOn": { "field": "operation", "equals": "diff" }
+    },
+    {
+      "name": "diffFormat",
+      "label": "Diff format",
+      "type": "select",
+      "defaultValue": "summary",
+      "options": [
+        { "label": "Summary", "value": "summary" },
+        { "label": "Line diff", "value": "unified" },
+        { "label": "JSON", "value": "json" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "diff" }
+    },
+    {
+      "name": "query",
+      "label": "Search",
       "type": "valueOrVariable",
-      "multiselect": true,
-      "dataSource": {
-        "type": "endpoint",
-        "url": "/artifacts",
-        "labelKey": "label",
-        "valueKey": "value"
-      },
-      "placeholder": "Choose artifacts to link or bind variable...",
-      "helpText": "Select one or more related artifacts from the list, or bind an upstream variable reference.",
-      "dependsOn": {
-        "field": "operation",
-        "in": [
-          "create",
-          "update",
-          "addRelation"
-        ]
-      }
+      "placeholder": "title, logical ID, category, or tag",
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "filterType",
+      "label": "Type",
+      "type": "valueOrVariable",
+      "options": [
+        { "label": "Any type", "value": "" },
+        { "label": "High-level concept", "value": "high-level" },
+        { "label": "Product requirements (PRD)", "value": "prd" },
+        { "label": "Technical specification", "value": "tech-spec" },
+        { "label": "Task / plan", "value": "task" },
+        { "label": "Decision", "value": "decision" },
+        { "label": "Change request", "value": "change" },
+        { "label": "Document", "value": "document" },
+        { "label": "Code", "value": "code" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "filterCategory",
+      "label": "Category",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. billing",
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "filterTags",
+      "label": "Tags",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. jwt, auth",
+      "helpText": "Returns artifacts that have any of these tags.",
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "filterStatus",
+      "label": "Status",
+      "type": "select",
+      "options": [
+        { "label": "Any status", "value": "" },
+        { "label": "Draft", "value": "draft" },
+        { "label": "In review", "value": "in-review" },
+        { "label": "Approved", "value": "approved" },
+        { "label": "Rejected", "value": "rejected" },
+        { "label": "Archived", "value": "archived" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "latestOnly",
+      "label": "Latest version only",
+      "type": "boolean",
+      "defaultValue": true,
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "includeContent",
+      "label": "Include content",
+      "type": "boolean",
+      "defaultValue": false,
+      "helpText": "Turn this on to return full document bodies. Leave it off when you only need titles and IDs.",
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "limit",
+      "label": "Limit",
+      "type": "number",
+      "defaultValue": 50,
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "offset",
+      "label": "Offset",
+      "type": "number",
+      "defaultValue": 0,
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "sortBy",
+      "label": "Sort by",
+      "type": "select",
+      "defaultValue": "updatedAt",
+      "options": [
+        { "label": "Updated", "value": "updatedAt" },
+        { "label": "Created", "value": "createdAt" },
+        { "label": "Title", "value": "title" },
+        { "label": "Version", "value": "version" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "sortOrder",
+      "label": "Sort order",
+      "type": "select",
+      "defaultValue": "desc",
+      "options": [
+        { "label": "Newest first", "value": "desc" },
+        { "label": "Oldest first", "value": "asc" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "targetLogicalId",
+      "label": "Target logical ID",
+      "type": "valueOrVariable",
+      "placeholder": "e.g. checkout-spec",
+      "dependsOn": { "field": "operation", "equals": "addRelation" }
+    },
+    {
+      "name": "relationType",
+      "label": "Relation",
+      "type": "select",
+      "defaultValue": "relates-to",
+      "helpText": "The opposite relation is created automatically.",
+      "options": [
+        { "label": "Refines", "value": "refines" },
+        { "label": "Has tech spec", "value": "has-techspec" },
+        { "label": "Decomposes to", "value": "decomposes-to" },
+        { "label": "Depends on", "value": "depends-on" },
+        { "label": "Constrains", "value": "constrains" },
+        { "label": "Derived from", "value": "derived-from" },
+        { "label": "Conflicts with", "value": "conflicts-with" },
+        { "label": "Relates to", "value": "relates-to" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "addRelation" }
+    },
+    {
+      "name": "relationMetadata",
+      "label": "Relation metadata",
+      "type": "valueOrVariable",
+      "placeholder": "{ \"confidence\": 0.95 }",
+      "dependsOn": { "field": "operation", "equals": "addRelation" }
+    },
+    {
+      "name": "relationDirection",
+      "label": "Direction",
+      "type": "select",
+      "defaultValue": "both",
+      "options": [
+        { "label": "Both", "value": "both" },
+        { "label": "Outgoing", "value": "outgoing" },
+        { "label": "Incoming", "value": "incoming" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "getRelations" }
+    },
+    {
+      "name": "relationId",
+      "label": "Relation ID",
+      "type": "valueOrVariable",
+      "dependsOn": { "field": "operation", "equals": "removeRelation" }
     }
   ],
   "outputs": [
-    {
-      "name": "onLoad",
-      "label": "On Load",
-      "type": "branch"
-    },
-    {
-      "name": "onFailed",
-      "label": "On Failed",
-      "type": "branch"
-    }
+    { "name": "onSuccess", "label": "On Success", "type": "branch" },
+    { "name": "onUnchanged", "label": "On Unchanged", "type": "branch" },
+    { "name": "onNotFound", "label": "On Not Found", "type": "branch" },
+    { "name": "onConflict", "label": "On Conflict", "type": "branch" },
+    { "name": "onFailed", "label": "On Failed", "type": "branch" }
   ]
 }

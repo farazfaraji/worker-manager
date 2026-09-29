@@ -30,6 +30,7 @@ export class SettingsService implements OnModuleInit {
       globalSetting = new this.settingModel({
         projectId: null,
         flowHelperModel: 'gpt-4o',
+        flowAssistantModel: 'gpt-4o',
         typeGeneratorModel: 'gpt-4o',
         typeGeneratorStrictMode: true,
         autoSaveInterval: 30,

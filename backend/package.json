@@ -29,9 +29,12 @@
     "test:webserver": "ts-node test/webserver.spec.ts",
     "test:telegram": "ts-node test/telegram-flow.spec.ts",
     "test:cache": "ts-node test/node-cache.spec.ts",
-    "test:all": "ts-node test/control-blocks.spec.ts && ts-node test/agent-tools.spec.ts && ts-node test/web-search.spec.ts && ts-node test/artifact.spec.ts && ts-node test/run-reliability.spec.ts && ts-node test/graph-shape.service.spec.ts && ts-node test/revise-prompt.spec.ts && ts-node test/set-variable.spec.ts && ts-node test/embedding-block.spec.ts && ts-node test/research.spec.ts && ts-node test/iterative-research.spec.ts && ts-node test/webserver.spec.ts && ts-node test/telegram-flow.spec.ts && ts-node test/node-cache.spec.ts"
+    "test:langgraph": "ts-node test/graph-compiler.spec.ts",
+    "test:all": "ts-node test/control-blocks.spec.ts && ts-node test/agent-tools.spec.ts && ts-node test/web-search.spec.ts && ts-node test/artifact.spec.ts && ts-node test/run-reliability.spec.ts && ts-node test/graph-shape.service.spec.ts && ts-node test/revise-prompt.spec.ts && ts-node test/set-variable.spec.ts && ts-node test/embedding-block.spec.ts && ts-node test/research.spec.ts && ts-node test/iterative-research.spec.ts && ts-node test/webserver.spec.ts && ts-node test/telegram-flow.spec.ts && ts-node test/node-cache.spec.ts && ts-node test/graph-compiler.spec.ts"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.13",
+    "@langchain/langgraph": "^1.4.18",
     "@nestjs/common": "^10.3.0",
     "@nestjs/config": "^3.1.1",
     "@nestjs/core": "^10.3.0",

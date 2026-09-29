@@ -126,6 +126,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 
   // General Settings State
   const [flowHelperModel, setFlowHelperModel] = useState<string>('gpt-4o');
+  const [flowAssistantModel, setFlowAssistantModel] = useState<string>('gpt-4o');
   const [typeGeneratorModel, setTypeGeneratorModel] = useState<string>('gpt-4o');
   const [typeGeneratorStrictMode, setTypeGeneratorStrictMode] = useState<boolean>(true);
   const [autoSaveInterval, setAutoSaveInterval] = useState<number>(30);
@@ -180,6 +181,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       const dbSettings = await fetchSettings();
       if (dbSettings) {
         if (dbSettings.flowHelperModel) setFlowHelperModel(dbSettings.flowHelperModel);
+        if (dbSettings.flowAssistantModel) setFlowAssistantModel(dbSettings.flowAssistantModel);
         if (dbSettings.typeGeneratorModel) setTypeGeneratorModel(dbSettings.typeGeneratorModel);
         if (dbSettings.typeGeneratorStrictMode !== undefined) setTypeGeneratorStrictMode(dbSettings.typeGeneratorStrictMode);
         if (dbSettings.autoSaveInterval !== undefined) setAutoSaveInterval(dbSettings.autoSaveInterval);
@@ -195,6 +197,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.flowHelperModel) setFlowHelperModel(parsed.flowHelperModel);
+        if (parsed.flowAssistantModel) setFlowAssistantModel(parsed.flowAssistantModel);
         if (parsed.typeGeneratorModel) setTypeGeneratorModel(parsed.typeGeneratorModel);
         if (parsed.typeGeneratorStrictMode !== undefined) setTypeGeneratorStrictMode(parsed.typeGeneratorStrictMode);
         if (parsed.autoSaveInterval !== undefined) setAutoSaveInterval(parsed.autoSaveInterval);
@@ -214,6 +217,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       setIsSavingGeneral(true);
       const payload = {
         flowHelperModel,
+        flowAssistantModel,
         typeGeneratorModel,
         typeGeneratorStrictMode,
         autoSaveInterval,
@@ -259,6 +263,13 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
         });
         // If flowHelperModel isn't set yet, pick default model or first model
         setFlowHelperModel((prev) => {
+          if (prev && list.some((m) => m.modelId === prev || m._id === prev)) {
+            return prev;
+          }
+          const defaultModel = list.find((m) => m.isDefault);
+          return defaultModel?.modelId || list[0]?.modelId || 'gpt-4o';
+        });
+        setFlowAssistantModel((prev) => {
           if (prev && list.some((m) => m.modelId === prev || m._id === prev)) {
             return prev;
           }
@@ -405,6 +416,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 
   const currentTypeModel = models.find((m) => m.modelId === typeGeneratorModel || m._id === typeGeneratorModel);
   const currentFlowHelperModel = models.find((m) => m.modelId === flowHelperModel || m._id === flowHelperModel);
+  const currentFlowAssistantModel = models.find((m) => m.modelId === flowAssistantModel || m._id === flowAssistantModel);
 
   if (!isOpen) return null;
 
@@ -762,6 +774,98 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                           {currentFlowHelperModel.provider.toUpperCase()}
                         </span>
                         {currentFlowHelperModel.capabilities?.supportsVision && (
+                          <span style={{ fontSize: 10.5, background: '#e0e7ff', color: '#4338ca', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                            Vision
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dropdown for Flow Assistant Chatbot Model */}
+                  <div style={{ marginTop: 12, borderTop: '1px dashed #e2e8f0', paddingTop: 16 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>
+                      Default Flow Assistant Chatbot Model <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: 0, marginBottom: 8 }}>
+                      Select which AI model powers the conversational Flow Assistant for generating, modifying, and troubleshooting flows.
+                    </p>
+                    {isLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b', fontSize: 13 }}>
+                        <Loader2 size={16} className="animate-spin" /> Loading models...
+                      </div>
+                    ) : (
+                      <select
+                        value={flowAssistantModel}
+                        onChange={(e) => setFlowAssistantModel(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 8,
+                          border: '1px solid #cbd5e1',
+                          fontSize: 13.5,
+                          backgroundColor: '#ffffff',
+                          color: '#0f172a',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          outline: 'none',
+                        }}
+                      >
+                        {models.length === 0 ? (
+                          <option value="gpt-4o">gpt-4o (Default Fallback)</option>
+                        ) : (
+                          models.map((m) => (
+                            <option key={m._id || m.modelId} value={m.modelId}>
+                              {m.label} — {m.provider.toUpperCase()} ({m.modelId})
+                              {m.isDefault ? ' [System Default]' : ''}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Selected Flow Assistant Model Preview Card */}
+                  {currentFlowAssistantModel && (
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 8,
+                        backgroundColor: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#1e293b' }}>
+                            {currentFlowAssistantModel.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              background: '#e2e8f0',
+                              color: '#475569',
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                            }}
+                          >
+                            {currentFlowAssistantModel.modelId}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 11.5, color: '#64748b', margin: 0, marginTop: 3 }}>
+                          Endpoint: {currentFlowAssistantModel.endpoint}
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <span style={{ fontSize: 10.5, background: '#ede9fe', color: '#6d28d9', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
+                          {currentFlowAssistantModel.provider.toUpperCase()}
+                        </span>
+                        {currentFlowAssistantModel.capabilities?.supportsVision && (
                           <span style={{ fontSize: 10.5, background: '#e0e7ff', color: '#4338ca', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
                             Vision
                           </span>

@@ -210,7 +210,7 @@ async function runTests() {
       let rawOutput: any;
       const record: any = {};
 
-      if (isCacheEligible && hasCacheEnabled && isDebugSession && isUseCacheSession) {
+      if (isCacheEligible && hasCacheEnabled && isUseCacheSession) {
         const cached = await mockCacheService.getCachedResult('test_graph', nodeId);
         if (cached && cached.result !== undefined) {
           isCacheHit = true;
@@ -241,8 +241,13 @@ async function runTests() {
     assert.strictEqual(resultWithCache.record.durationMs, 0, 'Cache hit duration must be 0ms');
     assert.strictEqual(resultWithCache.rawOutput.response, 'Cached response from previous run');
 
-    // 2. Run in debug mode WITHOUT useCache
-    const resultWithoutCache = await simulateNodeRun({ debugMode: true, useCache: false }, { cacheResult: true });
+    // 2. Run in normal mode WITH useCache
+    const resultNormalWithCache = await simulateNodeRun({ debugMode: false, useCache: true }, { cacheResult: true });
+    assert.strictEqual(serviceInvocations, 0, 'Service must NOT be invoked when normal run has useCache=true');
+    assert.strictEqual(resultNormalWithCache.record.cached, true);
+
+    // 3. Run without useCache
+    const resultWithoutCache = await simulateNodeRun({ debugMode: false, useCache: false }, { cacheResult: true });
     assert.strictEqual(serviceInvocations, 1, 'Service MUST be invoked when useCache is false');
     assert.strictEqual(resultWithoutCache.record.cached, undefined);
     assert.strictEqual(resultWithoutCache.rawOutput.response, 'Live service call #1');
