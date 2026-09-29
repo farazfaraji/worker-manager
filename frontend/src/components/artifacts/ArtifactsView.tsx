@@ -59,7 +59,9 @@ const TYPE_LABELS: Record<string, { label: string; color: string; bg: string }> 
 
 const STATUS_ICONS: Record<string, { icon: any; color: string; label: string }> = {
   draft: { icon: Clock, color: '#eab308', label: 'Draft' },
+  'in-review': { icon: Clock, color: '#2563eb', label: 'In review' },
   approved: { icon: CheckCircle2, color: '#10b981', label: 'Approved' },
+  rejected: { icon: AlertCircle, color: '#dc2626', label: 'Rejected' },
   archived: { icon: Archive, color: '#94a3b8', label: 'Archived' },
 };
 
@@ -130,9 +132,9 @@ export function ArtifactsView() {
         const idMatch = (item.artifactId || '').toLowerCase().includes(q);
         const logicalMatch = (item.logicalId || '').toLowerCase().includes(q);
         const typeMatch = (item.type || '').toLowerCase().includes(q);
-        const kwList = (item as any).keyword || (item as any).keywords || [];
-        const keywordMatch = kwList.some((kw: any) => String(kw).toLowerCase().includes(q));
-        if (!titleMatch && !idMatch && !logicalMatch && !typeMatch && !keywordMatch) return false;
+        const categoryMatch = (item.category || '').toLowerCase().includes(q);
+        const tagMatch = (item.tags || []).some((tag) => String(tag).toLowerCase().includes(q));
+        if (!titleMatch && !idMatch && !logicalMatch && !typeMatch && !categoryMatch && !tagMatch) return false;
       }
       return true;
     });
@@ -293,11 +295,9 @@ export function ArtifactsView() {
         logicalId: `system-arch-spec`,
         title: 'System Architecture Specification',
         type: 'tech-spec',
+        category: 'architecture',
+        tags: ['microservices', 'vector-rag', 'retrieval', 'api-gateway'],
         format: 'markdown',
-        status: 'draft',
-        version: 1,
-        schemaVersion: 1,
-        keyword: ['architecture', 'microservices', 'vector-rag', 'retrieval', 'api-gateway'],
         content: `# System Architecture Specification\n\n## Overview\nThis artifact documents the microservice boundaries, event pipelines, and storage engines.\n\n### Key Components\n1. **API Gateway**: Handles authentication and routing.\n2. **Workflow Orchestrator**: LangGraph state machine.\n3. **Artifact Repository**: Persistent store for documents & PRDs with logical identity.\n\n\`\`\`json\n{\n  \"service\": \"flow-builder\",\n  \"status\": \"healthy\",\n  \"version\": \"1.0.0\"\n}\n\`\`\`\n\n> This document was generated automatically by the flow tool builder.`,
       });
       setArtifacts([sample, ...artifacts]);
@@ -410,7 +410,7 @@ export function ArtifactsView() {
           <input
             type="text"
             className="artifacts-search-input"
-            placeholder="Search by title, logical ID, artifact ID, or keywords..."
+            placeholder="Search by title, logical ID, category, or tags..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -487,7 +487,9 @@ export function ArtifactsView() {
           >
             <option value="">All Statuses</option>
             <option value="draft">Draft</option>
+            <option value="in-review">In review</option>
             <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
             <option value="archived">Archived</option>
           </select>
         </div>
@@ -605,13 +607,16 @@ export function ArtifactsView() {
                 {preview && <p className="artifact-card-preview">{preview}...</p>}
 
                 {/* Keywords preview pills in card */}
-                {((artifact.keyword || artifact.keywords || []).length > 0) && (
+                {(artifact.category || (artifact.tags || []).length > 0) && (
                   <div className="artifact-card-keywords">
-                    {(artifact.keyword || artifact.keywords || []).slice(0, 3).map((kw: string, i: number) => (
-                      <span key={i} className="artifact-card-kw-pill">#{kw}</span>
+                    {artifact.category && (
+                      <span className="artifact-card-kw-pill">{artifact.category}</span>
+                    )}
+                    {(artifact.tags || []).slice(0, 3).map((tag: string, i: number) => (
+                      <span key={i} className="artifact-card-kw-pill">#{tag}</span>
                     ))}
-                    {(artifact.keyword || artifact.keywords || []).length > 3 && (
-                      <span className="artifact-card-kw-more">+{(artifact.keyword || artifact.keywords || []).length - 3}</span>
+                    {(artifact.tags || []).length > 3 && (
+                      <span className="artifact-card-kw-more">+{(artifact.tags || []).length - 3}</span>
                     )}
                   </div>
                 )}
@@ -882,9 +887,9 @@ export function ArtifactsView() {
                     <div className="artifact-keywords-header">
                       <div className="artifact-keywords-header-title">
                         <Tag size={15} />
-                        <span>Search & Retrieval Indexing</span>
+                        <span>Category and tags</span>
                         <span className="artifact-keywords-count">
-                          {((currentArtifact.keyword || currentArtifact.keywords || []) as string[]).length} keywords
+                          {currentArtifact.category || 'general'}
                         </span>
                       </div>
                       <div className="artifact-retrieval-badge">
@@ -894,24 +899,24 @@ export function ArtifactsView() {
                     </div>
 
                     <div className="artifact-keywords-body">
-                      {((currentArtifact.keyword || currentArtifact.keywords || []) as string[]).length > 0 ? (
+                      {((currentArtifact.tags || []) as string[]).length > 0 ? (
                         <div className="artifact-keywords-chips">
-                          {((currentArtifact.keyword || currentArtifact.keywords || []) as string[]).map((kw: string, idx: number) => (
+                          {((currentArtifact.tags || []) as string[]).map((tag: string, idx: number) => (
                             <button
                               key={idx}
                               type="button"
                               className="artifact-keyword-tag"
-                              onClick={() => setSearchQuery(kw)}
-                              title={`Click to filter artifacts by keyword "${kw}"`}
+                              onClick={() => setSearchQuery(tag)}
+                              title={`Filter artifacts by tag "${tag}"`}
                             >
                               <Hash size={12} />
-                              <span>{kw}</span>
+                              <span>{tag}</span>
                             </button>
                           ))}
                         </div>
                       ) : (
                         <p className="artifact-no-keywords">
-                          No search keywords defined. In flow builder, provide comma or line-separated keywords in the Artifact node's <strong>Keywords</strong> textarea to enable vector and keyword indexing.
+                          No tags yet. Category is the subject folder. Tags are optional extra labels for search.
                         </p>
                       )}
                     </div>
@@ -1142,21 +1147,6 @@ export function ArtifactsView() {
                     })}
                   </div>
 
-                  {/* Legacy linked IDs if present */}
-                  {Array.isArray(currentArtifact.linkedArtifactIds) && currentArtifact.linkedArtifactIds.length > 0 && (
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
-                        Legacy Linked IDs:
-                      </span>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                        {currentArtifact.linkedArtifactIds.map((id, i) => (
-                          <span key={i} style={{ fontSize: 12, padding: '2px 8px', background: '#f1f5f9', borderRadius: 4 }}>
-                            {id}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 

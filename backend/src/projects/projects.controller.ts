@@ -42,4 +42,10 @@ export class ProjectsController {
   remove(@Param('id') id: string) {
     return this.projectsService.remove(id);
   }
+
+  @Post(':id/duplicate')
+  @HttpCode(HttpStatus.CREATED)
+  duplicate(@Param('id') id: string, @Body() body?: { name?: string }) {
+    return this.projectsService.duplicate(id, body?.name);
+  }
 }

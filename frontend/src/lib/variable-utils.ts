@@ -681,12 +681,19 @@ export function extractAvailableVariables(
         { name: 'content', label: 'Content', type: 'string' },
         { name: 'artifact', label: 'Artifact Object', type: 'object' },
         { name: 'artifactId', label: 'Artifact ID', type: 'string' },
+        { name: 'logicalId', label: 'Logical ID', type: 'string' },
         { name: 'status', label: 'Status', type: 'string' },
         { name: 'version', label: 'Version', type: 'number' },
         { name: 'title', label: 'Title', type: 'string' },
+        { name: 'type', label: 'Type', type: 'string' },
+        { name: 'category', label: 'Category', type: 'string' },
+        { name: 'tags', label: 'Tags', type: 'array' },
+        { name: 'changed', label: 'Changed', type: 'boolean' },
+        { name: 'branch', label: 'Branch', type: 'string' },
         { name: 'metadata', label: 'Metadata', type: 'object' },
         { name: 'artifacts', label: 'Artifacts List', type: 'array' },
         { name: 'count', label: 'Count', type: 'number' },
+        { name: 'diff', label: 'Diff', type: 'object' },
       ];
       for (const v of artifactVars) {
         variables.push({

@@ -13,9 +13,10 @@ import {
   Play,
   AlertCircle,
   Loader2,
+  Copy,
 } from 'lucide-react';
 import { Project } from '@/lib/types';
-import { deleteProject } from '@/lib/api';
+import { deleteProject, duplicateProject } from '@/lib/api';
 
 interface ManageProjectsModalProps {
   isOpen: boolean;
@@ -39,9 +40,31 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
   onRefreshProjects,
 }) => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const handleDuplicate = async (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      setDuplicatingId(project._id);
+      setError(null);
+      setSuccessMessage(null);
+      const duplicated = await duplicateProject(project._id);
+      await onRefreshProjects();
+      if (duplicated?._id) {
+        onSelectProject(duplicated._id);
+      }
+      setSuccessMessage(`Project "${project.name}" duplicated successfully.`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to duplicate project');
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
 
   const handleDelete = async (project: Project, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -114,6 +137,26 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
             </div>
           )}
 
+          {successMessage && (
+            <div
+              style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                color: '#10b981',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 13,
+                marginBottom: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+              }}
+            >
+              <Check size={15} />
+              {successMessage}
+            </div>
+          )}
+
           <div
             style={{
               display: 'flex',
@@ -142,6 +185,7 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
             {projects.map((p) => {
               const isActive = activeProjectId === p._id;
               const isDeleting = deletingId === p._id;
+              const isDuplicating = duplicatingId === p._id;
               return (
                 <div
                   key={p._id}
@@ -261,16 +305,30 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
                       type="button"
                       className="icon-btn"
                       title="Edit project"
+                      disabled={isDuplicating || isDeleting || !!duplicatingId}
                       onClick={() => onOpenEditProject(p)}
                     >
                       <Edit2 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Duplicate project (with all flows, artifacts, and caches)"
+                      disabled={isDuplicating || isDeleting || !!duplicatingId}
+                      onClick={(e) => handleDuplicate(p, e)}
+                    >
+                      {isDuplicating ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Copy size={15} />
+                      )}
                     </button>
                     {projects.length > 1 && (
                       <button
                         type="button"
                         className="icon-btn danger"
                         title="Delete project"
-                        disabled={isDeleting}
+                        disabled={isDeleting || isDuplicating || !!duplicatingId}
                         onClick={(e) => handleDelete(p, e)}
                       >
                         {isDeleting ? (

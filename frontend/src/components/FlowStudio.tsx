@@ -38,7 +38,10 @@ import {
   validateGraphById,
   fetchRuns,
 } from '@/lib/api';
-import { FolderOpen, Plus, Workflow, Check, AlertCircle } from 'lucide-react';
+import { FolderOpen, Plus, Workflow, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { FlowListView } from '@/components/list-view/FlowListView';
+import { FlowAssistantPanel } from '@/components/list-view/FlowAssistantPanel';
+import { ViewModeToggle } from '@/components/list-view/ViewModeToggle';
 
 interface FlowStudioProps {
   initialFlowId?: string;
@@ -76,6 +79,10 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [activeRunResult, setActiveRunResult] = useState<RunResult | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type?: 'success' | 'error' } | null>(null);
+
+  // ── List view & assistant ──────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<'canvas' | 'list'>('canvas');
+  const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(false);
 
   const initialLoadAttempted = useRef<boolean>(false);
 
@@ -889,22 +896,197 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
       />
 
       {/* Main Workspace */}
-      <main className="main-content">
-        {/* Dynamic Left Panel Node Palette */}
-        <LeftPanel onAddNode={handleAddNode} />
+      <main className="main-content" style={{ position: 'relative' }}>
+        {/* Dynamic Left Panel Node Palette — hidden in list view */}
+        {viewMode === 'canvas' && <LeftPanel onAddNode={handleAddNode} />}
 
-        {/* Center React Flow Board */}
-        <FlowBoard
-          nodes={nodes}
-          edges={edges}
-          graphId={graphId}
-          onNodesChange={handleNodesChange}
-          onEdgesChange={handleEdgesChange}
-          onConnect={handleConnect}
-          onNodeSelect={handleNodeSelect}
-          onAddNode={handleAddNode}
-          onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
-        />
+        {/* ── View mode toggle + assistant button (top-right of workspace) ── */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 16,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <ViewModeToggle
+            mode={viewMode}
+            onChange={(m) => setViewMode(m)}
+          />
+          <button
+            onClick={() => setIsAssistantOpen((v) => !v)}
+            title="Flow Assistant"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '5px 12px',
+              borderRadius: 8,
+              border: `1px solid ${isAssistantOpen ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.1)'}`,
+              background: isAssistantOpen ? 'rgba(139,92,246,0.15)' : 'rgba(0,0,0,0.2)',
+              color: isAssistantOpen ? '#c4b5fd' : 'rgba(255,255,255,0.4)',
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            <Sparkles size={13} />
+            <span>Assistant</span>
+          </button>
+        </div>
+
+        {/* ── Canvas view ── */}
+        {viewMode === 'canvas' && (
+          <FlowBoard
+            nodes={nodes}
+            edges={edges}
+            graphId={graphId}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
+            onConnect={handleConnect}
+            onNodeSelect={handleNodeSelect}
+            onAddNode={handleAddNode}
+            onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
+          />
+        )}
+
+        {/* ── List view ── */}
+        {viewMode === 'list' && (() => {
+          // Build a GraphFlowData from current nodes/edges for the list view
+          const listFlow = {
+            version: 1,
+            blocks: nodes.map((n) => ({
+              id: n.id,
+              kind: n.data?.definitionType || n.type || 'unknown',
+              name: n.data?.name || n.id,
+              label: n.data?.label || n.data?.name || n.id,
+              config: n.data?.config || {},
+            })),
+            connections: edges.map((e) => ({
+              id: e.id,
+              from: e.source,
+              to: e.target,
+              output: e.sourceHandle || undefined,
+              input: e.targetHandle || undefined,
+            })),
+          };
+          const listRunStatuses: Record<string, any> = {};
+          if (activeRunResult?.nodes) {
+            for (const rn of activeRunResult.nodes) {
+              listRunStatuses[rn.nodeId] = rn.status;
+            }
+          }
+          return (
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <FlowListView
+                flow={listFlow}
+                graphName={graphName}
+                runStatuses={listRunStatuses}
+                onNodeClick={(blockId) => {
+                  const node = nodes.find((n) => n.id === blockId);
+                  if (node) { handleNodeSelect(node); }
+                }}
+                onAddStep={(afterBlockId, branchPath) => {
+                  // Opens the node palette / add modal — reuse existing flow
+                  // For now just open the left panel by switching to canvas
+                  setViewMode('canvas');
+                }}
+                onDeleteStep={(blockId) => {
+                  setNodes((prev) => prev.filter((n) => n.id !== blockId));
+                  setEdges((prev) => prev.filter((e) => e.source !== blockId && e.target !== blockId));
+                  setIsDirty(true);
+                }}
+                onDuplicateStep={(blockId) => {
+                  const node = nodes.find((n) => n.id === blockId);
+                  if (!node) return;
+                  const newId = `${blockId}-copy-${Date.now()}`;
+                  setNodes((prev) => [
+                    ...prev,
+                    { ...node, id: newId, position: { x: node.position.x + 40, y: node.position.y + 40 } },
+                  ]);
+                  setIsDirty(true);
+                }}
+              />
+            </div>
+          );
+        })()}
+
+        {/* ── Flow Assistant chatbot panel ── */}
+        {isAssistantOpen && (
+          <FlowAssistantPanel
+            graphName={graphName}
+            activeProjectId={activeProjectId}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+            currentGraph={{
+              blocks: nodes.map((n) => ({
+                id: n.id,
+                kind: n.data?.definitionType || n.type || 'unknown',
+                name: n.data?.name || n.id,
+                label: n.data?.label || n.data?.name || n.id,
+                config: n.data?.config || {},
+              })),
+              connections: edges.map((e) => ({
+                id: e.id,
+                from: e.source,
+                to: e.target,
+                output: e.sourceHandle || undefined,
+                input: e.targetHandle || undefined,
+              })),
+            }}
+            onApplyGraph={(newGraph) => {
+              if (!newGraph.blocks || newGraph.blocks.length === 0) return;
+
+              const updatedNodes = newGraph.blocks.map((b, idx) => {
+                const existing = nodes.find((n) => n.id === b.id);
+                const pos = existing?.position || {
+                  x: 320,
+                  y: 100 + idx * 160,
+                };
+                const outputs =
+                  b.kind === 'condition'
+                    ? [
+                        { name: 'true', label: 'True', type: 'branch' },
+                        { name: 'false', label: 'False', type: 'branch' },
+                      ]
+                    : [{ name: 'done', label: 'Done', type: 'default' }];
+
+                return {
+                  id: b.id,
+                  type: 'langgraphNode',
+                  position: pos,
+                  data: {
+                    name: b.name || b.id,
+                    label: b.label || b.name || b.id,
+                    definitionId: b.definitionId || b.kind,
+                    definitionType: b.kind,
+                    definitionName: b.name || b.kind,
+                    config: b.config || {},
+                    outputs,
+                  },
+                };
+              });
+
+              const updatedEdges = (newGraph.connections || []).map((c, idx) => ({
+                id: c.id || `e-${c.from}-${c.to}-${idx}`,
+                source: c.from,
+                target: c.to,
+                sourceHandle: c.output || 'done',
+                targetHandle: c.input || 'in',
+                type: 'default',
+              }));
+
+              setNodes(updatedNodes as any);
+              setEdges(updatedEdges);
+              setIsDirty(true);
+              showToast('Assistant updated the flow!', 'success');
+            }}
+            onClose={() => setIsAssistantOpen(false)}
+          />
+        )}
 
         {/* Initial First-Page Prompt to Load or Start New */}
         {showInitialWelcome && (

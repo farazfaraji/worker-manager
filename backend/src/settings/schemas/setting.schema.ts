@@ -12,6 +12,9 @@ export class Setting {
   flowHelperModel?: string;
 
   @Prop({ type: String, trim: true })
+  flowAssistantModel?: string;
+
+  @Prop({ type: String, trim: true })
   typeGeneratorModel?: string;
 
   @Prop({ type: Boolean })

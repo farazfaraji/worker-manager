@@ -71,6 +71,24 @@ export async function deleteProject(
   return res.json();
 }
 
+export async function duplicateProject(
+  id: string,
+  name?: string,
+): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(name ? { name } : {}),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      formatApiError(errorData, `Failed to duplicate project: ${res.statusText}`),
+    );
+  }
+  return res.json();
+}
+
 export async function fetchNodeDefinitions(): Promise<NodeDefinition[]> {
   const res = await fetch(`${API_BASE}/node-definitions`, { cache: 'no-store' });
   if (!res.ok) {
@@ -264,8 +282,8 @@ export async function runGraph(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       input: input !== undefined ? input : {},
+      useCache: options?.useCache !== false,
       ...(options?.debugMode ? { debugMode: true } : {}),
-      ...(options?.useCache ? { useCache: true } : {}),
     }),
   });
   if (!res.ok) {
@@ -523,6 +541,39 @@ export async function generateSchema(data: {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(
       errorData?.message || `Failed to generate schema: ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
+export async function executeFlowAssistant(data: {
+  message: string;
+  projectId?: string;
+  modelId?: string;
+  history?: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  currentGraph?: {
+    blocks?: any[];
+    connections?: any[];
+  };
+}): Promise<{
+  reply: string;
+  flowChanges?: string[];
+  graph?: {
+    blocks: any[];
+    connections: any[];
+  };
+  modelUsed: string;
+  provider: string;
+}> {
+  const res = await fetch(`${API_BASE}/models/flow-assistant`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData?.message || `Flow Assistant request failed: ${res.statusText}`,
     );
   }
   return res.json();

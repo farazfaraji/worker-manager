@@ -14,19 +14,24 @@ export class Artifact {
 
   @Prop({ required: true, default: 'default', index: true }) projectId: string;
   @Prop({ required: true, index: true }) type: string;
+  @Prop({ required: true, default: 'general', index: true }) category: string;
+  @Prop({ type: [String], default: [], index: true }) tags: string[];
   @Prop({ default: 'markdown', index: true }) format?: string;
+  @Prop() language?: string;
   @Prop({ required: true }) title: string;
   @Prop({ type: MongooseSchema.Types.Mixed, required: true }) content: any;
   @Prop({ required: true, default: 'draft', index: true }) status: string;
   @Prop({ required: true, default: 1 }) version: number;
   @Prop({ index: true }) parentArtifactId?: string;
+  @Prop() author?: string;
+  @Prop() changeSummary?: string;
+  @Prop() idempotencyKey?: string;
 
-  // Keywords (keywords is canonical for new writes; keyword preserved for backwards-compat)
-  @Prop({ type: [String], default: [], index: true }) keyword: string[];
-  @Prop({ type: [String], default: [], index: true }) keywords: string[];
-
-  // Legacy linked artifact IDs preserved for backwards compatibility
+  /** Read only by the one-time migration that converts old records. New writes do not set these. */
+  @Prop({ type: [String], default: [] }) keyword: string[];
+  @Prop({ type: [String], default: [] }) keywords: string[];
   @Prop({ type: [String], default: [] }) linkedArtifactIds: string[];
+
   @Prop({ type: [String], default: [] }) sourceEventIds: string[];
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} }) metadata: Record<string, any>;
 }
@@ -38,3 +43,13 @@ ArtifactSchema.index({ logicalId: 1, version: -1 });
 ArtifactSchema.index({ logicalId: 1, isLatest: 1 });
 ArtifactSchema.index({ projectId: 1, logicalId: 1, isLatest: 1 });
 ArtifactSchema.index({ projectId: 1, type: 1, isLatest: 1 });
+ArtifactSchema.index({ projectId: 1, category: 1, isLatest: 1 });
+ArtifactSchema.index({ projectId: 1, status: 1, isLatest: 1 });
+ArtifactSchema.index(
+  { projectId: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    name: 'project_idempotency_key',
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } },
+  },
+);

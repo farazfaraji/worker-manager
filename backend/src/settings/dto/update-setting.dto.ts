@@ -7,6 +7,10 @@ export class UpdateSettingDto {
 
   @IsOptional()
   @IsString()
+  flowAssistantModel?: string;
+
+  @IsOptional()
+  @IsString()
   typeGeneratorModel?: string;
 
   @IsOptional()

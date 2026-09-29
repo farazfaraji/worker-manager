@@ -78,8 +78,8 @@ export class VectorStoreService {
           $or: [
             { text: { $in: regexPatterns } },
             { 'metadata.title': { $in: regexPatterns } },
-            { 'metadata.keyword': { $in: regexPatterns } },
-            { 'metadata.keywords': { $in: regexPatterns } },
+            { 'metadata.tags': { $in: regexPatterns } },
+            { 'metadata.category': { $in: regexPatterns } },
           ],
         });
       }

@@ -26,6 +26,7 @@ import {
 import {
   calculateObjectSize,
   generateResumeToken,
+  hashToken,
 } from './services/redaction.util';
 import { RunLeaseService } from './services/run-lease.service';
 import { RunCheckpointService, PersistCheckpointParams } from './services/run-checkpoint.service';
@@ -36,6 +37,8 @@ import { RunStorageService } from './services/run-storage.service';
 import { WebserverService } from '../webserver/webserver.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { NodeCacheService } from './services/node-cache.service';
+import { GraphCompilerService } from './compiler/graph-compiler.service';
+import { FlowGraphStateType } from './compiler/graph-state';
 
 export interface RunGraphOptions {
   existingRunId?: string;
@@ -58,6 +61,7 @@ export interface RunGraphOptions {
   metrics?: RunMetrics;
   debugMode?: boolean;
   useCache?: boolean;
+  useLangGraph?: boolean;
 }
 
 @Injectable()
@@ -77,6 +81,7 @@ export class GraphRunnerService {
   private storageService: RunStorageService;
 
   constructor(
+    @Inject(forwardRef(() => GraphsService))
     private readonly graphsService: GraphsService,
     @InjectModel(Run.name) private readonly runModel: Model<RunDocument>,
     @InjectModel(RunCheckpoint.name) private readonly checkpointModel: Model<RunCheckpointDocument>,
@@ -97,6 +102,8 @@ export class GraphRunnerService {
     private readonly telegramService?: TelegramService,
     @Optional()
     private readonly nodeCacheService?: NodeCacheService,
+    @Optional()
+    private readonly graphCompiler?: GraphCompilerService,
   ) {
     this.checkpointService = checkpointService || new RunCheckpointService(this.checkpointModel);
     this.leaseService = leaseService || new RunLeaseService(this.runModel);
@@ -246,7 +253,6 @@ export class GraphRunnerService {
       visitedArtifactLogicalIds.push(currentEntityLogicalId);
     }
 
-    let checkpointSeq = options.checkpointSequence || 1;
     const metrics: RunMetrics = options.metrics || {
       totalDurationMs: 0,
       nodeCount: nodes.length,
@@ -255,6 +261,27 @@ export class GraphRunnerService {
       retryCount: 0,
       childRunCount: 0,
     };
+
+    const useLangGraph =
+      process.env.USE_LANGGRAPH === 'true' ||
+      Boolean(options?.useLangGraph) ||
+      Boolean((graph as any)?.metadata?.useLangGraph);
+
+    if (useLangGraph && this.graphCompiler) {
+      return this.runViaLangGraph(
+        graph,
+        initialInput,
+        options,
+        runId,
+        rootRunId,
+        propagationDepth,
+        visitedArtifactLogicalIds,
+        metrics,
+        startTime,
+      );
+    }
+
+    let checkpointSeq = options.checkpointSequence || 1;
 
     let run: RunDocument;
     if (options.existingRunId) {
@@ -604,18 +631,18 @@ export class GraphRunnerService {
           nodeConfig.enableCache !== 'false';
 
         const isDebugSession = Boolean(options.debugMode || run.debugMode);
-        const isUseCacheSession = Boolean(options.useCache || run.useCache);
+        const isUseCacheSession = options.useCache !== false && run.useCache !== false;
 
         let isCacheHit = false;
         let cachedRecord: any = null;
 
-        if (isCacheEligible && hasCacheEnabled && isDebugSession && isUseCacheSession && this.nodeCacheService) {
+        if (isCacheEligible && hasCacheEnabled && isUseCacheSession && this.nodeCacheService) {
           cachedRecord = await this.nodeCacheService.getCachedResult(graph._id.toString(), node.id);
           if (cachedRecord && cachedRecord.result !== undefined) {
             isCacheHit = true;
             rawOutput = cachedRecord.result;
             record.cached = true;
-            this.logger.log(`⚡ [NodeCache HIT] Skipping service execution for node "${nodeName}" (${nodeType}) in Debug mode - reusing cached result`);
+            this.logger.log(`⚡ [NodeCache HIT] Skipping service execution for node "${nodeName}" (${nodeType}) - reusing cached result`);
           } else {
             this.logger.log(`ℹ️ [NodeCache MISS] No cache found for node "${nodeName}" (${nodeType}) - running service`);
           }
@@ -1118,12 +1145,11 @@ export class GraphRunnerService {
               innerConfig.enableCache !== false &&
               innerConfig.enableCache !== 'false';
 
-            // Check cache in debug mode
+            // Check cache when useCache is enabled
             if (
               isEligible &&
               isEnabled &&
-              options?.debugMode &&
-              options?.useCache &&
+              options?.useCache !== false &&
               graphId &&
               this.nodeCacheService
             ) {
@@ -1195,10 +1221,356 @@ export class GraphRunnerService {
   // =========================================================================
 
   async resumeRun(runId: string, resumePayload: ResumePayload = {}): Promise<any> {
+    const run = await this.runModel.findOne({ runId }).exec();
+    if (!run) throw new NotFoundException(`Run ${runId} not found`);
+
+    const graph = await this.graphsService.findOne(String(run.graphId)).catch(() => null);
+    const useLangGraph =
+      process.env.USE_LANGGRAPH === 'true' ||
+      run.metadata?.engine === 'langgraph' ||
+      Boolean((graph as any)?.metadata?.useLangGraph);
+
+    if (useLangGraph && this.graphCompiler && graph) {
+      return this.resumeLangGraphRun(run, graph, resumePayload);
+    }
+
     return this.recoveryService.resumeRun(runId, resumePayload, {
       runGraph: this.runGraph.bind(this),
       findGraph: (id: string) => this.graphsService.findOne(id),
     });
+  }
+
+  // =========================================================================
+  // LangGraph Engine Execution & Resumption
+  // =========================================================================
+
+  private async runViaLangGraph(
+    graph: any,
+    initialInput: any,
+    options: RunGraphOptions,
+    runId: string,
+    rootRunId: string,
+    propagationDepth: number,
+    visitedArtifactLogicalIds: string[],
+    metrics: RunMetrics,
+    startTime: number,
+  ): Promise<any> {
+    const nodes: RuntimeNode[] = graph.nodes || [];
+    const edges: any[] = graph.edges || [];
+
+    let checkpointSeq = options.checkpointSequence || 1;
+    let run: RunDocument;
+
+    if (options.existingRunId) {
+      const found = await this.runModel.findOne({ runId }).exec();
+      if (!found) throw new NotFoundException(`Run ${runId} not found`);
+      run = found;
+      run.status = 'running';
+      if (options.priorRecords) run.nodes = options.priorRecords;
+      run.currentNodeId = undefined;
+      run.waitingNodeId = undefined;
+      run.waitingChildRunId = undefined;
+      run.waitingDescriptor = undefined;
+      checkpointSeq = Math.max(run.checkpointSequence || 0, options.checkpointSequence || 0) + 1;
+      run.checkpointSequence = checkpointSeq;
+      run.metadata = { ...(run.metadata || {}), engine: 'langgraph' };
+      await run.save();
+    } else {
+      run = await this.runModel.create({
+        runId,
+        projectId: (graph as any).projectId || options.projectId || 'default',
+        graphId: graph._id,
+        graphName: graph.name,
+        status: 'running',
+        input: initialInput,
+        nodes: options.priorRecords || [],
+        parentRunId: options.parentRunId,
+        rootRunId,
+        idempotencyKey: options.idempotencyKey,
+        sourceEventId: options.sourceEventId,
+        sourceEventTopic: options.sourceEventTopic,
+        propagationDepth,
+        visitedArtifactLogicalIds,
+        rerunFromNodeId: options.rerunFromNodeId,
+        checkpointSequence: checkpointSeq,
+        attempt: 1,
+        startedAt: new Date(),
+        metrics,
+        stateVersion: 1,
+        debugMode: options.debugMode || false,
+        useCache: options.useCache || false,
+        metadata: { engine: 'langgraph' },
+      });
+    }
+
+    const leaseAcquired = await this.leaseService.acquireLease(runId);
+    if (!leaseAcquired) {
+      this.logger.warn(`⚠️ Could not acquire lease for Run ${runId}. Returning active run document.`);
+      return this.storageService.publicRun(run);
+    }
+
+    const currentProjectId = (graph as any)?.projectId || options.projectId || run.projectId;
+    const runtimeContext: Record<string, any> = {
+      input: initialInput,
+      apps: {},
+      state: {},
+      projectId: currentProjectId,
+      __allNodes: nodes,
+      __allEdges: edges,
+    };
+    const context = { ...runtimeContext, ...(options.context || {}) };
+    context.state = { ...(runtimeContext.state || {}), ...(options.context?.state || context.state || {}) };
+
+    if (!this.graphCompiler) {
+      await this.leaseService.releaseLease(runId);
+      throw new BadRequestException('GraphCompilerService is not available');
+    }
+
+    const compiled = this.graphCompiler.compile(nodes, edges, {
+      requestedStartNodeId: options.startNodeId,
+    });
+
+    let result: FlowGraphStateType | undefined;
+    let executionError: any = null;
+
+    try {
+      result = await this.graphCompiler.execute(compiled, {
+        runId,
+        initialInput,
+        initialContext: context,
+      });
+    } catch (err: any) {
+      executionError = err;
+    }
+
+    const isPaused = await this.graphCompiler.isWaiting(compiled, runId);
+
+    if (isPaused) {
+      const waitingPayload = await this.graphCompiler.getInterruptPayload(compiled, runId);
+      const waitingNodeId = waitingPayload?.nodeId || 'unknown';
+      const { token, hash } = generateResumeToken();
+
+      const stateSnapshot = await this.graphCompiler.getState(compiled, runId);
+      const recordedNodes = [...(stateSnapshot.values?.nodeRecords || [])];
+
+      const hasWaitingRecord = recordedNodes.some((r: any) => r.nodeId === waitingNodeId);
+      if (!hasWaitingRecord) {
+        recordedNodes.push({
+          nodeId: waitingNodeId,
+          nodeName: waitingPayload?.nodeName || waitingNodeId,
+          nodeType: 'human-gate',
+          status: 'waiting',
+          input: waitingPayload?.data || {},
+          startedAt: new Date(),
+          attempt: 1,
+        });
+      } else {
+        const rec = recordedNodes.find((r: any) => r.nodeId === waitingNodeId);
+        if (rec) rec.status = 'waiting';
+      }
+
+      run.status = 'waiting';
+      run.waitingNodeId = waitingNodeId;
+      run.resumeTokenHash = hash;
+      run.waitingDescriptor = {
+        nodeId: waitingNodeId,
+        nodeName: waitingPayload?.nodeName,
+        uiPayload: waitingPayload,
+      } as any;
+      run.nodes = recordedNodes;
+      metrics.completedNodeCount = recordedNodes.filter((n: any) => n.status === 'completed').length;
+      metrics.totalDurationMs = Date.now() - startTime;
+      run.metrics = metrics;
+
+      await run.save();
+      await this.checkpointService.persistCheckpoint({
+        runId,
+        sequence: checkpointSeq + 1,
+        status: 'waiting',
+        queue: [],
+        context: stateSnapshot.values?.context || context,
+        completedNodeIds: recordedNodes.filter((n: any) => n.status === 'completed').map((n: any) => n.nodeId),
+        nodeRecords: recordedNodes,
+        waitingNodeId,
+        metrics,
+      });
+      await this.leaseService.releaseLease(runId);
+      return this.storageService.publicRun(run, { resumeToken: token });
+    }
+
+    if (executionError) {
+      this.logger.error(`❌ [LangGraph Engine] Run ${runId} failed: ${executionError.message || executionError}`);
+      run.status = 'failed';
+      run.finishedAt = new Date();
+      run.error = {
+        message: executionError.message || String(executionError),
+        code: executionError.code || 'LANGGRAPH_EXECUTION_ERROR',
+      };
+      metrics.failedNodeCount += 1;
+      metrics.totalDurationMs = Date.now() - startTime;
+      run.metrics = metrics;
+
+      const stateSnapshot = await this.graphCompiler.getState(compiled, runId).catch(() => null);
+      if (stateSnapshot?.values?.nodeRecords) {
+        run.nodes = stateSnapshot.values.nodeRecords;
+      }
+
+      await run.save();
+      await this.leaseService.releaseLease(runId);
+      return this.storageService.publicRun(run);
+    }
+
+    const stateSnapshot = await this.graphCompiler.getState(compiled, runId);
+    const recordedNodes = stateSnapshot.values?.nodeRecords || result?.nodeRecords || [];
+
+    run.status = 'completed';
+    run.finishedAt = new Date();
+    run.nodes = recordedNodes;
+    run.output = result?.lastOutput !== undefined ? result.lastOutput : result?.context;
+    metrics.completedNodeCount = recordedNodes.length;
+    metrics.totalDurationMs = Date.now() - startTime;
+    run.metrics = metrics;
+
+    await run.save();
+    await this.checkpointService.persistCheckpoint({
+      runId,
+      sequence: checkpointSeq + 1,
+      status: 'completed',
+      queue: [],
+      context: result?.context || context,
+      completedNodeIds: recordedNodes.map((n: any) => n.nodeId),
+      nodeRecords: recordedNodes,
+      metrics,
+    });
+    await this.leaseService.releaseLease(runId);
+    return this.storageService.publicRun(run);
+  }
+
+  private async resumeLangGraphRun(
+    run: RunDocument,
+    graph: any,
+    resumePayload: ResumePayload = {},
+  ): Promise<any> {
+    const runId = run.runId;
+    const startTime = Date.now();
+
+    if (run.status !== 'waiting') {
+      throw new BadRequestException(`Run is not in waiting state (current status: ${run.status})`);
+    }
+
+    // 1. Token validation
+    const submittedToken = resumePayload.token || resumePayload.resumeToken;
+    if (run.resumeTokenHash) {
+      if (!submittedToken) {
+        throw new BadRequestException('Resume token is required');
+      }
+      const hashedInput = hashToken(submittedToken);
+      if (hashedInput !== run.resumeTokenHash) {
+        throw new BadRequestException('Invalid or expired resume token');
+      }
+    }
+
+    // 2. Lease acquisition & Token consumption
+    const leaseAcquired = await this.leaseService.acquireLease(runId);
+    if (!leaseAcquired) {
+      throw new BadRequestException('Could not acquire lease to resume run');
+    }
+
+    run.resumeTokenHash = undefined;
+    run.status = 'running';
+    run.waitingNodeId = undefined;
+    run.waitingDescriptor = undefined;
+    await run.save();
+
+    if (!this.graphCompiler) {
+      await this.leaseService.releaseLease(runId);
+      throw new BadRequestException('GraphCompilerService is not available');
+    }
+
+    const compiled = this.graphCompiler.compile(graph.nodes || [], graph.edges || []);
+    const decision = resumePayload.decision !== undefined ? resumePayload.decision : resumePayload;
+
+    let result: FlowGraphStateType | undefined;
+    let resumeError: any = null;
+
+    try {
+      result = await this.graphCompiler.resume(compiled, runId, decision);
+    } catch (err: any) {
+      resumeError = err;
+    }
+
+    const isWaitingAgain = await this.graphCompiler.isWaiting(compiled, runId);
+    if (isWaitingAgain) {
+      const waitingPayload = await this.graphCompiler.getInterruptPayload(compiled, runId);
+      const waitingNodeId = waitingPayload?.nodeId || 'unknown';
+      const { token, hash } = generateResumeToken();
+
+      const stateSnapshot = await this.graphCompiler.getState(compiled, runId);
+      const recordedNodes = stateSnapshot.values?.nodeRecords || [];
+
+      run.status = 'waiting';
+      run.waitingNodeId = waitingNodeId;
+      run.resumeTokenHash = hash;
+      run.waitingDescriptor = {
+        nodeId: waitingNodeId,
+        nodeName: waitingPayload?.nodeName,
+        uiPayload: waitingPayload,
+      } as any;
+      run.nodes = recordedNodes;
+
+      await run.save();
+      await this.checkpointService.persistCheckpoint({
+        runId,
+        sequence: (run.checkpointSequence || 1) + 1,
+        status: 'waiting',
+        queue: [],
+        context: stateSnapshot.values?.context || {},
+        completedNodeIds: recordedNodes.filter((n: any) => n.status === 'completed').map((n: any) => n.nodeId),
+        nodeRecords: recordedNodes,
+        waitingNodeId,
+      });
+      await this.leaseService.releaseLease(runId);
+      return this.storageService.publicRun(run, { resumeToken: token });
+    }
+
+    if (resumeError) {
+      this.logger.error(`❌ [LangGraph Engine] Resumed run ${runId} failed: ${resumeError.message || resumeError}`);
+      run.status = 'failed';
+      run.finishedAt = new Date();
+      run.error = {
+        message: resumeError.message || String(resumeError),
+        code: resumeError.code || 'LANGGRAPH_RESUME_ERROR',
+      };
+      await run.save();
+      await this.leaseService.releaseLease(runId);
+      return this.storageService.publicRun(run);
+    }
+
+    const stateSnapshot = await this.graphCompiler.getState(compiled, runId);
+    const recordedNodes = stateSnapshot.values?.nodeRecords || result?.nodeRecords || [];
+
+    run.status = 'completed';
+    run.finishedAt = new Date();
+    run.nodes = recordedNodes;
+    run.output = result?.lastOutput !== undefined ? result.lastOutput : result?.context;
+    if (run.metrics) {
+      run.metrics.completedNodeCount = recordedNodes.length;
+      run.metrics.totalDurationMs = (run.metrics.totalDurationMs || 0) + (Date.now() - startTime);
+    }
+
+    await run.save();
+    await this.checkpointService.persistCheckpoint({
+      runId,
+      sequence: (run.checkpointSequence || 1) + 1,
+      status: 'completed',
+      queue: [],
+      context: result?.context || {},
+      completedNodeIds: recordedNodes.map((n: any) => n.nodeId),
+      nodeRecords: recordedNodes,
+      metrics: run.metrics,
+    });
+    await this.leaseService.releaseLease(runId);
+    return this.storageService.publicRun(run);
   }
 
   async cancelRun(runId: string): Promise<any> {

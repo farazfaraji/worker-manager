@@ -28,25 +28,35 @@ export class ArtifactsController {
   async list(
     @Query('projectId') projectId?: string,
     @Query('type') type?: string,
+    @Query('category') category?: string,
     @Query('status') status?: string,
+    @Query('tags') tags?: string,
     @Query('search') search?: string,
-    @Query('keyword') keyword?: string,
-    @Query('artifactId') artifactId?: string,
+    @Query('query') query?: string,
     @Query('logicalId') logicalId?: string,
     @Query('latestOnly') latestOnly?: string | boolean,
+    @Query('includeContent') includeContent?: string | boolean,
     @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+    @Query('sortBy') sortBy?: 'updatedAt' | 'createdAt' | 'title' | 'version',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
   ) {
     const isLatestOnly = latestOnly === true || latestOnly === 'true';
     const items = await this.artifactService.list({
       projectId,
       type,
+      category,
       status,
+      tags,
       search,
-      keyword,
-      artifactId,
+      query,
       logicalId,
       latestOnly: isLatestOnly,
+      includeContent: includeContent !== 'false' && includeContent !== false,
       limit: limit || 100,
+      offset,
+      sortBy,
+      sortOrder,
     });
 
     return items.map((item) => ({
@@ -82,28 +92,23 @@ export class ArtifactsController {
     @Param('id') id: string,
     @Body() body: any,
   ) {
+    if (!body?.targetLogicalId || !(body?.relationType || body?.type)) {
+      throw new BadRequestException('targetLogicalId and relationType are required');
+    }
     const doc = await this.artifactService.get(id, body?.projectId, true);
     const sourceLogicalId = doc.logicalId || doc.artifactId;
+    const targetDoc = await this.artifactService.get(body.targetLogicalId, body.projectId, false);
+    const targetLogicalId = targetDoc?.logicalId || body.targetLogicalId;
+    const type = body.relationType || body.type;
 
-    // Check if typed relation payload (targetLogicalId and relationType provided)
-    if (body?.targetLogicalId && (body?.relationType || body?.type)) {
-      const targetDoc = await this.artifactService.get(body.targetLogicalId, body.projectId, false);
-      const targetLogicalId = targetDoc?.logicalId || body.targetLogicalId;
-      const type = body.relationType || body.type;
-
-      return this.relationService.addRelation({
-        sourceLogicalId,
-        targetLogicalId,
-        type,
-        projectId: body.projectId || doc.projectId,
-        metadata: body.metadata,
-        source: body.source,
-      });
-    }
-
-    // Backward-compatible path: linkedArtifactIds / relations array
-    const legacyRelations = body?.linkedArtifactIds || body?.relations || body;
-    return this.artifactService.addRelation(id, legacyRelations, body?.source);
+    return this.relationService.addRelation({
+      sourceLogicalId,
+      targetLogicalId,
+      type,
+      projectId: body.projectId || doc.projectId,
+      metadata: body.metadata,
+      source: body.source,
+    });
   }
 
   @Delete(':id/relations/:relationId')
@@ -116,8 +121,13 @@ export class ArtifactsController {
   }
 
   @Get(':id')
-  async get(@Param('id') id: string, @Query('projectId') projectId?: string) {
-    return this.artifactService.get(id, projectId, false);
+  async get(
+    @Param('id') id: string,
+    @Query('projectId') projectId?: string,
+    @Query('version') version?: string,
+  ) {
+    const parsed = version && version !== 'latest' ? Number(version) : undefined;
+    return this.artifactService.get(id, projectId, false, Number.isFinite(parsed) ? parsed : undefined);
   }
 
   @Post()
@@ -132,17 +142,34 @@ export class ArtifactsController {
 
   @Post(':id/approve')
   async approve(@Param('id') id: string, @Body() body: any) {
-    return this.artifactService.approve(id, body?.metadata || body || {});
+    return this.artifactService.approve(id, body?.metadata || body || {}, body?.projectId, body?.expectedVersion);
+  }
+
+  @Post(':id/reject')
+  async reject(@Param('id') id: string, @Body() body: any) {
+    return this.artifactService.reject(id, body?.reason || '', body?.metadata || {}, body?.projectId, body?.expectedVersion);
   }
 
   @Post(':id/archive')
-  async archive(@Param('id') id: string) {
-    return this.artifactService.archive(id);
+  async archive(@Param('id') id: string, @Body() body: any) {
+    return this.artifactService.archive(id, body?.projectId, body?.expectedVersion);
+  }
+
+  @Post(':id/unarchive')
+  async unarchive(@Param('id') id: string, @Body() body: any) {
+    return this.artifactService.unarchive(id, body?.projectId, body?.expectedVersion);
+  }
+
+  @Post(':id/restore')
+  async restore(@Param('id') id: string, @Body() body: any) {
+    const version = Number(body?.version ?? body?.fromVersion);
+    if (!Number.isFinite(version)) throw new BadRequestException('version is required');
+    return this.artifactService.restore(id, version, body || {});
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string) {
-    const success = await this.artifactService.delete(id);
-    return { success, artifactId: id };
+  async delete(@Param('id') id: string, @Query('projectId') projectId?: string) {
+    const success = await this.artifactService.delete(id, projectId);
+    return { success, logicalId: id };
   }
 }

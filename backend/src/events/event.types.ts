@@ -5,7 +5,9 @@ export type EventAction =
   | 'update'
   | 'delete'
   | 'approve'
+  | 'reject'
   | 'archive'
+  | 'unarchive'
   | 'action'
   | 'relation.add'
   | 'relation.remove';
@@ -68,10 +70,11 @@ export interface ArtifactCreateEventData {
   schemaVersion: number;
   title: string;
   type: string;
+  category?: string;
+  tags?: string[];
   format: string;
   version: number;
   content: any;
-  keywords: string[];
   status: string;
   projectId?: string;
   parentArtifactId?: string;
@@ -88,19 +91,22 @@ export interface ArtifactUpdateEventData {
   version: number;
   parentArtifactId?: string;
   changedKeys: string[];
+  changeSummary?: string;
   previous: {
     version: number;
     title: string;
     content: any;
     status: string;
-    keywords?: string[];
+    category?: string;
+    tags?: string[];
   };
   current: {
     version: number;
     title: string;
     content: any;
     status: string;
-    keywords?: string[];
+    category?: string;
+    tags?: string[];
   };
   fileChanges?: {
     diff?: any;

@@ -6,6 +6,7 @@ import { VariablePicker } from './VariablePicker';
 import { CodeEditor } from './CodeEditor';
 import { RevisePromptModal } from './RevisePromptModal';
 import { SchemaAiGenerator } from './SchemaAiGenerator';
+import { SuggestionCombobox } from './SuggestionCombobox';
 import { Code, Code2, AlignLeft, Sliders, ToggleLeft, ToggleRight, Check, AlertCircle, Sparkles, Wand2, Variable } from 'lucide-react';
 
 interface DynamicFieldRendererProps {
@@ -205,22 +206,13 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
       case 'combobox': {
         const optionsList = dynamicOptions.length > 0 ? dynamicOptions : (input.options || []);
         return (
-          <>
-            <input
-              type="text"
-              className="form-input"
-              list={`${input.name}-options`}
-              value={effectiveValue}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder={input.placeholder}
-              required={input.required}
-            />
-            <datalist id={`${input.name}-options`}>
-              {optionsList.map((opt) => (
-                <option key={String(opt.value)} value={opt.value}>{opt.label}</option>
-              ))}
-            </datalist>
-          </>
+          <SuggestionCombobox
+            value={effectiveValue}
+            onChange={(val) => onChange(val)}
+            options={optionsList}
+            placeholder={input.placeholder}
+            required={input.required}
+          />
         );
       }
 
@@ -723,76 +715,66 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
                   }}
                 />
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
                   {(() => {
                     const optionsList = dynamicOptions.length > 0 ? dynamicOptions : (input.options || []);
-                    if (optionsList.length === 0) return null;
+                    if (optionsList.length > 0) {
+                      return (
+                        <SuggestionCombobox
+                          value={valStr}
+                          onChange={(newVal) => handleTextChange(newVal)}
+                          options={optionsList}
+                          placeholder={input.placeholder || 'Enter literal value or pick suggestion...'}
+                          required={input.required}
+                        />
+                      );
+                    }
                     return (
-                      <select
+                      <input
+                        type="text"
                         className="form-input"
-                        style={{ fontSize: 12, color: 'var(--text-secondary)' }}
-                        value={optionsList.some((opt) => String(opt.value) === String(valStr)) ? valStr : ''}
-                        onChange={(e) => {
-                          if (e.target.value !== undefined) {
-                            handleTextChange(e.target.value);
-                          }
-                        }}
-                      >
-                        <option value="">-- Choose from existing ({optionsList.length} available) --</option>
-                        {optionsList.map((opt, i) => (
-                          <option key={i} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
+                        value={valStr}
+                        onChange={(e) => handleTextChange(e.target.value)}
+                        placeholder={input.placeholder || 'Enter literal value...'}
+                        required={input.required}
+                        style={{ flex: 1 }}
+                      />
                     );
                   })()}
-
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={valStr}
-                      onChange={(e) => handleTextChange(e.target.value)}
-                      placeholder={input.placeholder || 'Enter literal value...'}
-                      required={input.required}
-                      style={{ flex: 1 }}
-                    />
-                    {input.supportsUuid && (
-                      <button
-                        type="button"
-                        className="btn btn-default"
-                        title="Generate a random UUID"
-                        style={{
-                          fontSize: 11.5,
-                          padding: '0 10px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          whiteSpace: 'nowrap',
-                          background: 'var(--bg-subtle)',
-                        }}
-                        onClick={() => {
-                          const uuid = typeof crypto !== 'undefined' && crypto.randomUUID
-                            ? crypto.randomUUID()
-                            : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-                                const r = (Math.random() * 16) | 0;
-                                return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-                              });
-                          if (valStr.includes('{{uuid}}') || valStr.includes('{{UUID}}') || valStr.includes('{{$uuid}}')) {
-                            handleTextChange(valStr.replace(/{{\s*\$?uuid\s*}}/gi, uuid));
-                          } else if (valStr.endsWith('-') || valStr.endsWith('_')) {
-                            handleTextChange(`${valStr}${uuid}`);
-                          } else {
-                            handleTextChange(uuid);
-                          }
-                        }}
-                      >
-                        <Sparkles size={13} color="var(--accent-primary)" />
-                        Generate UUID
-                      </button>
-                    )}
-                  </div>
+                  {input.supportsUuid && (
+                    <button
+                      type="button"
+                      className="btn btn-default"
+                      title="Generate a random UUID"
+                      style={{
+                        fontSize: 11.5,
+                        padding: '0 10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        whiteSpace: 'nowrap',
+                        background: 'var(--bg-subtle)',
+                      }}
+                      onClick={() => {
+                        const uuid = typeof crypto !== 'undefined' && crypto.randomUUID
+                          ? crypto.randomUUID()
+                          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                              const r = (Math.random() * 16) | 0;
+                              return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+                            });
+                        if (valStr.includes('{{uuid}}') || valStr.includes('{{UUID}}') || valStr.includes('{{$uuid}}')) {
+                          handleTextChange(valStr.replace(/{{\s*\$?uuid\s*}}/gi, uuid));
+                        } else if (valStr.endsWith('-') || valStr.endsWith('_')) {
+                          handleTextChange(`${valStr}${uuid}`);
+                        } else {
+                          handleTextChange(uuid);
+                        }
+                      }}
+                    >
+                      <Sparkles size={13} color="var(--accent-primary)" />
+                      Generate UUID
+                    </button>
+                  )}
                 </div>
               )
             ) : (

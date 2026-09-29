@@ -43,7 +43,7 @@ export default function RunsPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', padding: 32, overflowY: 'auto' }}>
+    <div style={{ height: '100vh', maxHeight: '100vh', background: 'var(--bg-primary)', padding: '32px 32px 60px', overflowY: 'auto', boxSizing: 'border-box' }}>
       <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

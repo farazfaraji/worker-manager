@@ -71,11 +71,11 @@ export class ArtifactIndexingService {
 
       // Prepend title and keywords to the searchable corpus
       const title = artifact.title ? `Title: ${artifact.title}\n\n` : '';
-      const kwArray = (artifact.keywords && artifact.keywords.length > 0)
-        ? artifact.keywords
-        : (artifact.keyword || []);
-      const kwPrefix = kwArray.length > 0 ? `Keywords: ${kwArray.join(', ')}\n\n` : '';
-      const fullText = `${title}${kwPrefix}${rawText}`.trim();
+      const tagList = Array.isArray(artifact.tags) ? artifact.tags : [];
+      const categoryPrefix = artifact.category ? `Category: ${artifact.category}\n` : '';
+      const kwPrefix = tagList.length > 0 ? `Tags: ${tagList.join(', ')}\n\n` : '';
+      const fullPrefix = `${categoryPrefix}${kwPrefix}`;
+      const fullText = `${title}${fullPrefix}${rawText}`.trim();
 
       if (!fullText) {
         return { indexedChunks: 0, isLatest: !isArchived };
@@ -124,6 +124,8 @@ export class ArtifactIndexingService {
               metadata: {
                 title: artifact.title,
                 type: artifact.type,
+                category: artifact.category,
+                tags: artifact.tags || [],
                 format: artifact.format,
                 status: artifact.status,
                 version,

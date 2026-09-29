@@ -172,6 +172,9 @@ export class Run {
 
   @Prop()
   finishedAt?: Date;
+
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  metadata?: any;
 }
 
 export const RunSchema = SchemaFactory.createForClass(Run);

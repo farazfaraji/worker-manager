@@ -71,12 +71,13 @@ Each item in the `inputs` array defines a configurable field in `NodeConfigModal
 | `text` | Single-line text string | Standard `<input type="text">` |
 | `textarea` | Multi-line text string | Multiline `<textarea>` |
 | `select` | Dropdown selection | `<select>` with `options` or loaded from `dataSource` |
+| `combobox` | Text input with suggestions dropdown | Single input with autocomplete suggestion dropdown (supports custom arbitrary strings) |
 | `radio` | Single-choice radio buttons | Styled radio button pills |
 | `json` / `object` | JSON structure | Textarea with syntax validator and "Format JSON" button |
 | `code` | Code snippet | Syntax-highlighted code editor box with monospace font and language tag |
 | `functionCode` | Protected JS function | Highlighted JS editor with static `function run(input) {` signature and static `}` closing |
 | `variable` | Upstream flow variable reference | `VariablePicker` with autocomplete (`parser.value`, etc.) |
-| `valueOrVariable` | Toggle between literal value or variable | Toggleable mode switcher between text and `VariablePicker` |
+| `valueOrVariable` | Toggle between literal value or variable | Toggleable mode switcher between text/`SuggestionCombobox` (when options provided) and `VariablePicker` |
 
 ### Prompt Revision (`canRevise`)
 
