@@ -33,3 +33,7 @@ export * from './foreach.plugin';
 export * from './aggregate.plugin';
 export * from './execution.plugin';
 export * from './notification.plugin';
+export * from './log.plugin';
+export * from './secrets.plugin';
+export * from './file.plugin';
+export * from './database.plugin';

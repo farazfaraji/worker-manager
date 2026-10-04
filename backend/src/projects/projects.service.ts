@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Logger,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, isValidObjectId, Types } from 'mongoose';
@@ -22,6 +23,7 @@ import { Memory, MemoryDocument } from '../blocks/schemas/memory.schema';
 import { Trace, TraceDocument } from '../blocks/schemas/trace.schema';
 import { VectorRecord, VectorRecordDocument } from '../blocks/schemas/vector-record.schema';
 import { EventRecord, EventRecordDocument } from '../events/schemas/event.schema';
+import { SecretsService } from '../secrets/secrets.service';
 
 @Injectable()
 export class ProjectsService implements OnModuleInit {
@@ -52,6 +54,7 @@ export class ProjectsService implements OnModuleInit {
     private readonly vectorRecordModel: Model<VectorRecordDocument>,
     @InjectModel(EventRecord.name)
     private readonly eventRecordModel: Model<EventRecordDocument>,
+    @Optional() private readonly secretsService?: SecretsService,
   ) {}
 
   async onModuleInit() {
@@ -214,6 +217,7 @@ export class ProjectsService implements OnModuleInit {
     await this.traceModel.deleteMany({ projectId: id }).exec();
     await this.vectorRecordModel.deleteMany({ projectId: id }).exec();
     await this.eventRecordModel.deleteMany({ projectId: id }).exec();
+    await this.secretsService?.purge(id);
 
     return { success: true, message: `Project "${project.name}" and associated flows deleted` };
   }

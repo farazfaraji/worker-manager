@@ -66,8 +66,8 @@
       "type": "branch"
     },
     {
-      "name": "onFailed",
-      "label": "On Failed",
+      "name": "failed",
+      "label": "Failed",
       "type": "branch"
     }
   ]

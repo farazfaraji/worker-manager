@@ -116,12 +116,13 @@ async function runTests() {
       deleteMany: (query: any) => ({
         exec: async () => {
           let deletedCount = 0;
-          for (const [k] of Array.from(storage.entries())) {
+          for (const [k, doc] of Array.from(storage.entries())) {
             const [gId, nId] = k.split(':::');
-            if (gId === query.graphId && (!query.nodeId || nId === query.nodeId)) {
-              storage.delete(k);
-              deletedCount++;
-            }
+            if (query.graphId && gId !== query.graphId) continue;
+            if (query.nodeId && nId !== query.nodeId) continue;
+            if (query.projectId && doc.projectId !== query.projectId) continue;
+            storage.delete(k);
+            deletedCount++;
           }
           return { deletedCount };
         },
@@ -173,6 +174,13 @@ async function runTests() {
     await cacheService.clearCache('graph_1');
     const cleared = await cacheService.getGraphCaches('graph_1');
     assert.strictEqual(cleared.length, 0);
+
+    await cacheService.saveCachedResult('graph_a', 'n1', 'A', 'agent', { text: 'a' }, undefined, 'Flow A', 'project_1');
+    await cacheService.saveCachedResult('graph_b', 'n2', 'B', 'agent', { text: 'b' }, undefined, 'Flow B', 'project_2');
+    const projectClear = await cacheService.clearCache(undefined, undefined, 'project_1');
+    assert.strictEqual(projectClear.deletedCount, 1);
+    assert.strictEqual((await cacheService.getGraphCaches('graph_b')).length, 1);
+    assert.strictEqual((await cacheService.getGraphCaches('graph_a')).length, 0);
   });
 
   // =========================================================================

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { NodeDefinition } from '@/lib/types';
 import { fetchNodeDefinitions } from '@/lib/api';
-import { getNodeIcon } from '../nodes/LangGraphCustomNode';
+import { getNodeIcon } from '../nodes/node-icons';
 import {
   ChevronLeft,
   ChevronRight,
@@ -41,17 +41,6 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode }) => {
   useEffect(() => {
     loadDefinitions();
   }, []);
-
-  const handleDragStart = (
-    event: React.DragEvent,
-    definition: NodeDefinition,
-  ) => {
-    event.dataTransfer.setData(
-      'application/reactflow/definition',
-      JSON.stringify(definition),
-    );
-    event.dataTransfer.effectAllowed = 'move';
-  };
 
   // Group definitions by category
   const categoriesOrder = ['Flow', 'Agent', 'Integration', 'Knowledge', 'Artifact', 'Execution', 'Control', 'Function', 'App', 'Logic'];
@@ -180,10 +169,8 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode }) => {
                   <div
                     key={def.id}
                     className="node-item-card"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, def)}
                     onClick={() => onAddNode(def)}
-                    title={`Click to add or drag onto canvas: ${def.description}`}
+                    title={`Click to add: ${def.description}`}
                   >
                     <div
                       className="node-icon-wrapper"

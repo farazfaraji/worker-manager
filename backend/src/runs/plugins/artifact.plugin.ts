@@ -1,5 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ToolPlugin, ToolExecutionContext } from './tool-plugin.interface';
+import {
+  ToolPlugin,
+  ToolExecutionContext,
+  OutputSynthesisContext,
+  NodeOutputDefinition,
+} from './tool-plugin.interface';
 import { ArtifactService } from '../../blocks/artifact.service';
 import { ArtifactRelationService } from '../../blocks/artifact-relation.service';
 
@@ -273,5 +278,15 @@ export class ArtifactPlugin implements ToolPlugin {
       paths.add(`${nodeName}.${k}`);
     }
     return paths;
+  }
+
+  synthesizeOutputs(ctx: OutputSynthesisContext): NodeOutputDefinition[] {
+    const existing = ctx.data?.definitionOutputs || ctx.def?.outputs || ctx.data?.outputs || [];
+    const hasLegacyResult = existing.some((o: NodeOutputDefinition) => o.name === 'result') || existing.length === 0;
+    const hasConditionalOutputs = ctx.def?.outputs?.some((o) => o.dependsOn);
+    if ((hasLegacyResult || hasConditionalOutputs) && ctx.def?.outputs?.length) {
+      return ctx.def.outputs;
+    }
+    return existing;
   }
 }

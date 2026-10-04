@@ -61,3 +61,6 @@ export class LLMModel {
 }
 
 export const LLMModelSchema = SchemaFactory.createForClass(LLMModel);
+
+LLMModelSchema.index({ modelId: 1, provider: 1 }, { unique: true });
+LLMModelSchema.index({ isDefault: 1 });

@@ -152,4 +152,8 @@ export class HumanGatePlugin implements ToolPlugin {
     }
     return paths;
   }
+
+  isWaitingGate(_config?: any): boolean {
+    return true;
+  }
 }

@@ -1,22 +1,24 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   AlertCircle,
-  Ban,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
+  Ban,
   ExternalLink,
   Loader2,
   RefreshCw,
-  XCircle,
 } from 'lucide-react';
 import { cancelRun, deleteRun, fetchRunById, rerunFromNode, resumeRun } from '@/lib/api';
 import { RunNodeRecord, RunResult } from '@/lib/types';
-import { getNodeIcon } from '@/components/nodes/LangGraphCustomNode';
+import { getNodeIcon } from '@/components/nodes/node-icons';
+import { AppNav } from '@/components/AppNav';
+import { RunStatusBadge } from '@/components/RunStatusBadge';
 
 const pretty = (value: any) => JSON.stringify(value, null, 2) || '{}';
 const formatBytes = (bytes = 0) =>
@@ -27,6 +29,7 @@ const formatBytes = (bytes = 0) =>
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 export default function RunDetailsPage({ params }: { params: { runId: string } }) {
+  const router = useRouter();
   const [run, setRun] = useState<RunResult | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [rerunning, setRerunning] = useState<string | null>(null);
@@ -102,16 +105,19 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
   const remove = async () => {
     if (run && window.confirm('Delete this run?')) {
       await deleteRun(run.runId);
-      window.location.href = '/runs';
+      router.push('/runs');
     }
   };
 
   if (error) {
     return (
-      <div className="run-detail-page">
-        <div className="run-history-empty">
-          <AlertCircle size={22} />
-          {error}
+      <div className="page-shell">
+        <AppNav />
+        <div className="page-shell-scroll">
+          <div className="run-history-empty">
+            <AlertCircle size={22} />
+            {error}
+          </div>
         </div>
       </div>
     );
@@ -119,8 +125,11 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
 
   if (!run) {
     return (
-      <div className="run-detail-page">
-        <Loader2 className="animate-spin" size={28} />
+      <div className="page-shell">
+        <AppNav />
+        <div className="page-shell-scroll" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Loader2 className="animate-spin" size={28} />
+        </div>
       </div>
     );
   }
@@ -128,61 +137,15 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
   const isCancellable = ['queued', 'running', 'waiting'].includes(run.status);
   const isWaiting = run.status === 'waiting';
 
-  const renderStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return (
-          <span className="run-status run-status-completed">
-            <CheckCircle2 size={16} /> Completed
-          </span>
-        );
-      case 'failed':
-        return (
-          <span className="run-status run-status-failed">
-            <XCircle size={16} /> Failed
-          </span>
-        );
-      case 'waiting':
-        return (
-          <span className="run-status" style={{ background: '#78350f', color: '#fef3c7' }}>
-            <Clock size={16} /> Waiting (Gate)
-          </span>
-        );
-      case 'running':
-        return (
-          <span className="run-status" style={{ background: '#1e3a8a', color: '#bfdbfe' }}>
-            <Loader2 className="animate-spin" size={16} /> Running
-          </span>
-        );
-      case 'partial':
-        return (
-          <span className="run-status" style={{ background: '#7c2d12', color: '#ffedd5' }}>
-            <AlertCircle size={16} /> Partial
-          </span>
-        );
-      case 'cancelled':
-        return (
-          <span className="run-status" style={{ background: '#374151', color: '#e5e7eb' }}>
-            <Ban size={16} /> Cancelled
-          </span>
-        );
-      case 'queued':
-      default:
-        return (
-          <span className="run-status" style={{ background: '#374151', color: '#9ca3af' }}>
-            <Clock size={16} /> {status}
-          </span>
-        );
-    }
-  };
-
   return (
-    <div className="run-detail-page">
+    <div className="page-shell">
+      <AppNav />
+      <div className="page-shell-scroll">
       <div style={{ maxWidth: 980, margin: '0 auto' }}>
         <div className="run-detail-top" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <button className="btn btn-default" onClick={() => { window.location.href = '/runs'; }}>
-            ← Run History
-          </button>
+          <Link className="btn btn-default" href="/runs">
+            Run History
+          </Link>
           <div style={{ display: 'flex', gap: 8 }}>
             {isCancellable && (
               <button
@@ -198,6 +161,11 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
             <button className="btn btn-danger" onClick={() => void remove()}>
               Delete Run
             </button>
+            {run.graphId && (
+              <Link className="btn btn-primary" href={`/flow/${encodeURIComponent(run.graphId)}`}>
+                Open flow
+              </Link>
+            )}
           </div>
         </div>
 
@@ -206,7 +174,7 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
             <h1>{run.graphName}</h1>
             <code>{run.runId}</code>
           </div>
-          <div>{renderStatusBadge(run.status)}</div>
+          <div><RunStatusBadge status={run.status} iconSize={16} /></div>
         </div>
 
         <div className="run-summary">
@@ -219,49 +187,27 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
           {run.parentRunId && (
             <span>
               Parent:{' '}
-              <a href={`/runs/${run.parentRunId}`} style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
+              <Link href={`/runs/${run.parentRunId}`} style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>
                 {run.parentRunId.slice(0, 8)}
-              </a>
+              </Link>
             </span>
           )}
         </div>
 
         {/* Human Gate Waiting Prompt */}
         {isWaiting && (
-          <div
-            style={{
-              marginTop: 20,
-              padding: 20,
-              borderRadius: 10,
-              background: '#1c1917',
-              border: '1px solid #78350f',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-            }}
-          >
+          <div className="gate-card">
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <Clock size={20} color="#f59e0b" />
-              <h3 style={{ margin: 0, color: '#fef3c7', fontSize: 16 }}>Human Gate Approval Required</h3>
+              <Clock size={20} color="#d97706" />
+              <h3>Human Gate Approval Required</h3>
             </div>
-            <p style={{ fontSize: 13, color: '#d6d3d1', marginBottom: 16 }}>
+            <p>
               {run.waitingDescriptor?.uiPayload?.question ||
                 'This workflow is waiting for human input before execution can continue.'}
             </p>
 
             {resumeError && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 12px',
-                  background: '#450a0a',
-                  border: '1px solid #991b1b',
-                  borderRadius: 6,
-                  color: '#fecaca',
-                  fontSize: 13,
-                  marginBottom: 16,
-                }}
-              >
+              <div className="gate-error">
                 <AlertCircle size={16} />
                 {resumeError}
               </div>
@@ -269,79 +215,35 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
 
             <form onSubmit={handleResume} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#a8a29e', marginBottom: 4 }}>
-                  Resume Token
-                </label>
+                <label>Resume Token</label>
                 <input
                   type="text"
                   placeholder="rtk_..."
                   value={resumeTokenInput}
                   onChange={(e) => setResumeTokenInput(e.target.value)}
                   required
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    background: '#292524',
-                    border: '1px solid #44403c',
-                    color: '#fff',
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                  }}
+                  style={{ fontFamily: 'monospace' }}
                 />
               </div>
-
               <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#a8a29e', marginBottom: 4 }}>
-                  Decision
-                </label>
-                <select
-                  value={resumeDecision}
-                  onChange={(e) => setResumeDecision(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    background: '#292524',
-                    border: '1px solid #44403c',
-                    color: '#fff',
-                    fontSize: 13,
-                  }}
-                >
+                <label>Decision</label>
+                <select value={resumeDecision} onChange={(e) => setResumeDecision(e.target.value)}>
                   <option value="Approve">Approve</option>
                   <option value="Reject">Reject</option>
                   <option value="Request Changes">Request Changes</option>
                 </select>
               </div>
-
               <div>
-                <label style={{ display: 'block', fontSize: 12, color: '#a8a29e', marginBottom: 4 }}>
-                  Feedback / Notes (Optional)
-                </label>
+                <label>Feedback / Notes (Optional)</label>
                 <textarea
                   rows={3}
                   value={resumeFeedback}
                   onChange={(e) => setResumeFeedback(e.target.value)}
                   placeholder="Optional review feedback..."
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    background: '#292524',
-                    border: '1px solid #44403c',
-                    color: '#fff',
-                    fontSize: 13,
-                  }}
                 />
               </div>
-
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-                <button
-                  type="submit"
-                  className="btn btn-default"
-                  style={{ background: 'var(--primary)', color: '#fff', borderColor: 'var(--primary)' }}
-                  disabled={resuming || !resumeTokenInput.trim()}
-                >
+                <button type="submit" className="btn btn-primary" disabled={resuming || !resumeTokenInput.trim()}>
                   {resuming ? <Loader2 className="animate-spin" size={15} /> : <Check size={15} />}
                   Submit & Resume Execution
                 </button>
@@ -377,18 +279,7 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
                     <strong>{node.nodeName}</strong>
                     <code>{node.nodeType}</code>
                     {node.attempt && node.attempt > 1 ? (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          padding: '2px 6px',
-                          background: '#431407',
-                          color: '#fed7aa',
-                          borderRadius: 4,
-                          fontWeight: 600,
-                        }}
-                      >
-                        Attempt #{node.attempt}
-                      </span>
+                      <span className="trace-attempt">Attempt #{node.attempt}</span>
                     ) : null}
                     {node.durationMs !== undefined && (
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -399,7 +290,7 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {node.childRunId && (
-                      <a
+                      <Link
                         href={`/runs/${node.childRunId}`}
                         onClick={(e) => e.stopPropagation()}
                         style={{
@@ -407,26 +298,14 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
                           display: 'flex',
                           alignItems: 'center',
                           gap: 4,
-                          color: 'var(--primary)',
+                          color: 'var(--accent-primary)',
                           textDecoration: 'none',
                         }}
                       >
                         Child Run <ExternalLink size={12} />
-                      </a>
+                      </Link>
                     )}
-                    {node.status === 'completed' ? (
-                      <span className="run-status run-status-completed">
-                        <Check size={13} /> success
-                      </span>
-                    ) : node.status === 'waiting' ? (
-                      <span className="run-status" style={{ background: '#78350f', color: '#fef3c7' }}>
-                        <Clock size={13} /> waiting
-                      </span>
-                    ) : (
-                      <span className="run-status run-status-failed">
-                        <XCircle size={13} /> failed
-                      </span>
-                    )}
+                    <RunStatusBadge status={node.status} iconSize={13} />
                     <button
                       className="btn btn-default trace-rerun"
                       onClick={(e) => {
@@ -469,6 +348,7 @@ export default function RunDetailsPage({ params }: { params: { runId: string } }
             );
           })}
         </div>
+      </div>
       </div>
     </div>
   );

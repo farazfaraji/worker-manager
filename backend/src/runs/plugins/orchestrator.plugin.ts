@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
-import { ToolPlugin, ToolExecutionContext } from './tool-plugin.interface';
+import {
+  ToolPlugin,
+  ToolExecutionContext,
+  OutputSynthesisContext,
+  NodeOutputDefinition,
+} from './tool-plugin.interface';
 import { AgentRunnerService } from '../services/agent-runner.service';
 import { redactSecrets } from '../services/redaction.util';
 
@@ -285,5 +290,59 @@ export class OrchestratorPlugin implements ToolPlugin {
       }
     }
     return paths;
+  }
+
+  synthesizeOutputs(ctx: OutputSynthesisContext): NodeOutputDefinition[] {
+    let agentOutputs = ctx.config.agentOutputs ?? ctx.config.outputs ?? ctx.config.agents;
+    if (agentOutputs === undefined || agentOutputs === null || agentOutputs === '') {
+      const agentInput = ctx.def?.inputs?.find((i) => i.name === 'agentOutputs' || i.name === 'agents');
+      if (agentInput?.defaultValue) {
+        agentOutputs = agentInput.defaultValue;
+      }
+    }
+
+    if (typeof agentOutputs === 'string') {
+      try {
+        agentOutputs = JSON.parse(agentOutputs);
+      } catch {
+        agentOutputs = [];
+      }
+    }
+
+    if (Array.isArray(agentOutputs) && agentOutputs.length > 0) {
+      const dynamicOutputs: NodeOutputDefinition[] = [];
+      const seen = new Set<string>();
+
+      for (let i = 0; i < agentOutputs.length; i++) {
+        const item = agentOutputs[i];
+        const handleName = typeof item === 'string' ? item : item?.name || item?.id || `agent_${i + 1}`;
+        const handleLabel = typeof item === 'object' ? item.label || item.name || handleName : handleName;
+
+        if (handleName && !seen.has(handleName.toLowerCase())) {
+          seen.add(handleName.toLowerCase());
+          dynamicOutputs.push({
+            name: handleName,
+            label: handleLabel,
+            type: 'branch',
+          });
+        }
+      }
+
+      dynamicOutputs.push({
+        name: 'result',
+        label: 'Last Result',
+        type: 'object',
+      });
+
+      return dynamicOutputs;
+    }
+
+    return [
+      { name: 'agent_1', label: 'agent_1', type: 'branch' },
+      { name: 'agent_2', label: 'agent_2', type: 'branch' },
+      { name: 'agent_3', label: 'agent_3', type: 'branch' },
+      { name: 'agent_4', label: 'agent_4', type: 'branch' },
+      { name: 'result', label: 'Last Result', type: 'object' },
+    ];
   }
 }

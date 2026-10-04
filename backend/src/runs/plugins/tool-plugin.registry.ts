@@ -34,6 +34,11 @@ import { ForeachPlugin } from './foreach.plugin';
 import { AggregatePlugin } from './aggregate.plugin';
 import { ExecutionPlugin } from './execution.plugin';
 import { NotificationPlugin } from './notification.plugin';
+import { LogPlugin } from './log.plugin';
+import { SecretsPlugin } from './secrets.plugin';
+import { FilePlugin } from './file.plugin';
+import { DatabasePlugin } from './database.plugin';
+import { FileStorageService } from '../../blocks/file-storage.service';
 
 @Injectable()
 export class ToolPluginRegistry {
@@ -75,6 +80,10 @@ export class ToolPluginRegistry {
     private readonly aggregatePlugin: AggregatePlugin,
     private readonly executionPlugin: ExecutionPlugin,
     private readonly notificationPlugin: NotificationPlugin,
+    private readonly logPlugin: LogPlugin = new LogPlugin(),
+    private readonly secretsPlugin: SecretsPlugin = new SecretsPlugin(),
+    private readonly filePlugin: FilePlugin = new FilePlugin(new FileStorageService()),
+    private readonly databasePlugin: DatabasePlugin = new DatabasePlugin(),
   ) {
     this.registerAll([
       this.triggerPlugin,
@@ -110,6 +119,10 @@ export class ToolPluginRegistry {
       this.aggregatePlugin,
       this.executionPlugin,
       this.notificationPlugin,
+      this.logPlugin,
+      this.secretsPlugin,
+      this.filePlugin,
+      this.databasePlugin,
     ]);
   }
 

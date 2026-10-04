@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ToolPlugin, ToolExecutionContext } from './tool-plugin.interface';
+import {
+  ToolPlugin,
+  ToolExecutionContext,
+  OutputSynthesisContext,
+  NodeOutputDefinition,
+  UpstreamVariable,
+} from './tool-plugin.interface';
 import { VariableResolverService } from '../services/variable-resolver.service';
 
 @Injectable()
@@ -126,5 +132,71 @@ export class SetVariablePlugin implements ToolPlugin {
       }
     }
     return paths;
+  }
+
+  synthesizeOutputs(ctx: OutputSynthesisContext): NodeOutputDefinition[] {
+    const existing = ctx.data?.definitionOutputs?.length
+      ? ctx.data.definitionOutputs
+      : ctx.def?.outputs?.length
+        ? ctx.def.outputs
+        : ctx.data?.outputs || [];
+
+    if (existing && existing.length > 0) return existing;
+    return [{ name: 'value', label: 'Assigned Value', type: 'object' }];
+  }
+
+  getUpstreamVariables(
+    nodeId: string,
+    nodeName: string,
+    config: any,
+    _outputs: NodeOutputDefinition[],
+    _node?: any,
+  ): UpstreamVariable[] {
+    if (config?.key) {
+      const keyName = String(config.key).trim();
+      if (keyName) {
+        const valType = String(config.valueType || '').toLowerCase();
+        let resolvedType = 'string';
+        if (
+          valType === 'number' ||
+          typeof config.value === 'number' ||
+          typeof config.numberValue === 'number'
+        ) {
+          resolvedType = 'number';
+        } else if (
+          valType === 'boolean' ||
+          typeof config.value === 'boolean' ||
+          typeof config.booleanValue === 'boolean'
+        ) {
+          resolvedType = 'boolean';
+        } else if (
+          valType === 'json' ||
+          typeof config.value === 'object' ||
+          typeof config.jsonValue === 'object'
+        ) {
+          resolvedType = 'object';
+        }
+
+        return [
+          {
+            nodeId,
+            nodeName,
+            outputName: keyName,
+            path: `${nodeName}.${keyName}`,
+            type: resolvedType,
+            schema: undefined,
+          },
+          {
+            nodeId,
+            nodeName: 'state',
+            outputName: keyName,
+            path: `state.${keyName}`,
+            type: resolvedType,
+            schema: undefined,
+          },
+        ];
+      }
+    }
+    return [];
   }
 }

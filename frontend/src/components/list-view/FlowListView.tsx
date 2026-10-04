@@ -1,428 +1,250 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  ArrowLeft,
   Plus,
-  ChevronRight,
   GitBranch,
-  Zap,
-  Search,
-  Brain,
-  SplitSquareHorizontal,
-  ArrowRight,
-  Database,
-  Bell,
-  Code2,
-  Globe,
-  RefreshCw,
-  Layers,
-  FileText,
-  MessageSquare,
   MoreHorizontal,
   Trash2,
   Settings,
   Copy,
   GripVertical,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { GraphFlowData } from '@/lib/types';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
+import { getNodeIcon } from '@/components/nodes/node-icons';
 
 export interface BranchPath {
   blockId: string;
   blockName: string;
-  output: string; // e.g. "true", "false", "done", "agent_1"
+  output: string;
 }
 
 export interface ListViewProps {
   flow: GraphFlowData;
   graphName: string;
   onNodeClick: (blockId: string) => void;
-  onAddStep: (afterBlockId?: string, branchPath?: BranchPath[]) => void;
+  onAddStep: (afterBlockId?: string, branchPath?: BranchPath[], beforeBlockId?: string) => void;
   onDeleteStep: (blockId: string) => void;
   onDuplicateStep: (blockId: string) => void;
   runStatuses?: Record<string, 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'skipped'>;
 }
 
-// ─── Node Icon Map ───────────────────────────────────────────────────────────
+type Block = GraphFlowData['blocks'][number];
 
-const NODE_ICONS: Record<string, React.ReactNode> = {
-  trigger:       <Zap size={16} />,
-  'web-search':  <Search size={16} />,
-  websearch:     <Search size={16} />,
-  agent:         <Brain size={16} />,
-  condition:     <SplitSquareHorizontal size={16} />,
-  output:        <ArrowRight size={16} />,
-  memory:        <Database size={16} />,
-  notification:  <Bell size={16} />,
-  script:        <Code2 size={16} />,
-  'web-server':  <Globe size={16} />,
-  loop:          <RefreshCw size={16} />,
-  foreach:       <RefreshCw size={16} />,
-  orchestrator:  <Layers size={16} />,
-  artifact:      <FileText size={16} />,
-  telegram:      <MessageSquare size={16} />,
-  retrieval:     <Search size={16} />,
-  embedding:     <Database size={16} />,
-};
+const BRANCH_FIRST_KINDS = new Set([
+  'artifact', 'condition', 'foreach', 'human-gate', 'loop', 'orchestrator', 'research-review', 'router', 'validator',
+]);
 
-function nodeIcon(kind: string): React.ReactNode {
-  return NODE_ICONS[kind.toLowerCase()] ?? <GitBranch size={16} />;
+function defaultExposedEvents(block: Block, events: NonNullable<Block['events']>): string[] {
+  const kind = String(block.kind || '').toLowerCase();
+  const operation = String(block.config?.operation || '').toLowerCase();
+  const branchFirst =
+    BRANCH_FIRST_KINDS.has(kind) ||
+    (kind === 'file' && operation === 'exists') ||
+    (kind === 'database' && operation === 'ping') ||
+    (kind === 'secrets' && operation === 'exists') ||
+    (kind === 'log' && operation === 'assert' && String(block.config?.onFail || '').toLowerCase() === 'route');
+  return branchFirst ? events.map((event) => event.name) : [];
 }
 
-// ─── Branch types that expose sub-paths ─────────────────────────────────────
-const BRANCH_KINDS = new Set(['condition', 'router', 'foreach', 'loop', 'orchestrator', 'subgraph']);
+interface StepBranch {
+  key: string;
+  output: string;
+  label: string;
+  targetId?: string;
+  steps: Step[];
+  joins: boolean;
+  empty: boolean;
+}
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+interface Step {
+  block: Block;
+  branches: StepBranch[];
+}
 
-function getStatusColor(status?: string): string {
+function statusColor(status?: string): string {
   switch (status) {
-    case 'running':   return '#a855f7';
-    case 'waiting':   return '#f59e0b';
+    case 'running': return '#a855f7';
+    case 'waiting': return '#f59e0b';
     case 'completed': return '#10b981';
-    case 'failed':    return '#ef4444';
-    case 'skipped':   return '#6b7280';
-    case 'pending':   return '#6366f1';
-    default:          return 'transparent';
+    case 'failed': return '#ef4444';
+    case 'skipped': return '#6b7280';
+    case 'pending': return '#6366f1';
+    default: return 'transparent';
   }
 }
 
-function getStatusGlow(status?: string): string {
-  switch (status) {
-    case 'running':   return '0 0 12px rgba(168,85,247,0.5)';
-    case 'completed': return '0 0 12px rgba(16,185,129,0.4)';
-    case 'failed':    return '0 0 12px rgba(239,68,68,0.5)';
-    default:          return 'none';
+function buildSteps(flow: GraphFlowData): Step[] {
+  const byId = new Map(flow.blocks.map((block) => [block.id, block]));
+  const outgoing = (id: string) => flow.connections.filter((connection) => connection.from === id);
+  const targetsOf = (id: string) =>
+    Array.from(new Set(outgoing(id).map((connection) => connection.to)));
+
+  const findContinuation = (fromId: string, halt: Set<string>): string | null => {
+    const roots = targetsOf(fromId).filter((id) => !halt.has(id) && byId.has(id));
+    if (roots.length < 2) return null;
+    const reachCount = new Map<string, number>();
+    const distance = new Map<string, number>();
+    for (const root of roots) {
+      const seen = new Set<string>();
+      const queue: Array<{ id: string; depth: number }> = [{ id: root, depth: 0 }];
+      while (queue.length) {
+        const current = queue.shift()!;
+        if (seen.has(current.id) || halt.has(current.id)) continue;
+        seen.add(current.id);
+        reachCount.set(current.id, (reachCount.get(current.id) || 0) + 1);
+        const previous = distance.get(current.id);
+        if (previous === undefined || current.depth < previous) distance.set(current.id, current.depth);
+        for (const next of targetsOf(current.id)) {
+          if (!seen.has(next)) queue.push({ id: next, depth: current.depth + 1 });
+        }
+      }
+    }
+    let best: { id: string; depth: number } | null = null;
+    for (const [id, count] of Array.from(reachCount.entries())) {
+      if (count !== roots.length || halt.has(id)) continue;
+      const depth = distance.get(id) ?? Number.POSITIVE_INFINITY;
+      if (!best || depth < best.depth) best = { id, depth };
+    }
+    return best?.id ?? null;
+  };
+
+  const spine = (entryIds: string[], halt: Set<string>, seen: Set<string>): Step[] => {
+    const steps: Step[] = [];
+    let ids = entryIds.filter((id) => byId.has(id) && !halt.has(id) && !seen.has(id));
+    while (ids.length === 1) {
+      const id = ids[0];
+      const block = byId.get(id);
+      if (!block) break;
+      seen.add(id);
+      const groups = new Map<string, string[]>();
+      for (const connection of outgoing(id)) {
+        const output = connection.output || 'done';
+        const list = groups.get(output) || [];
+        if (!list.includes(connection.to)) list.push(connection.to);
+        groups.set(output, list);
+      }
+      const connectedOutputs = new Set(groups.keys());
+      const configuredExposure = Array.isArray(block.config?.exposedEvents)
+        ? block.config.exposedEvents.map((name: unknown) => String(name))
+        : null;
+      const supportedEvents = (block.events || []).filter((event) => event.type === 'branch');
+      const defaultExposed = defaultExposedEvents(block, supportedEvents);
+      const exposedEvents = configuredExposure ?? defaultExposed;
+      for (const event of supportedEvents) {
+        if ((exposedEvents.includes(event.name) || connectedOutputs.has(event.name)) && !groups.has(event.name)) {
+          groups.set(event.name, []);
+        }
+      }
+      const direct = Array.from(groups.values()).reduce<string[]>((all, ids) => all.concat(ids), []);
+      const hasEmptyEvent = Array.from(groups.values()).some((targets) => targets.length === 0);
+      if (direct.length <= 1 && groups.size <= 1 && !hasEmptyEvent) {
+        steps.push({ block, branches: [] });
+        const next = direct[0];
+        ids = next && !halt.has(next) && !seen.has(next) ? [next] : [];
+        continue;
+      }
+      const continuation = findContinuation(id, halt);
+      const branchHalt = new Set(halt);
+      if (continuation) branchHalt.add(continuation);
+      const branches: StepBranch[] = [];
+      for (const [output, targets] of Array.from(groups.entries())) {
+        if (targets.length === 0) {
+          const event = supportedEvents.find((candidate) => candidate.name === output);
+          branches.push({
+            key: `${id}:${output}:empty`,
+            output,
+            label: event?.label || output,
+            targetId: undefined,
+            joins: false,
+            empty: true,
+            steps: [],
+          });
+          continue;
+        }
+        targets.forEach((targetId: string, index: number) => {
+          const target = byId.get(targetId);
+          const joins = branchHalt.has(targetId);
+          branches.push({
+            key: `${id}:${output}:${targetId}:${index}`,
+            output,
+            label: targets.length > 1 ? (target?.label || target?.name || output) : output,
+            targetId,
+            joins,
+            empty: false,
+            steps: joins ? [] : spine([targetId], branchHalt, seen),
+          });
+        });
+      }
+      steps.push({ block, branches });
+      ids = continuation && !seen.has(continuation) ? [continuation] : [];
+    }
+    return steps;
+  };
+
+  const seen = new Set<string>();
+  const incoming = new Set(flow.connections.map((connection) => connection.to));
+  const roots = flow.blocks.filter((block) => !incoming.has(block.id)).map((block) => block.id);
+  const steps: Step[] = [];
+  for (const id of roots.length ? roots : flow.blocks.map((block) => block.id)) {
+    steps.push(...spine([id], new Set(), seen));
   }
+  for (const block of flow.blocks) {
+    if (!seen.has(block.id)) steps.push(...spine([block.id], new Set(), seen));
+  }
+  return steps;
 }
 
-// ─── NodeCard ────────────────────────────────────────────────────────────────
-
-interface NodeCardProps {
-  block: GraphFlowData['blocks'][0];
-  branchPath: BranchPath[];
-  connections: GraphFlowData['connections'];
-  allBlocks: GraphFlowData['blocks'];
-  onNodeClick: (id: string) => void;
-  onAddStep: (afterBlockId?: string, branchPath?: BranchPath[]) => void;
-  onDeleteStep: (id: string) => void;
-  onDuplicateStep: (id: string) => void;
-  runStatuses: Record<string, string>;
-  depth: number;
-}
-
-function NodeCard({
-  block,
-  branchPath,
-  connections,
-  allBlocks,
-  onNodeClick,
-  onAddStep,
-  onDeleteStep,
-  onDuplicateStep,
-  runStatuses,
-  depth,
-}: NodeCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [activeBranch, setActiveBranch] = useState<string | null>(null);
-
-  const status = runStatuses[block.id];
-  const isBranching = BRANCH_KINDS.has(block.kind.toLowerCase());
-
-  // Outgoing connections from this block
-  const outgoing = connections.filter((c) => c.from === block.id);
-
-  // Branch outputs (unique output handles e.g. "true", "false", "agent_1")
-  const branchOutputs = isBranching
-    ? Array.from(new Set(outgoing.map((c) => c.output || 'done').filter(Boolean)))
-    : [];
-
-  // Active branch display
-  const activeBranchOutput = activeBranch ?? branchOutputs[0] ?? null;
-  const branchConnections = outgoing.filter(
-    (c) => (c.output || 'done') === activeBranchOutput,
-  );
-  const branchBlocks = branchConnections
-    .map((c) => allBlocks.find((b) => b.id === c.to))
-    .filter(Boolean) as GraphFlowData['blocks'];
-
-  const currentBranchPath: BranchPath[] = [
-    ...branchPath,
-    ...(isBranching && activeBranchOutput
-      ? [{ blockId: block.id, blockName: block.name, output: activeBranchOutput }]
-      : []),
-  ];
-
+function Connector({ running = false, onAdd }: { running?: boolean; onAdd?: () => void }) {
   return (
-    <div style={{ width: '100%' }}>
-      {/* ── Card ─────────────────────────────────────────────── */}
+    <div style={{ paddingLeft: 16, position: 'relative' }}>
       <div
         style={{
-          display: 'flex',
-          alignItems: 'stretch',
-          gap: 0,
-          position: 'relative',
+          width: 2,
+          height: 24,
+          margin: '2px 0 2px 14px',
+          background: running ? 'linear-gradient(to bottom, #6366f1, #a855f7)' : 'var(--border-color)',
+          borderRadius: 1,
         }}
-      >
-        {/* Depth indent line */}
-        {depth > 0 && (
-          <div style={{ width: depth * 24, flexShrink: 0 }} />
-        )}
-
-        {/* Status bar */}
-        <div
+      />
+      {onAdd && (
+        <button
+          type="button"
+          className="lv-connector-add"
+          aria-label="Add step between nodes"
+          title="Add step here"
+          onClick={onAdd}
           style={{
-            width: 3,
-            borderRadius: '3px 0 0 3px',
-            background: status ? getStatusColor(status) : 'transparent',
-            flexShrink: 0,
-          }}
-        />
-
-        {/* Main card */}
-        <div
-          className="lv-node-card"
-          style={{
-            flex: 1,
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderLeft: 'none',
-            borderRadius: '0 10px 10px 0',
-            padding: '12px 16px',
+            position: 'absolute',
+            left: 20,
+            top: 5,
+            width: 20,
+            height: 20,
+            padding: 0,
+            borderRadius: '50%',
+            border: '1px solid var(--border-color)',
+            background: 'var(--bg-surface)',
+            color: 'var(--text-muted)',
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            justifyContent: 'center',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            boxShadow: getStatusGlow(status),
           }}
-          onClick={() => onNodeClick(block.id)}
         >
-          {/* Drag handle */}
-          <GripVertical size={14} style={{ color: 'rgba(255,255,255,0.2)', flexShrink: 0 }} />
-
-          {/* Icon */}
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: 'rgba(99,102,241,0.15)',
-              border: '1px solid rgba(99,102,241,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#818cf8',
-              flexShrink: 0,
-            }}
-          >
-            {nodeIcon(block.kind)}
-          </div>
-
-          {/* Labels */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9', marginBottom: 2 }}>
-              {block.label || block.name}
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'capitalize' }}>
-              {block.kind}
-            </div>
-          </div>
-
-          {/* Status badge */}
-          {status && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                letterSpacing: '0.5px',
-                textTransform: 'uppercase',
-                padding: '2px 8px',
-                borderRadius: 20,
-                background: `${getStatusColor(status)}22`,
-                color: getStatusColor(status),
-                border: `1px solid ${getStatusColor(status)}55`,
-              }}
-            >
-              {status}
-            </span>
-          )}
-
-          {/* Menu */}
-          <div style={{ position: 'relative' }}>
-            <button
-              className="lv-icon-btn"
-              onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'rgba(255,255,255,0.3)',
-                cursor: 'pointer',
-                padding: 4,
-                borderRadius: 6,
-                display: 'flex',
-              }}
-            >
-              <MoreHorizontal size={14} />
-            </button>
-
-            {menuOpen && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 28,
-                  background: '#1e2030',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: 10,
-                  padding: 6,
-                  zIndex: 100,
-                  minWidth: 160,
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {[
-                  { icon: <Settings size={13} />, label: 'Configure', action: () => { onNodeClick(block.id); setMenuOpen(false); } },
-                  { icon: <Copy size={13} />, label: 'Duplicate', action: () => { onDuplicateStep(block.id); setMenuOpen(false); } },
-                  { icon: <Plus size={13} />, label: 'Add step after', action: () => { onAddStep(block.id, branchPath); setMenuOpen(false); } },
-                  { icon: <Trash2 size={13} />, label: 'Delete', action: () => { onDeleteStep(block.id); setMenuOpen(false); }, danger: true },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={item.action}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      width: '100%',
-                      padding: '7px 10px',
-                      background: 'none',
-                      border: 'none',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      color: (item as any).danger ? '#f87171' : 'rgba(255,255,255,0.7)',
-                      textAlign: 'left',
-                    }}
-                  >
-                    {item.icon} {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Branch tabs ──────────────────────────────────────── */}
-      {isBranching && branchOutputs.length > 0 && (
-        <div style={{ marginLeft: depth * 24 + 3, marginTop: 4 }}>
-          {/* Tab bar */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 4,
-              padding: '4px 8px',
-              background: 'rgba(255,255,255,0.02)',
-              borderRadius: '0 0 8px 8px',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderTop: 'none',
-            }}
-          >
-            {branchOutputs.map((output) => {
-              const isActive = output === activeBranchOutput;
-              const isTrue = output === 'true' || output === 'done';
-              const isFalse = output === 'false';
-              const tabColor = isTrue ? '#10b981' : isFalse ? '#ef4444' : '#6366f1';
-              return (
-                <button
-                  key={output}
-                  onClick={(e) => { e.stopPropagation(); setActiveBranch(output); }}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 20,
-                    border: `1px solid ${isActive ? tabColor + '66' : 'rgba(255,255,255,0.08)'}`,
-                    background: isActive ? tabColor + '18' : 'transparent',
-                    color: isActive ? tabColor : 'rgba(255,255,255,0.35)',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {isFalse ? '✕' : isTrue ? '✓' : '→'} {output}
-                </button>
-              );
-            })}
-
-            {/* Add branch button */}
-            <button
-              onClick={(e) => { e.stopPropagation(); onAddStep(block.id, currentBranchPath); }}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 20,
-                border: '1px dashed rgba(255,255,255,0.15)',
-                background: 'transparent',
-                color: 'rgba(255,255,255,0.25)',
-                fontSize: 11,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <Plus size={10} /> branch
-            </button>
-          </div>
-
-          {/* Branch contents */}
-          {branchBlocks.length > 0 ? (
-            <div style={{ marginTop: 4, paddingLeft: 16, borderLeft: '2px solid rgba(255,255,255,0.06)' }}>
-              <FlowListInner
-                blocks={branchBlocks}
-                allBlocks={allBlocks}
-                connections={connections}
-                branchPath={currentBranchPath}
-                onNodeClick={onNodeClick}
-                onAddStep={onAddStep}
-                onDeleteStep={onDeleteStep}
-                onDuplicateStep={onDuplicateStep}
-                runStatuses={runStatuses}
-                depth={depth + 1}
-              />
-            </div>
-          ) : (
-            <AddStepButton
-              onClick={() => onAddStep(block.id, currentBranchPath)}
-              indent={depth + 1}
-              label={`Add first step in "${activeBranchOutput}" branch`}
-            />
-          )}
-        </div>
+          <Plus size={12} />
+        </button>
       )}
     </div>
   );
 }
 
-// ─── AddStepButton ────────────────────────────────────────────────────────────
-
-function AddStepButton({
-  onClick,
-  indent = 0,
-  label = 'Add step',
-}: {
-  onClick: () => void;
-  indent?: number;
-  label?: string;
-}) {
+function AddStepButton({ onClick, label = 'Add step' }: { onClick: () => void; label?: string }) {
   return (
-    <div style={{ paddingLeft: indent * 24, paddingTop: 8, paddingBottom: 4 }}>
+    <div style={{ paddingTop: 8, paddingBottom: 4 }}>
       <button
+        type="button"
         onClick={onClick}
         className="lv-add-btn"
         style={{
@@ -438,7 +260,6 @@ function AddStepButton({
           fontWeight: 500,
           cursor: 'pointer',
           width: '100%',
-          transition: 'all 0.15s',
         }}
       >
         <Plus size={13} /> {label}
@@ -447,140 +268,325 @@ function AddStepButton({
   );
 }
 
-// ─── Connector line ───────────────────────────────────────────────────────────
-
-function Connector({ indent = 0, running = false }: { indent?: number; running?: boolean }) {
-  return (
-    <div style={{ paddingLeft: indent * 24 + 16 }}>
-      <div
-        style={{
-          width: 2,
-          height: 20,
-          margin: '2px 0 2px 14px',
-          background: running
-            ? 'linear-gradient(to bottom, #6366f1, #a855f7)'
-            : 'rgba(255,255,255,0.07)',
-          borderRadius: 1,
-        }}
-      />
-    </div>
-  );
-}
-
-// ─── FlowListInner (recursive) ────────────────────────────────────────────────
-
-interface FlowListInnerProps {
-  blocks: GraphFlowData['blocks'];
-  allBlocks: GraphFlowData['blocks'];
-  connections: GraphFlowData['connections'];
-  branchPath: BranchPath[];
-  onNodeClick: (id: string) => void;
-  onAddStep: (afterBlockId?: string, branchPath?: BranchPath[]) => void;
-  onDeleteStep: (id: string) => void;
-  onDuplicateStep: (id: string) => void;
-  runStatuses: Record<string, string>;
-  depth: number;
-}
-
-function FlowListInner({
-  blocks,
-  allBlocks,
-  connections,
+function StepCard({
+  step,
   branchPath,
   onNodeClick,
   onAddStep,
   onDeleteStep,
   onDuplicateStep,
   runStatuses,
-  depth,
-}: FlowListInnerProps) {
+}: {
+  step: Step;
+  branchPath: BranchPath[];
+  onNodeClick: (id: string) => void;
+  onAddStep: (afterBlockId?: string, branchPath?: BranchPath[], beforeBlockId?: string) => void;
+  onDeleteStep: (id: string) => void;
+  onDuplicateStep: (id: string) => void;
+  runStatuses: Record<string, string>;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { block } = step;
+  const status = runStatuses[block.id];
+  const eventCount = new Set(step.branches.map((branch) => branch.output)).size;
+  const [eventExpansion, setEventExpansion] = useState<boolean | null>(null);
+  const eventsExpanded = eventExpansion ?? eventCount <= 2;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {blocks.map((block, idx) => (
-        <React.Fragment key={block.id}>
-          {idx > 0 && <Connector indent={depth} running={runStatuses[blocks[idx - 1].id] === 'running'} />}
-          <NodeCard
-            block={block}
+    <div style={{ width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+        <div
+          style={{
+            width: 3,
+            borderRadius: '3px 0 0 3px',
+            background: status ? statusColor(status) : 'transparent',
+            flexShrink: 0,
+          }}
+        />
+        <div
+          className="lv-node-card"
+          onClick={() => onNodeClick(block.id)}
+          style={{
+            flex: 1,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+            borderLeft: 'none',
+            borderRadius: '0 10px 10px 0',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            cursor: 'pointer',
+          }}
+        >
+          <GripVertical size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: 'var(--accent-subtle)',
+              border: '1px solid var(--accent-border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#818cf8',
+              flexShrink: 0,
+            }}
+          >
+            {getNodeIcon(block.kind, 16)}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
+              {block.label || block.name}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+              {block.kind}
+            </div>
+          </div>
+          {status && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                padding: '2px 8px',
+                borderRadius: 20,
+                background: `${statusColor(status)}22`,
+                color: statusColor(status),
+                border: `1px solid ${statusColor(status)}55`,
+              }}
+            >
+              {status}
+            </span>
+          )}
+          {eventCount > 0 && (
+            <button
+              type="button"
+              className="lv-event-toggle"
+              aria-expanded={eventsExpanded}
+              aria-label={`${eventsExpanded ? 'Collapse' : 'Expand'} ${eventCount} event ${eventCount === 1 ? 'path' : 'paths'}`}
+              title={eventsExpanded ? 'Collapse event paths' : 'Expand event paths'}
+              onClick={(event) => {
+                event.stopPropagation();
+                setEventExpansion(!eventsExpanded);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-subtle)',
+                color: 'var(--text-secondary)',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {eventsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {eventCount} {eventCount === 1 ? 'event' : 'events'}
+            </button>
+          )}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="lv-icon-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuOpen((open) => !open);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: 4,
+                borderRadius: 6,
+                display: 'flex',
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {menuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 28,
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: 6,
+                  zIndex: 100,
+                  minWidth: 160,
+                  boxShadow: 'var(--shadow-lg)',
+                }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {[
+                  { icon: <Settings size={13} />, label: 'Configure', action: () => onNodeClick(block.id) },
+                  { icon: <Copy size={13} />, label: 'Duplicate', action: () => onDuplicateStep(block.id) },
+                  { icon: <Plus size={13} />, label: 'Add step after', action: () => onAddStep(block.id, branchPath) },
+                  { icon: <Trash2 size={13} />, label: 'Delete', action: () => onDeleteStep(block.id), danger: true },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      item.action();
+                      setMenuOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      width: '100%',
+                      padding: '7px 10px',
+                      background: 'none',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      color: item.danger ? 'var(--danger)' : 'var(--text-secondary)',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {step.branches.length > 0 && eventsExpanded && (
+        <div style={{ marginLeft: 18, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {step.branches.map((branch) => {
+            const path: BranchPath[] = [
+              ...branchPath,
+              { blockId: block.id, blockName: block.name, output: branch.output },
+            ];
+            const tone = branch.output === 'false' ? '#dc2626' : branch.output === 'true' ? '#059669' : '#4f46e5';
+            const firstLabel = branch.steps[0]?.block.label || branch.steps[0]?.block.name;
+            const showLabel = branch.label !== firstLabel;
+            return (
+              <div key={branch.key} style={{ borderLeft: `2px solid ${tone}55`, paddingLeft: 12 }}>
+                {showLabel && (
+                  <div style={{ fontSize: 11, fontWeight: 600, color: tone, marginBottom: 6 }}>
+                    {branch.label}
+                  </div>
+                )}
+                {branch.empty ? (
+                  <AddStepButton
+                    label={`Add first step for "${branch.label}"`}
+                    onClick={() => onAddStep(block.id, path)}
+                  />
+                ) : branch.joins && branch.steps.length === 0 ? (
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0 8px' }}>
+                      Joins the next step
+                    </div>
+                    <AddStepButton
+                      label="Add step on this path"
+                      onClick={() => onAddStep(block.id, path, branch.targetId)}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <Connector onAdd={() => onAddStep(block.id, path, branch.targetId)} />
+                    <StepList
+                      steps={branch.steps}
+                      branchPath={path}
+                      onNodeClick={onNodeClick}
+                      onAddStep={onAddStep}
+                      onDeleteStep={onDeleteStep}
+                      onDuplicateStep={onDuplicateStep}
+                      runStatuses={runStatuses}
+                      emptyLabel={`Add first step in "${branch.label}"`}
+                      trailingBlockId={block.id}
+                    />
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepList({
+  steps,
+  branchPath,
+  onNodeClick,
+  onAddStep,
+  onDeleteStep,
+  onDuplicateStep,
+  runStatuses,
+  emptyLabel,
+  trailingBlockId,
+}: {
+  steps: Step[];
+  branchPath: BranchPath[];
+  onNodeClick: (id: string) => void;
+  onAddStep: (afterBlockId?: string, branchPath?: BranchPath[], beforeBlockId?: string) => void;
+  onDeleteStep: (id: string) => void;
+  onDuplicateStep: (id: string) => void;
+  runStatuses: Record<string, string>;
+  emptyLabel?: string;
+  trailingBlockId?: string;
+}) {
+  if (steps.length === 0) {
+    return (
+      <AddStepButton
+        label={emptyLabel || 'Add step'}
+        onClick={() => onAddStep(trailingBlockId, branchPath)}
+      />
+    );
+  }
+
+  const last = steps[steps.length - 1];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {steps.map((step, index) => {
+        const previous = index > 0 ? steps[index - 1] : undefined;
+        return (
+        <React.Fragment key={step.block.id}>
+          {previous && (
+            <Connector
+              running={runStatuses[previous.block.id] === 'running'}
+              onAdd={previous.branches.length === 0
+                ? () => onAddStep(previous.block.id, branchPath, step.block.id)
+                : undefined}
+            />
+          )}
+          <StepCard
+            step={step}
             branchPath={branchPath}
-            connections={connections}
-            allBlocks={allBlocks}
             onNodeClick={onNodeClick}
             onAddStep={onAddStep}
             onDeleteStep={onDeleteStep}
             onDuplicateStep={onDuplicateStep}
             runStatuses={runStatuses}
-            depth={depth}
           />
         </React.Fragment>
-      ))}
-      <Connector indent={depth} />
-      <AddStepButton onClick={() => onAddStep(blocks[blocks.length - 1]?.id, branchPath)} indent={depth} />
+        );
+      })}
+      {last.branches.length === 0 && (
+        <>
+          <Connector />
+          <AddStepButton onClick={() => onAddStep(last.block.id, branchPath)} />
+        </>
+      )}
     </div>
   );
 }
-
-// ─── Breadcrumb ───────────────────────────────────────────────────────────────
-
-function Breadcrumb({
-  graphName,
-  branchPath,
-  onNavigate,
-}: {
-  graphName: string;
-  branchPath: BranchPath[];
-  onNavigate: (index: number) => void;
-}) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '0 4px',
-        flexWrap: 'wrap',
-      }}
-    >
-      <button
-        onClick={() => onNavigate(-1)}
-        style={{
-          background: 'none',
-          border: 'none',
-          color: branchPath.length === 0 ? '#f1f5f9' : '#6366f1',
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: branchPath.length > 0 ? 'pointer' : 'default',
-          padding: 0,
-        }}
-      >
-        {graphName}
-      </button>
-      {branchPath.map((crumb, i) => (
-        <React.Fragment key={`${crumb.blockId}-${crumb.output}`}>
-          <ChevronRight size={12} style={{ color: 'rgba(255,255,255,0.2)' }} />
-          <button
-            onClick={() => onNavigate(i)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: i === branchPath.length - 1 ? '#f1f5f9' : '#6366f1',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: i < branchPath.length - 1 ? 'pointer' : 'default',
-              padding: 0,
-            }}
-          >
-            {crumb.blockName}
-            <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>
-              [{crumb.output}]
-            </span>
-          </button>
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
-// ─── Root: FlowListView ────────────────────────────────────────────────────────
 
 export function FlowListView({
   flow,
@@ -591,36 +597,7 @@ export function FlowListView({
   onDuplicateStep,
   runStatuses = {},
 }: ListViewProps) {
-  // Navigation state — which branch path are we currently viewing
-  const [navPath, setNavPath] = useState<BranchPath[]>([]);
-
-  // Derive the blocks to show at the current navigation level
-  const visibleBlocks = useCallback((): GraphFlowData['blocks'] => {
-    if (navPath.length === 0) {
-      // Root: blocks with no incoming connections (or trigger)
-      const targets = new Set(flow.connections.map((c) => c.to));
-      return flow.blocks.filter((b) => !targets.has(b.id));
-    }
-
-    // Follow the nav path to get the current level's blocks
-    const last = navPath[navPath.length - 1];
-    const outgoing = flow.connections.filter(
-      (c) => c.from === last.blockId && (c.output || 'done') === last.output,
-    );
-    return outgoing
-      .map((c) => flow.blocks.find((b) => b.id === c.to))
-      .filter(Boolean) as GraphFlowData['blocks'];
-  }, [flow, navPath]);
-
-  const handleNavigate = (index: number) => {
-    if (index === -1) {
-      setNavPath([]);
-    } else {
-      setNavPath((p) => p.slice(0, index + 1));
-    }
-  };
-
-  const blocks = visibleBlocks();
+  const steps = useMemo(() => buildSteps(flow), [flow]);
 
   return (
     <div
@@ -628,111 +605,66 @@ export function FlowListView({
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        background: '#0d0f18',
+        background: 'var(--bg-primary)',
         overflow: 'hidden',
       }}
     >
-      {/* Top bar */}
       <div
         style={{
           padding: '12px 20px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
+          borderBottom: '1px solid var(--border-color)',
+          fontSize: 13,
+          fontWeight: 600,
+          color: 'var(--text-primary)',
+          background: 'var(--bg-surface)',
           flexShrink: 0,
         }}
       >
-        {navPath.length > 0 && (
-          <button
-            onClick={() => handleNavigate(navPath.length - 2)}
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 8,
-              padding: '5px 8px',
-              cursor: 'pointer',
-              color: 'rgba(255,255,255,0.6)',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <ArrowLeft size={14} />
-          </button>
-        )}
-        <Breadcrumb
-          graphName={graphName}
-          branchPath={navPath}
-          onNavigate={handleNavigate}
-        />
+        {graphName}
       </div>
-
-      {/* Flow list */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '16px 20px 40px',
-        }}
-      >
-        <div style={{ maxWidth: 620, margin: '0 auto' }}>
-          {blocks.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '60px 20px',
-                color: 'rgba(255,255,255,0.2)',
-              }}
-            >
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 40px' }}>
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          {steps.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
               <GitBranch size={32} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
               <div style={{ fontSize: 14, marginBottom: 16 }}>No steps yet</div>
-              <button
-                onClick={() => onAddStep(undefined, navPath)}
-                style={{
-                  padding: '8px 20px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(99,102,241,0.4)',
-                  background: 'rgba(99,102,241,0.1)',
-                  color: '#818cf8',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
-              >
-                <Plus size={13} style={{ marginRight: 6, display: 'inline' }} />
-                Add first step
-              </button>
+              <AddStepButton label="Add first step" onClick={() => onAddStep()} />
             </div>
           ) : (
-            <FlowListInner
-              blocks={blocks}
-              allBlocks={flow.blocks}
-              connections={flow.connections}
-              branchPath={navPath}
+            <StepList
+              steps={steps}
+              branchPath={[]}
               onNodeClick={onNodeClick}
               onAddStep={onAddStep}
               onDeleteStep={onDeleteStep}
               onDuplicateStep={onDuplicateStep}
               runStatuses={runStatuses}
-              depth={0}
             />
           )}
         </div>
       </div>
-
-      {/* CSS */}
       <style>{`
         .lv-node-card:hover {
-          background: rgba(255,255,255,0.07) !important;
-          border-color: rgba(255,255,255,0.14) !important;
+          background: var(--bg-subtle) !important;
+          border-color: var(--accent-border) !important;
         }
         .lv-icon-btn:hover {
-          background: rgba(255,255,255,0.08) !important;
-          color: rgba(255,255,255,0.6) !important;
+          background: var(--bg-subtle) !important;
+          color: var(--text-secondary) !important;
+        }
+        .lv-event-toggle:hover {
+          border-color: var(--accent-border) !important;
+          color: var(--accent-primary) !important;
+        }
+        .lv-connector-add:hover {
+          border-color: var(--accent-primary) !important;
+          color: var(--accent-primary) !important;
+          background: var(--accent-subtle) !important;
         }
         .lv-add-btn:hover {
-          background: rgba(99,102,241,0.12) !important;
-          border-color: rgba(99,102,241,0.5) !important;
-          color: #818cf8 !important;
+          background: var(--accent-subtle) !important;
+          border-color: var(--accent-primary) !important;
+          color: var(--accent-primary) !important;
         }
       `}</style>
     </div>

@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { ToolPlugin, ToolExecutionContext } from './tool-plugin.interface';
+import {
+  ToolPlugin,
+  ToolExecutionContext,
+  OutputSynthesisContext,
+  NodeOutputDefinition,
+} from './tool-plugin.interface';
 import { BrowserRunnerService } from '../services/browser-runner.service';
 
 @Injectable()
@@ -14,7 +19,7 @@ export class BrowserPlugin implements ToolPlugin {
   }
 
   getValidHandles(_config?: any, _outputs?: any[], _nodeData?: any, _nodeName?: string): Set<string> {
-    return new Set(['done', 'onfailed', 'screenshot', 'text', 'result']);
+    return new Set(['done', 'failed', 'onfailed', 'screenshot', 'text', 'result']);
   }
 
   getProducedPaths(nodeName: string, _config?: any, _nodeData?: any): Set<string> {
@@ -24,5 +29,14 @@ export class BrowserPlugin implements ToolPlugin {
       paths.add(`${nodeName}.${k}`);
     }
     return paths;
+  }
+
+  synthesizeOutputs(ctx: OutputSynthesisContext): NodeOutputDefinition[] {
+    const existing = ctx.data?.definitionOutputs || ctx.def?.outputs || ctx.data?.outputs || [];
+    const hasLegacyResult = existing.some((o: NodeOutputDefinition) => o.name === 'result') || existing.length === 0;
+    if (hasLegacyResult && ctx.def?.outputs?.length) {
+      return ctx.def.outputs;
+    }
+    return existing;
   }
 }

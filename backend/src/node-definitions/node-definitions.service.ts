@@ -55,7 +55,7 @@ export interface NodeDefinition {
   name: string;
   type: string;
   description: string;
-  category: 'Flow' | 'Agent' | 'Function' | 'App' | 'Logic' | 'Control' | 'Knowledge' | 'Artifact' | 'Execution' | 'Integration';
+  category: 'Flow' | 'Agent' | 'Function' | 'App' | 'Logic' | 'Control' | 'Knowledge' | 'Artifact' | 'Execution' | 'Integration' | 'Data';
   inputs: ToolInput[];
   outputs: ToolOutput[];
   actionDefinitions?: ToolActionDefinition[];
@@ -65,7 +65,7 @@ export interface NodeDefinition {
 export class NodeDefinitionsService {
   private readonly logger = new Logger(NodeDefinitionsService.name);
 
-  private getCategory(type: string): 'Flow' | 'Agent' | 'Function' | 'App' | 'Logic' | 'Control' | 'Knowledge' | 'Artifact' | 'Execution' | 'Integration' {
+  private getCategory(type: string): 'Flow' | 'Agent' | 'Function' | 'App' | 'Logic' | 'Control' | 'Knowledge' | 'Artifact' | 'Execution' | 'Integration' | 'Data' {
     switch (type.toLowerCase()) {
       case 'trigger':
       case 'subgraph':
@@ -96,6 +96,8 @@ export class NodeDefinitionsService {
         return 'Knowledge';
       case 'artifact':
         return 'Artifact';
+      case 'file':
+        return 'Data';
       case 'execution':
       case 'repo-inspect':
         return 'Execution';
@@ -107,6 +109,8 @@ export class NodeDefinitionsService {
       case 'http-response':
       case 'httpresponse':
       case 'telegram':
+      case 'secrets':
+      case 'database':
         return 'Integration';
       case 'orchestrator':
       case 'delegator':
@@ -117,6 +121,7 @@ export class NodeDefinitionsService {
       case 'foreach':
       case 'aggregate':
       case 'notification':
+      case 'log':
         return 'Control';
       default:
         return 'Function';

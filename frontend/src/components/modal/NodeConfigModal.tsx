@@ -1,11 +1,10 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Node, Edge } from '@xyflow/react';
-import { FlowNodeData, VariableItem, ToolActionDefinition, ToolOutput, ToolInput } from '@/lib/types';
-import { extractAvailableVariables, extractNodeOutputs, parseSchema } from '@/lib/variable-utils';
+import { FlowEdge, FlowNode, FlowNodeData, VariableItem, ToolActionDefinition, ToolOutput, ToolInput } from '@/lib/types';
+import { extractAvailableVariables, extractNodeOutputs, parseSchema, secretVariableItems } from '@/lib/variable-utils';
 import { DynamicFieldRenderer } from './DynamicFieldRenderer';
 import { BrowserActionBuilder } from './BrowserActionBuilder';
-import { fetchUpstreamVariables, fetchNodeDefinitions } from '@/lib/api';
+import { fetchUpstreamVariables, fetchNodeDefinitions, fetchProjectSecrets } from '@/lib/api';
 import { Rnd } from 'react-rnd';
 import {
   X,
@@ -26,14 +25,16 @@ import {
   Maximize2,
   Minimize2,
   ChevronUp,
+  GitBranch,
 } from 'lucide-react';
 
 interface NodeConfigModalProps {
   isOpen: boolean;
-  node: Node<FlowNodeData> | null;
-  allNodes: Node<FlowNodeData>[];
-  edges: Edge[];
+  node: FlowNode | null;
+  allNodes: FlowNode[];
+  edges: FlowEdge[];
   graphId?: string | null;
+  projectId?: string | null;
   onClose: () => void;
   onSaveConfig: (
     nodeId: string,
@@ -54,6 +55,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
   allNodes,
   edges,
   graphId,
+  projectId,
   onClose,
   onSaveConfig,
 }) => {
@@ -157,12 +159,31 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
       const clientVars = extractAvailableVariables(allNodes, edges, node.id);
       setAvailableVariables(clientVars);
 
+      const secretNames: string[] = [];
+      let upstreamVars: VariableItem[] = [];
+      const publishVariables = () => {
+        const combinedMap = new Map<string, VariableItem>();
+        upstreamVars.forEach((item) => combinedMap.set(item.path, item));
+        clientVars.forEach((item) => combinedMap.set(item.path, item));
+        secretVariableItems(secretNames).forEach((item) => combinedMap.set(item.path, item));
+        setAvailableVariables(Array.from(combinedMap.values()));
+      };
+
+      if (projectId) {
+        fetchProjectSecrets(projectId)
+          .then((secrets) => {
+            secretNames.splice(0, secretNames.length, ...secrets.map((secret) => secret.name));
+            publishVariables();
+          })
+          .catch(() => {});
+      }
+
       // If saved graph exists, query backend for topological ancestor variables and merge
       if (graphId) {
         fetchUpstreamVariables(graphId, node.id)
           .then((res) => {
             if (res && Array.isArray(res.variables) && res.variables.length > 0) {
-              const mappedVars: VariableItem[] = res.variables.map((v: any) => ({
+              upstreamVars = res.variables.map((v: any) => ({
                 name: v.outputName,
                 label: v.path,
                 path: v.path,
@@ -171,12 +192,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                 sourceNodeType: v.type,
                 type: v.type,
               }));
-
-              // Merge backend variables with live client variables (live client state takes priority)
-              const combinedMap = new Map<string, VariableItem>();
-              mappedVars.forEach((v) => combinedMap.set(v.path, v));
-              clientVars.forEach((v) => combinedMap.set(v.path, v));
-              setAvailableVariables(Array.from(combinedMap.values()));
+              publishVariables();
             }
           })
           .catch(() => {
@@ -184,7 +200,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
           });
       }
     }
-  }, [isOpen, node, allNodes, edges, graphId]);
+  }, [isOpen, node, allNodes, edges, graphId, projectId]);
 
   if (!isOpen || !node || !mounted) return null;
 
@@ -233,6 +249,28 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
       return true;
     });
   }
+
+  const eventOutputs = outputs.filter((output) => output.type === 'branch');
+  const dataOutputs = outputs.filter((output) => output.type !== 'branch');
+  const connectedEventNames = new Set(
+    edges
+      .filter((edge) => edge.source === node.id && edge.sourceHandle)
+      .map((edge) => String(edge.sourceHandle)),
+  );
+  const branchFirstType = [
+    'artifact', 'condition', 'foreach', 'human-gate', 'loop', 'orchestrator', 'research-review', 'router', 'validator',
+  ].includes(String(node.data?.definitionType || '').toLowerCase());
+  const operation = String(formConfig.operation || '').toLowerCase();
+  const operationBranches =
+    (String(node.data?.definitionType || '').toLowerCase() === 'file' && operation === 'exists') ||
+    (String(node.data?.definitionType || '').toLowerCase() === 'database' && operation === 'ping') ||
+    (String(node.data?.definitionType || '').toLowerCase() === 'secrets' && operation === 'exists') ||
+    (String(node.data?.definitionType || '').toLowerCase() === 'log' && operation === 'assert' && String(formConfig.onFail || '').toLowerCase() === 'route');
+  const configuredExposedEvents = Array.isArray(formConfig.exposedEvents)
+    ? formConfig.exposedEvents.map((name: unknown) => String(name))
+    : branchFirstType || operationBranches
+      ? eventOutputs.map((output) => output.name)
+      : [];
 
   const browserActions = Array.isArray(formConfig.actions) ? formConfig.actions : [];
 
@@ -823,8 +861,77 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
               />
             )}
 
+            {eventOutputs.length > 0 && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: '12px 14px',
+                  background: 'var(--bg-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-color)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: 12,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    fontWeight: 700,
+                    color: 'var(--text-secondary)',
+                    marginBottom: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <GitBranch size={14} color="var(--accent-primary)" />
+                  Exposed Events
+                </h4>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                  Exposed events appear as independent workflow paths. Connected events stay visible.
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {eventOutputs.map((output) => {
+                    const connected = connectedEventNames.has(output.name);
+                    const checked = connected || configuredExposedEvents.includes(output.name);
+                    return (
+                      <label
+                        key={output.name}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 7,
+                          padding: '6px 9px',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 'var(--radius-sm)',
+                          background: checked ? 'var(--accent-subtle)' : 'var(--bg-surface)',
+                          color: 'var(--text-secondary)',
+                          fontSize: 12,
+                          cursor: connected ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={connected}
+                          onChange={(event) => {
+                            const next = new Set(configuredExposedEvents);
+                            if (event.target.checked) next.add(output.name);
+                            else next.delete(output.name);
+                            handleFieldChange('exposedEvents', Array.from(next));
+                          }}
+                        />
+                        <span>{output.label || output.name}</span>
+                        {connected && <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>connected</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Outputs Inspection */}
-            {outputs.length > 0 && (
+            {dataOutputs.length > 0 && (
               <div
                 style={{
                   marginTop: 10,
@@ -848,7 +955,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                   }}
                 >
                   <ArrowRightCircle size={14} color="var(--accent-primary)" />
-                  Produced Output Handles & Variables
+                  Produced Variables
                 </h4>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {(() => {
@@ -888,8 +995,8 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                     }
 
                     // Check if node has a single output with an output schema (e.g. script, agent, transform)
-                    const isSingleWithSchema = outputs.length === 1 && (outputs[0].schemaFrom || formConfig.outputType || formConfig.inputSchema);
-                    const schemaField = isSingleWithSchema ? (outputs[0].schemaFrom || 'outputType') : undefined;
+                    const isSingleWithSchema = dataOutputs.length === 1 && (dataOutputs[0].schemaFrom || formConfig.outputType || formConfig.inputSchema);
+                    const schemaField = isSingleWithSchema ? (dataOutputs[0].schemaFrom || 'outputType') : undefined;
                     const rawSchema = schemaField ? (formConfig[schemaField] || formConfig.outputType || formConfig.inputSchema) : undefined;
                     if (rawSchema) {
                       const parsed = parseSchema(rawSchema);
@@ -927,7 +1034,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                       }
                     }
 
-                    return outputs.flatMap((out: any) => {
+                    return dataOutputs.flatMap((out: any) => {
                       const schemaField = out.schemaFrom;
                       const raw =
                         schemaField && formConfig[schemaField]

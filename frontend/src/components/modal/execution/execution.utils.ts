@@ -1,7 +1,6 @@
-import { Node } from '@xyflow/react';
-import { FlowNodeData, RunResult } from '@/lib/types';
+import { FlowNode, FlowNodeData, RunResult } from '@/lib/types';
 
-export function generateSampleJsonFromRoute(routeNode: Node<FlowNodeData>): Record<string, any> {
+export function generateSampleJsonFromRoute(routeNode: FlowNode): Record<string, any> {
   const config = routeNode.data?.config || {};
   const typeStr = String(config.type || '').trim();
 
@@ -41,7 +40,7 @@ export function generateSampleJsonFromRoute(routeNode: Node<FlowNodeData>): Reco
   };
 }
 
-export function generateSampleQueryFromRoute(routeNode: Node<FlowNodeData>): string {
+export function generateSampleQueryFromRoute(routeNode: FlowNode): string {
   const config = routeNode.data?.config || {};
   const queryStr = String(config.querySchema || '').trim();
 

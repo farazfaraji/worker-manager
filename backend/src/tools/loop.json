@@ -23,5 +23,11 @@
     { "name": "maxRounds", "label": "Maximum Research Rounds", "type": "number", "defaultValue": 3, "minimum": 1, "maximum": 10, "dependsOn": { "field": "mode", "equals": "research" } },
     { "name": "maxHandoffChars", "label": "Previous Round Handoff Characters", "type": "number", "defaultValue": 12000, "minimum": 1000, "maximum": 16000, "dependsOn": { "field": "mode", "equals": "research" }, "helpText": "Maximum serialized previous-round result passed into the next research round. Store large evidence as artifacts and pass their IDs." }
   ],
-  "outputs": [{ "name": "result", "label": "Iterations", "type": "object", "schema": { "status": "string", "decision": "string", "iterations": "array", "count": "number", "stopReason": "string", "limitReached": "boolean", "gaps": "array", "output": "object" } }]
+  "outputs": [
+    { "name": "completed", "label": "Completed", "type": "branch" },
+    { "name": "incomplete", "label": "Incomplete", "type": "branch" },
+    { "name": "limitReached", "label": "Limit Reached", "type": "branch" },
+    { "name": "failed", "label": "Failed", "type": "branch" },
+    { "name": "result", "label": "Iterations", "type": "object", "schema": { "status": "string", "decision": "string", "iterations": "array", "count": "number", "stopReason": "string", "limitReached": "boolean", "gaps": "array", "output": "object" } }
+  ]
 }

@@ -17,7 +17,7 @@ export class WebSearchPlugin implements ToolPlugin {
   }
 
   getValidHandles(_config?: any, _outputs?: any[], _nodeData?: any, _nodeName?: string): Set<string> {
-    return new Set(['done', 'onfailed', 'results', 'answer', 'query', 'text', 'result']);
+    return new Set(['done', 'failed', 'onfailed', 'results', 'answer', 'query', 'text', 'result']);
   }
 
   getProducedPaths(nodeName: string, _config?: any, _nodeData?: any): Set<string> {

@@ -65,6 +65,8 @@ Executes an iteration pipeline built directly on the current flow board:
 - **`item` handle** (orange): Connects to the worker sequence (e.g. `Agent`, `Script`, `Transform`).
 - **`Output` block**: Connect to the end of the iteration sequence. Its configured value becomes the return payload for each item.
 - **`done` handle** (green): Triggers when all iterations have finished, continuing downstream execution.
+- **`partial` handle**: Triggers when processing finishes with one or more item failures and `stopOnError` is disabled.
+- **`failed` handle**: Triggers when processing stops on an error or the Foreach operation itself fails.
 - **Available Variables**: Downstream and loop-branch nodes can reference:
   - `{{foreach_1.item}}`: The current item being processed.
   - `{{foreach_1.index}}`: Zero-based index of the item.
@@ -90,7 +92,7 @@ Delegates each item execution to an external saved flow board identified by `gra
 
 | Mode | Configuration | Behavior | Best Used For |
 | :--- | :--- | :--- | :--- |
-| **Synchronous** | `executionType: "sync"` | Waits for all items to complete across the bounded worker pool (1–10). Collects all results and populates `foreach.result.items` before activating `done`. | Downstream processing that depends on the collected outputs (e.g. summarization, DB bulk write). |
+| **Synchronous** | `executionType: "sync"` | Waits for all items to complete across the bounded worker pool (1–10). Collects all results and activates `done`, `partial`, or `failed` according to the final status. | Downstream processing that depends on the collected outputs (e.g. summarization, DB bulk write). |
 | **Asynchronous** | `executionType: "async"` | Dispatches worker executions in the background (fire-and-forget). Immediately activates `done` without blocking the parent run. | Background batch indexing, webhook fan-out, or notifications where caller response shouldn't wait. |
 
 ---

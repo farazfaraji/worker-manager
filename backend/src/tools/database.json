@@ -1,0 +1,189 @@
+{
+  "name": "Database",
+  "type": "database",
+  "description": "Query MongoDB or PostgreSQL using a connection string stored in a project secret. Read-only by default.",
+  "inputs": [
+    {
+      "name": "driver",
+      "label": "Driver",
+      "type": "select",
+      "defaultValue": "mongodb",
+      "options": [
+        { "label": "MongoDB", "value": "mongodb" },
+        { "label": "PostgreSQL", "value": "postgres" }
+      ]
+    },
+    {
+      "name": "connectionSecret",
+      "label": "Connection Secret",
+      "type": "text",
+      "placeholder": "MONGO_URI",
+      "helpText": "Name of a project secret that holds the connection URI. The URI is never stored on the node."
+    },
+    {
+      "name": "readOnly",
+      "label": "Read Only",
+      "type": "boolean",
+      "defaultValue": true,
+      "helpText": "Blocks insert, update, delete, execute, and transaction."
+    },
+    {
+      "name": "operation",
+      "label": "Operation",
+      "type": "select",
+      "defaultValue": "find",
+      "options": [
+        { "label": "Ping", "value": "ping" },
+        { "label": "Find", "value": "find" },
+        { "label": "Find One", "value": "findOne" },
+        { "label": "Count", "value": "count" },
+        { "label": "Aggregate", "value": "aggregate" },
+        { "label": "Distinct", "value": "distinct" },
+        { "label": "Insert One", "value": "insertOne" },
+        { "label": "Insert Many", "value": "insertMany" },
+        { "label": "Update One", "value": "updateOne" },
+        { "label": "Update Many", "value": "updateMany" },
+        { "label": "Delete One", "value": "deleteOne" },
+        { "label": "Delete Many", "value": "deleteMany" },
+        { "label": "Query (SQL)", "value": "query" },
+        { "label": "Execute (SQL)", "value": "execute" },
+        { "label": "Transaction", "value": "transaction" },
+        { "label": "List Collections", "value": "listCollections" },
+        { "label": "List Tables", "value": "listTables" },
+        { "label": "Describe", "value": "describe" }
+      ]
+    },
+    {
+      "name": "collection",
+      "label": "Collection",
+      "type": "text",
+      "placeholder": "orders",
+      "dependsOn": { "field": "driver", "equals": "mongodb" }
+    },
+    {
+      "name": "filter",
+      "label": "Filter",
+      "type": "json",
+      "placeholder": "{ \"status\": \"open\" }",
+      "dependsOn": { "field": "driver", "equals": "mongodb" }
+    },
+    {
+      "name": "projection",
+      "label": "Projection",
+      "type": "json",
+      "dependsOn": { "field": "driver", "equals": "mongodb" }
+    },
+    {
+      "name": "sort",
+      "label": "Sort",
+      "type": "json",
+      "dependsOn": { "field": "operation", "equals": "find" }
+    },
+    {
+      "name": "pipeline",
+      "label": "Pipeline",
+      "type": "json",
+      "placeholder": "[{ \"$match\": { \"status\": \"open\" } }]",
+      "dependsOn": { "field": "operation", "equals": "aggregate" }
+    },
+    {
+      "name": "field",
+      "label": "Field",
+      "type": "text",
+      "dependsOn": { "field": "operation", "equals": "distinct" }
+    },
+    {
+      "name": "document",
+      "label": "Document",
+      "type": "json",
+      "dependsOn": { "field": "operation", "equals": "insertOne" }
+    },
+    {
+      "name": "documents",
+      "label": "Documents",
+      "type": "json",
+      "dependsOn": { "field": "operation", "equals": "insertMany" }
+    },
+    {
+      "name": "update",
+      "label": "Update",
+      "type": "json",
+      "placeholder": "{ \"$set\": { \"status\": \"closed\" } }",
+      "dependsOn": { "field": "operation", "in": ["updateOne", "updateMany"] }
+    },
+    {
+      "name": "sql",
+      "label": "SQL",
+      "type": "code",
+      "language": "sql",
+      "placeholder": "SELECT id, title FROM articles WHERE status = $1",
+      "helpText": "Use $1, $2 placeholders. Template interpolation is rejected unless Allow Raw SQL is on.",
+      "dependsOn": { "field": "operation", "in": ["query", "execute"] }
+    },
+    {
+      "name": "params",
+      "label": "Parameters",
+      "type": "json",
+      "placeholder": "[\"open\"]",
+      "dependsOn": { "field": "operation", "in": ["query", "execute"] }
+    },
+    {
+      "name": "statements",
+      "label": "Statements",
+      "type": "json",
+      "placeholder": "[{ \"sql\": \"UPDATE articles SET status = $1 WHERE id = $2\", \"params\": [\"closed\", 1] }]",
+      "dependsOn": { "field": "operation", "equals": "transaction" }
+    },
+    {
+      "name": "table",
+      "label": "Table",
+      "type": "text",
+      "dependsOn": { "field": "operation", "equals": "describe" }
+    },
+    {
+      "name": "allowRawSql",
+      "label": "Allow Raw SQL",
+      "type": "boolean",
+      "defaultValue": false,
+      "helpText": "Permits {{ }} inside SQL. Leave off and pass values through Parameters.",
+      "dependsOn": { "field": "driver", "equals": "postgres" }
+    },
+    {
+      "name": "limit",
+      "label": "Limit",
+      "type": "number",
+      "dependsOn": { "field": "operation", "in": ["find"] }
+    },
+    {
+      "name": "skip",
+      "label": "Skip",
+      "type": "number",
+      "dependsOn": { "field": "operation", "equals": "find" }
+    },
+    {
+      "name": "maxRows",
+      "label": "Max Rows",
+      "type": "number",
+      "defaultValue": 1000
+    },
+    {
+      "name": "timeoutMs",
+      "label": "Timeout (ms)",
+      "type": "number",
+      "defaultValue": 15000
+    },
+    {
+      "name": "outputSchema",
+      "label": "Output Schema",
+      "type": "code",
+      "language": "typescript",
+      "placeholder": "z.object({ rows: z.array(z.object({ id: z.string() })) })",
+      "helpText": "Optional Zod schema used for downstream autocomplete."
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Result", "type": "object", "schemaFrom": "outputSchema" },
+    { "name": "true", "label": "True", "type": "branch", "dependsOn": { "field": "operation", "equals": "ping" } },
+    { "name": "false", "label": "False", "type": "branch", "dependsOn": { "field": "operation", "equals": "ping" } }
+  ]
+}

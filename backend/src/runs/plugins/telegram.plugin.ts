@@ -102,4 +102,8 @@ export class TelegramPlugin implements ToolPlugin {
     }
     return paths;
   }
+
+  isWaitingGate(config?: any): boolean {
+    return config?.mode === 'question';
+  }
 }

@@ -2,8 +2,7 @@
 
 import React from 'react';
 import { AlertCircle, Sparkles, MessageSquare } from 'lucide-react';
-import { Node } from '@xyflow/react';
-import { FlowNodeData } from '@/lib/types';
+import { FlowNode, FlowNodeData } from '@/lib/types';
 
 interface ExecutionInputTabProps {
   inputJson: string;
@@ -11,7 +10,7 @@ interface ExecutionInputTabProps {
   jsonError: string | null;
   setJsonError: (err: string | null) => void;
   /** The human-input trigger node (if any) in the current graph */
-  humanInputNode?: Node<FlowNodeData> | null;
+  humanInputNode?: FlowNode | null;
 }
 
 export const ExecutionInputTab: React.FC<ExecutionInputTabProps> = ({

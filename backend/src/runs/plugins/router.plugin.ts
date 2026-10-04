@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ToolPlugin, ToolExecutionContext } from './tool-plugin.interface';
+import {
+  ToolPlugin,
+  ToolExecutionContext,
+  OutputSynthesisContext,
+  NodeOutputDefinition,
+} from './tool-plugin.interface';
 
 @Injectable()
 export class RouterPlugin implements ToolPlugin {
@@ -87,5 +92,63 @@ export class RouterPlugin implements ToolPlugin {
       }
     }
     return paths;
+  }
+
+  synthesizeOutputs(ctx: OutputSynthesisContext): NodeOutputDefinition[] {
+    let routes = ctx.config.routes;
+    if (routes === undefined || routes === null || routes === '') {
+      const routesInput = ctx.def?.inputs?.find((inp) => inp.name === 'routes');
+      if (routesInput?.defaultValue) {
+        routes = routesInput.defaultValue;
+      }
+    }
+
+    if (typeof routes === 'string') {
+      try {
+        routes = JSON.parse(routes);
+      } catch {
+        routes = [];
+      }
+    }
+
+    if (Array.isArray(routes) && routes.length > 0) {
+      const dynamicRoutes: NodeOutputDefinition[] = [];
+      const seen = new Set<string>();
+
+      for (const r of routes) {
+        const routeName = String(r?.name || r?.id || '').trim();
+        if (routeName && !seen.has(routeName.toLowerCase())) {
+          seen.add(routeName.toLowerCase());
+          dynamicRoutes.push({
+            name: routeName,
+            label: routeName,
+            type: 'branch',
+          });
+        }
+      }
+
+      const defaultRouteName = String(ctx.config.defaultRoute || '').trim();
+      if (defaultRouteName && !seen.has(defaultRouteName.toLowerCase())) {
+        seen.add(defaultRouteName.toLowerCase());
+        dynamicRoutes.push({
+          name: defaultRouteName,
+          label: defaultRouteName,
+          type: 'branch',
+        });
+      } else if (!seen.has('default')) {
+        dynamicRoutes.push({
+          name: 'default',
+          label: 'default',
+          type: 'branch',
+        });
+      }
+
+      return dynamicRoutes;
+    }
+
+    return [
+      { name: 'default', label: 'default', type: 'branch' },
+      { name: 'result', label: 'Route Result', type: 'object' },
+    ];
   }
 }

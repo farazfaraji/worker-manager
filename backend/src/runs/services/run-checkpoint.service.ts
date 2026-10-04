@@ -48,12 +48,12 @@ export class RunCheckpointService {
       waitingNodeId: params.waitingNodeId,
       waitingChildRunId: params.waitingChildRunId,
       queue: params.queue,
-      context: params.context,
+      context: redactSecrets(params.context),
       completedNodeIds: params.completedNodeIds,
-      nodeRecords: params.nodeRecords,
-      lastNodeOutput: params.lastNodeOutput,
-      waitingDescriptor: params.waitingDescriptor,
-      metrics: params.metrics,
+      nodeRecords: redactSecrets(params.nodeRecords),
+      lastNodeOutput: redactSecrets(params.lastNodeOutput),
+      waitingDescriptor: redactSecrets(params.waitingDescriptor),
+      metrics: redactSecrets(params.metrics),
       createdAt: new Date(),
     });
   }

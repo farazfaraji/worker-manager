@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Project } from '@/lib/types';
 import { deleteProject, duplicateProject } from '@/lib/api';
+import { ProjectSecretsPanel } from './ProjectSecretsPanel';
 
 interface ManageProjectsModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
   onOpenEditProject,
   onRefreshProjects,
 }) => {
+  const [tab, setTab] = useState<'projects' | 'secrets'>('projects');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +119,20 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
           </button>
         </div>
 
+        <div style={{ display: 'flex', gap: 8, padding: '0 20px 8px' }}>
+          <button type="button" className={tab === 'projects' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('projects')}>
+            Projects
+          </button>
+          <button type="button" className={tab === 'secrets' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('secrets')}>
+            Secrets
+          </button>
+        </div>
+
         <div className="modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+          {tab === 'secrets' ? (
+            <ProjectSecretsPanel projects={projects} activeProjectId={activeProjectId} />
+          ) : (
+          <>
           {error && (
             <div
               style={{
@@ -343,6 +358,8 @@ export const ManageProjectsModal: React.FC<ManageProjectsModalProps> = ({
               );
             })}
           </div>
+          </>
+          )}
         </div>
 
         <div className="modal-footer">

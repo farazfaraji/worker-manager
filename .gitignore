@@ -16,6 +16,9 @@ build
 .env.test.local
 .env.production.local
 
+# Project file sandbox and browser captures
+/files/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

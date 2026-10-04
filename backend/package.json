@@ -30,7 +30,11 @@
     "test:telegram": "ts-node test/telegram-flow.spec.ts",
     "test:cache": "ts-node test/node-cache.spec.ts",
     "test:langgraph": "ts-node test/graph-compiler.spec.ts",
-    "test:all": "ts-node test/control-blocks.spec.ts && ts-node test/agent-tools.spec.ts && ts-node test/web-search.spec.ts && ts-node test/artifact.spec.ts && ts-node test/run-reliability.spec.ts && ts-node test/graph-shape.service.spec.ts && ts-node test/revise-prompt.spec.ts && ts-node test/set-variable.spec.ts && ts-node test/embedding-block.spec.ts && ts-node test/research.spec.ts && ts-node test/iterative-research.spec.ts && ts-node test/webserver.spec.ts && ts-node test/telegram-flow.spec.ts && ts-node test/node-cache.spec.ts && ts-node test/graph-compiler.spec.ts"
+    "test:log": "ts-node test/log.plugin.spec.ts",
+    "test:secrets": "ts-node test/secrets.plugin.spec.ts",
+    "test:file": "ts-node test/file.plugin.spec.ts",
+    "test:database": "ts-node test/database.plugin.spec.ts",
+    "test:all": "ts-node test/control-blocks.spec.ts && ts-node test/agent-tools.spec.ts && ts-node test/web-search.spec.ts && ts-node test/artifact.spec.ts && ts-node test/run-reliability.spec.ts && ts-node test/graph-shape.service.spec.ts && ts-node test/revise-prompt.spec.ts && ts-node test/set-variable.spec.ts && ts-node test/embedding-block.spec.ts && ts-node test/research.spec.ts && ts-node test/iterative-research.spec.ts && ts-node test/webserver.spec.ts && ts-node test/telegram-flow.spec.ts && ts-node test/node-cache.spec.ts && ts-node test/graph-compiler.spec.ts && ts-node test/log.plugin.spec.ts && ts-node test/secrets.plugin.spec.ts && ts-node test/file.plugin.spec.ts && ts-node test/database.plugin.spec.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.13",
@@ -42,19 +46,24 @@
     "@nestjs/platform-express": "^10.3.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "mongodb": "^7.7.0",
     "mongoose": "^8.2.0",
+    "mustache": "^4.2.0",
+    "pg": "^8.23.1",
     "playwright": "^1.62.1",
     "reflect-metadata": "^0.2.1",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",
     "@nestjs/schematics": "^10.1.0",
     "@types/express": "^4.17.21",
+    "@types/mustache": "^4.2.5",
     "@types/node": "^20.11.24",
+    "@types/pg": "^8.23.1",
     "source-map-support": "^0.5.21",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.3.3"
+    "tsconfig-paths": "^4.2.0"
   }
 }

@@ -137,11 +137,12 @@ export class NodeCacheService {
   /**
    * Clears the cache for an entire graph or a single node in that graph.
    */
-  async clearCache(graphId?: string, nodeId?: string): Promise<{ deletedCount: number }> {
+  async clearCache(graphId?: string, nodeId?: string, projectId?: string): Promise<{ deletedCount: number }> {
     try {
       const query: any = {};
       if (graphId) query.graphId = graphId;
       if (nodeId) query.nodeId = nodeId;
+      if (projectId) query.projectId = projectId;
       const res = await this.nodeCacheModel.deleteMany(query).exec();
       this.logger.log(`🗑️ [NodeCache] Cleared cache${graphId ? ` for graph "${graphId}"` : ''}${nodeId ? ` node "${nodeId}"` : ''} (${res.deletedCount} entries)`);
       return { deletedCount: res.deletedCount || 0 };

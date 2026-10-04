@@ -6,7 +6,6 @@ import {
   Search,
   Filter,
   RefreshCw,
-  ArrowLeft,
   Copy,
   Check,
   Download,
@@ -45,6 +44,8 @@ import {
 } from '@/lib/api';
 import { ArtifactItem, ArtifactRelationItem, Project } from '@/lib/types';
 import { MarkdownViewer } from '@/components/artifacts/MarkdownViewer';
+import { AppNav } from '@/components/AppNav';
+import { readActiveProjectId, writeActiveProjectId } from '@/lib/studio-session';
 
 const TYPE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   'high-level': { label: 'High-Level Concept', color: '#0284c7', bg: '#e0f2fe' },
@@ -73,6 +74,7 @@ export function ArtifactsView() {
   // Filters
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [projectReady, setProjectReady] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
@@ -118,8 +120,14 @@ export function ArtifactsView() {
   };
 
   useEffect(() => {
+    setSelectedProjectId(readActiveProjectId());
+    setProjectReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!projectReady) return;
     void loadData();
-  }, [latestOnly, selectedProjectId]);
+  }, [latestOnly, selectedProjectId, projectReady]);
 
   // Filtered items
   const filteredArtifacts = useMemo(() => {
@@ -348,22 +356,11 @@ export function ArtifactsView() {
   };
 
   return (
-    <div className="artifacts-page-container">
-      {/* Top Navigation Bar */}
+    <div className="page-shell">
+      <AppNav />
+      <div className="artifacts-page-container">
       <header className="artifacts-header">
         <div className="artifacts-header-left">
-          <button
-            type="button"
-            className="btn btn-default"
-            onClick={() => {
-              window.location.href = '/';
-            }}
-            title="Return to Flow Studio Board"
-          >
-            <ArrowLeft size={16} />
-            <span>Board</span>
-          </button>
-
           <div className="artifacts-header-title-block">
             <div className="artifacts-title-row">
               <FileText size={20} className="artifacts-brand-icon" />
@@ -443,7 +440,11 @@ export function ArtifactsView() {
             <select
               className="artifacts-filter-select"
               value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSelectedProjectId(next);
+                if (next) writeActiveProjectId(next);
+              }}
               aria-label="Filter by Project"
             >
               <option value="">All Projects</option>
@@ -1171,6 +1172,7 @@ export function ArtifactsView() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

@@ -1,0 +1,156 @@
+{
+  "name": "Log",
+  "type": "log",
+  "description": "Write a redacted trace entry, snapshot context, assert a condition, record a metric, or time a span.",
+  "inputs": [
+    {
+      "name": "operation",
+      "label": "Operation",
+      "type": "select",
+      "defaultValue": "log",
+      "options": [
+        { "label": "Log", "value": "log" },
+        { "label": "Inspect", "value": "inspect" },
+        { "label": "Assert", "value": "assert" },
+        { "label": "Metric", "value": "metric" },
+        { "label": "Timer", "value": "timer" }
+      ]
+    },
+    {
+      "name": "level",
+      "label": "Level",
+      "type": "select",
+      "defaultValue": "info",
+      "options": [
+        { "label": "Debug", "value": "debug" },
+        { "label": "Info", "value": "info" },
+        { "label": "Warn", "value": "warn" },
+        { "label": "Error", "value": "error" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "log" }
+    },
+    {
+      "name": "message",
+      "label": "Message",
+      "type": "valueOrVariable",
+      "placeholder": "Fetched {{agent_1.result.count}} items",
+      "dependsOn": { "field": "operation", "in": ["log", "assert"] }
+    },
+    {
+      "name": "data",
+      "label": "Data",
+      "type": "valueOrVariable",
+      "helpText": "Optional payload attached to the log entry. Secrets are redacted before it is stored.",
+      "dependsOn": { "field": "operation", "equals": "log" }
+    },
+    {
+      "name": "paths",
+      "label": "Paths",
+      "type": "json",
+      "placeholder": "[\"agent_1.result\", \"state.count\"]",
+      "helpText": "Context paths to snapshot. Values are redacted before they are stored.",
+      "dependsOn": { "field": "operation", "equals": "inspect" }
+    },
+    {
+      "name": "mode",
+      "label": "Assert Mode",
+      "type": "radio",
+      "defaultValue": "comparison",
+      "options": [
+        { "label": "Comparison", "value": "comparison" },
+        { "label": "Expression", "value": "expression" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "assert" }
+    },
+    {
+      "name": "leftValue",
+      "label": "Left Value",
+      "type": "variable",
+      "dependsOn": { "field": "operation", "equals": "assert" }
+    },
+    {
+      "name": "operator",
+      "label": "Operator",
+      "type": "select",
+      "defaultValue": "equals",
+      "options": [
+        { "label": "Equals", "value": "equals" },
+        { "label": "Not Equals", "value": "notEquals" },
+        { "label": "Contains", "value": "contains" },
+        { "label": "Greater Than", "value": "greaterThan" },
+        { "label": "Less Than", "value": "lessThan" },
+        { "label": "Is Empty", "value": "isEmpty" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "assert" }
+    },
+    {
+      "name": "rightValue",
+      "label": "Right Value",
+      "type": "valueOrVariable",
+      "dependsOn": { "field": "operation", "equals": "assert" }
+    },
+    {
+      "name": "expression",
+      "label": "Expression",
+      "type": "code",
+      "language": "javascript",
+      "placeholder": "return input.score >= 0.8;",
+      "dependsOn": { "field": "mode", "equals": "expression" }
+    },
+    {
+      "name": "onFail",
+      "label": "On Failure",
+      "type": "select",
+      "defaultValue": "fail",
+      "options": [
+        { "label": "Fail the run", "value": "fail" },
+        { "label": "Route to false", "value": "route" }
+      ],
+      "helpText": "fail throws ASSERTION_FAILED (not retried). route follows the false handle.",
+      "dependsOn": { "field": "operation", "equals": "assert" }
+    },
+    {
+      "name": "name",
+      "label": "Metric Name",
+      "type": "text",
+      "placeholder": "items_fetched",
+      "dependsOn": { "field": "operation", "equals": "metric" }
+    },
+    {
+      "name": "value",
+      "label": "Metric Value",
+      "type": "valueOrVariable",
+      "dependsOn": { "field": "operation", "equals": "metric" }
+    },
+    {
+      "name": "tags",
+      "label": "Tags",
+      "type": "json",
+      "placeholder": "{ \"source\": \"web\" }",
+      "dependsOn": { "field": "operation", "equals": "metric" }
+    },
+    {
+      "name": "phase",
+      "label": "Phase",
+      "type": "select",
+      "defaultValue": "start",
+      "options": [
+        { "label": "Start", "value": "start" },
+        { "label": "Stop", "value": "stop" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "timer" }
+    },
+    {
+      "name": "label",
+      "label": "Timer Label",
+      "type": "text",
+      "defaultValue": "default",
+      "dependsOn": { "field": "operation", "equals": "timer" }
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Entry", "type": "object" },
+    { "name": "true", "label": "True", "type": "branch", "dependsOn": { "field": "operation", "equals": "assert" } },
+    { "name": "false", "label": "False", "type": "branch", "dependsOn": { "field": "operation", "equals": "assert" } }
+  ]
+}
