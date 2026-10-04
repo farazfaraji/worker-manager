@@ -338,7 +338,9 @@ export class SubgraphRunnerService {
         (e: any) => e.source === node.id && String(e.sourceHandle || '').toLowerCase() === 'item',
       );
       const fallbackEdge = (options?.edges || []).find(
-        (e: any) => e.source === node.id && String(e.sourceHandle || '').toLowerCase() !== 'done',
+        (e: any) =>
+          e.source === node.id &&
+          !['done', 'partial', 'failed'].includes(String(e.sourceHandle || '').toLowerCase()),
       );
       const startNodeId = loopStartEdge?.target || fallbackEdge?.target;
 

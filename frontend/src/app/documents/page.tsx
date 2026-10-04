@@ -1,8 +1,5 @@
-'use client';
-
-import React from 'react';
-import { ArtifactsView } from '@/components/artifacts/ArtifactsView';
+import { redirect } from 'next/navigation';
 
 export default function DocumentsPage() {
-  return <ArtifactsView />;
+  redirect('/artifacts');
 }

@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Node, Edge } from '@xyflow/react';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
-import { RunResult, FlowNodeData } from '@/lib/types';
+import { FlowEdge, FlowNode, RunResult, FlowNodeData } from '@/lib/types';
 import { getWebserverStatus, startWebserver, stopWebserver, cancelRun } from '@/lib/api';
 import {
   computeExecutionDuration,
@@ -18,8 +17,8 @@ export interface RunModalProps {
   isOpen: boolean;
   graphName: string;
   graphId: string | null;
-  nodes?: Node<FlowNodeData>[];
-  edges?: Edge[];
+  nodes?: FlowNode[];
+  edges?: FlowEdge[];
   isDirty: boolean;
   onClose: () => void;
   onRun: (inputPayload: any, options?: { debugMode?: boolean; useCache?: boolean }) => Promise<RunResult>;

@@ -1,5 +1,10 @@
 import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
-import { ToolPlugin, ToolExecutionContext } from './tool-plugin.interface';
+import {
+  ToolPlugin,
+  ToolExecutionContext,
+  OutputSynthesisContext,
+  NodeOutputDefinition,
+} from './tool-plugin.interface';
 import { SubgraphRunnerService } from '../services/subgraph-runner.service';
 import { VariableResolverService } from '../services/variable-resolver.service';
 
@@ -74,7 +79,7 @@ export class ForeachPlugin implements ToolPlugin {
   }
 
   getValidHandles(_config?: any, _outputs?: any[], _nodeData?: any, _nodeName?: string): Set<string> {
-    return new Set(['item', 'done', 'result']);
+    return new Set(['item', 'done', 'partial', 'failed', 'result']);
   }
 
   getProducedPaths(nodeName: string, _config?: any, _nodeData?: any): Set<string> {
@@ -83,5 +88,24 @@ export class ForeachPlugin implements ToolPlugin {
       paths.add(`${nodeName}.result.${k}`);
     }
     return paths;
+  }
+
+  synthesizeOutputs(ctx: OutputSynthesisContext): NodeOutputDefinition[] {
+    const mode = String(ctx.config.mode || 'canvas').toLowerCase();
+    if (mode !== 'subgraph') {
+      return [
+        { name: 'item', label: 'Item (Loop)', type: 'branch' },
+        { name: 'done', label: 'Done', type: 'branch' },
+        { name: 'partial', label: 'Partial', type: 'branch' },
+        { name: 'failed', label: 'Failed', type: 'branch' },
+        { name: 'result', label: 'Foreach Result', type: 'object' },
+      ];
+    }
+    return [
+      { name: 'done', label: 'Done', type: 'branch' },
+      { name: 'partial', label: 'Partial', type: 'branch' },
+      { name: 'failed', label: 'Failed', type: 'branch' },
+      { name: 'result', label: 'Foreach Result', type: 'object' },
+    ];
   }
 }

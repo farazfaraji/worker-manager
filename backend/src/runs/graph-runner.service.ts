@@ -25,6 +25,7 @@ import {
 } from './run.types';
 import {
   calculateObjectSize,
+  clearResolvedSecrets,
   generateResumeToken,
   hashToken,
 } from './services/redaction.util';
@@ -335,8 +336,13 @@ export class GraphRunnerService {
     const runtimeContext: Record<string, any> = { input: initialInput, apps: {}, state: {}, projectId: currentProjectId };
     const context = { ...runtimeContext, ...(options.context || {}) };
     context.state = { ...(runtimeContext.state || {}), ...(options.context?.state || context.state || {}) };
+    context.runId = runId;
     const records: any[] = options.priorRecords ? [...options.priorRecords] : [];
-    const completed = new Set<string>(records.filter((r) => r.status === 'completed').map((r) => r.nodeId));
+    const completed = new Set<string>(
+      records
+        .filter((record) => record.status === 'completed' || (record.status === 'failed' && record.output))
+        .map((record) => record.nodeId),
+    );
 
     const { nodeById, outgoing, incoming } = this.topologyService.buildAdjacency(nodes, edges);
 
@@ -450,6 +456,8 @@ export class GraphRunnerService {
       context.__runStartNodeIds = startNodes;
     }
 
+    await this.variableResolver.warmSecrets(nodes.map((node) => node?.data?.config), context);
+
     if (!Array.isArray(context.__runStartNodeIds)) {
       context.__runStartNodeIds = options.startNodeId
         ? [options.startNodeId]
@@ -517,7 +525,7 @@ export class GraphRunnerService {
             metrics,
           });
           await this.leaseService.releaseLease(runId);
-          return this.storageService.publicRun(run);
+          return this.publishedRun(runId, run);
         }
 
         const nodeId = queue.shift()!;
@@ -606,11 +614,17 @@ export class GraphRunnerService {
           ['create', 'update', 'patch', 'archive', 'addrelation', 'removerelation', 'link'].includes(
             String(nodeConfig.operation || nodeInput?.operation || '').toLowerCase(),
           );
+        const isDatabaseWrite =
+          nodeType === 'database' &&
+          ['insertone', 'insertmany', 'updateone', 'updatemany', 'deleteone', 'deletemany', 'execute', 'transaction'].includes(
+            String(nodeConfig.operation || nodeInput?.operation || '').toLowerCase(),
+          );
 
-        const effectiveMaxAttempts = (isHumanGate || isArtifactMutation) ? 1 : executionPolicy.maxAttempts;
+        const effectiveMaxAttempts = (isHumanGate || isArtifactMutation || isDatabaseWrite) ? 1 : executionPolicy.maxAttempts;
 
         let rawOutput: any;
         let finalError: any = null;
+        let routedFailure = false;
 
         const isCacheEligible = [
           'agent',
@@ -754,12 +768,40 @@ export class GraphRunnerService {
             metrics,
           });
 
-          throw finalError;
+          const hasFailurePath = (outgoing.get(node.id) || []).some((edge: any) =>
+            ['failed', 'onfailed', 'error'].includes(
+              String(edge.sourceHandle || '').toLowerCase().trim(),
+            ),
+          );
+          if (!hasFailurePath) throw finalError;
+
+          routedFailure = true;
+          rawOutput = {
+            status: 'failed',
+            error: {
+              message: finalError.message || String(finalError),
+              code: record.errorCode || 'NODE_FAILED',
+            },
+          };
+          finalError = null;
         }
 
         const output = this.variableResolver.normalizeOutput(node, rawOutput);
+        if (!routedFailure) {
+          const outputStatus = String(output?.status ?? output?.result?.status ?? '').toLowerCase();
+          const hasFailurePath = (outgoing.get(node.id) || []).some((edge: any) =>
+            ['failed', 'onfailed', 'error'].includes(
+              String(edge.sourceHandle || '').toLowerCase().trim(),
+            ),
+          );
+          if (hasFailurePath && ['failed', 'error'].includes(outputStatus)) {
+            routedFailure = true;
+            metrics.failedNodeCount = (metrics.failedNodeCount || 0) + 1;
+          }
+        }
         lastNodeOutput = output;
         record.output = output;
+        this.absorbCustomMetrics(metrics, context);
 
         // Waiting State Handling (Human-Gate or Waiting Subgraph)
         if (rawOutput?.status === 'waiting') {
@@ -887,9 +929,11 @@ export class GraphRunnerService {
         }
 
         // Completed Node Handling
-        record.status = 'completed';
+        record.status = routedFailure ? 'failed' : 'completed';
         completed.add(node.id);
-        metrics.completedNodeCount = (metrics.completedNodeCount || 0) + 1;
+        if (!routedFailure) {
+          metrics.completedNodeCount = (metrics.completedNodeCount || 0) + 1;
+        }
         context[nodeName] = output;
 
         run.nodes = records;
@@ -913,7 +957,7 @@ export class GraphRunnerService {
         // Recompute readiness after every transition. A join runs once, after all
         // incoming branches have either completed or become unreachable.
         const completedOutputs = Object.fromEntries(records
-          .filter((entry: any) => entry.status === 'completed')
+          .filter((entry: any) => entry.status === 'completed' || entry.status === 'failed')
           .map((entry: any) => [entry.nodeId, entry.output]));
 
         // Synchronize orchestrator 'done' and 'result' outputs when all its jobs finish
@@ -1014,7 +1058,7 @@ export class GraphRunnerService {
       const totalDuration = Date.now() - startTime;
       metrics.totalDurationMs = totalDuration;
 
-      run.status = 'completed';
+      run.status = records.some((record: any) => record.status === 'failed') ? 'partial' : 'completed';
       run.output = output;
       run.nodes = records;
       run.metrics = metrics;
@@ -1026,7 +1070,7 @@ export class GraphRunnerService {
       await this.checkpointService.persistCheckpoint({
         runId,
         sequence: checkpointSeq,
-        status: 'completed',
+        status: run.status,
         queue: [],
         context,
         completedNodeIds: Array.from(completed),
@@ -1039,7 +1083,7 @@ export class GraphRunnerService {
       await this.leaseService.releaseLease(runId);
 
       this.logger.log(`🏁 [FLOW RUN COMPLETED] Run: ${runId} | Duration: ${totalDuration}ms`);
-      return this.storageService.publicRun(run);
+      return this.publishedRun(runId, run);
     } catch (error: any) {
       const totalDuration = Date.now() - startTime;
       metrics.totalDurationMs = totalDuration;
@@ -1075,7 +1119,7 @@ export class GraphRunnerService {
 
       await this.leaseService.releaseLease(runId);
       this.logger.error(`🚫 [FLOW RUN FAILED] Run: ${runId} | Cause: ${error?.message || String(error)}`);
-      return this.storageService.publicRun(run);
+      return this.publishedRun(runId, run);
     }
   }
 
@@ -1320,6 +1364,8 @@ export class GraphRunnerService {
     };
     const context = { ...runtimeContext, ...(options.context || {}) };
     context.state = { ...(runtimeContext.state || {}), ...(options.context?.state || context.state || {}) };
+    context.runId = runId;
+    await this.variableResolver.warmSecrets(nodes.map((node) => node?.data?.config), context);
 
     if (!this.graphCompiler) {
       await this.leaseService.releaseLease(runId);
@@ -1417,7 +1463,7 @@ export class GraphRunnerService {
 
       await run.save();
       await this.leaseService.releaseLease(runId);
-      return this.storageService.publicRun(run);
+      return this.publishedRun(runId, run);
     }
 
     const stateSnapshot = await this.graphCompiler.getState(compiled, runId);
@@ -1429,6 +1475,7 @@ export class GraphRunnerService {
     run.output = result?.lastOutput !== undefined ? result.lastOutput : result?.context;
     metrics.completedNodeCount = recordedNodes.length;
     metrics.totalDurationMs = Date.now() - startTime;
+    this.absorbCustomMetrics(metrics, result?.context || context);
     run.metrics = metrics;
 
     await run.save();
@@ -1443,7 +1490,7 @@ export class GraphRunnerService {
       metrics,
     });
     await this.leaseService.releaseLease(runId);
-    return this.storageService.publicRun(run);
+    return this.publishedRun(runId, run);
   }
 
   private async resumeLangGraphRun(
@@ -1488,6 +1535,10 @@ export class GraphRunnerService {
     }
 
     const compiled = this.graphCompiler.compile(graph.nodes || [], graph.edges || []);
+    await this.variableResolver.warmSecrets(
+      (graph.nodes || []).map((node: any) => node?.data?.config),
+      { projectId: (graph as any)?.projectId || run.projectId, runId },
+    );
     const decision = resumePayload.decision !== undefined ? resumePayload.decision : resumePayload;
 
     let result: FlowGraphStateType | undefined;
@@ -1543,7 +1594,7 @@ export class GraphRunnerService {
       };
       await run.save();
       await this.leaseService.releaseLease(runId);
-      return this.storageService.publicRun(run);
+      return this.publishedRun(runId, run);
     }
 
     const stateSnapshot = await this.graphCompiler.getState(compiled, runId);
@@ -1570,7 +1621,7 @@ export class GraphRunnerService {
       metrics: run.metrics,
     });
     await this.leaseService.releaseLease(runId);
-    return this.storageService.publicRun(run);
+    return this.publishedRun(runId, run);
   }
 
   async cancelRun(runId: string): Promise<any> {
@@ -1613,5 +1664,18 @@ export class GraphRunnerService {
 
   topologicalOrder(nodes: RuntimeNode[], edges: any[]): RuntimeNode[] {
     return this.topologyService.topologicalOrder(nodes, edges);
+  }
+
+  private absorbCustomMetrics(metrics: Record<string, any>, context: Record<string, any>): void {
+    const extra = context?.__customMetrics;
+    if (!Array.isArray(extra) || extra.length === 0) return;
+    metrics.customMetrics = [...(metrics.customMetrics || []), ...extra];
+    context.__customMetrics = [];
+  }
+
+  private publishedRun(runId: string, run: any, extra?: any) {
+    const published = this.storageService.publicRun(run, extra);
+    clearResolvedSecrets(runId);
+    return published;
   }
 }

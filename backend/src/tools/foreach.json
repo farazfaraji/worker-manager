@@ -127,6 +127,21 @@
   ],
   "outputs": [
     {
+      "name": "done",
+      "label": "Done",
+      "type": "branch"
+    },
+    {
+      "name": "partial",
+      "label": "Partial",
+      "type": "branch"
+    },
+    {
+      "name": "failed",
+      "label": "Failed",
+      "type": "branch"
+    },
+    {
       "name": "result",
       "label": "Foreach Result",
       "type": "object",

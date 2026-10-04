@@ -9,6 +9,33 @@ const SENSITIVE_VALUE_PATTERN =
 const EMBEDDED_SECRET_PATTERN =
   /(Bearer\s+[A-Za-z0-9\-._~+/]+=*|sk-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,})/gi;
 
+/** Plaintext values resolved from the vault during a run. Checked by every redaction pass. */
+const resolvedSecretsByRun = new Map<string, Set<string>>();
+
+export function registerResolvedSecret(runId: string, value: string): void {
+  if (!runId || typeof value !== 'string' || value.length < 4) return;
+  let set = resolvedSecretsByRun.get(runId);
+  if (!set) {
+    set = new Set();
+    resolvedSecretsByRun.set(runId, set);
+  }
+  set.add(value);
+}
+
+export function clearResolvedSecrets(runId: string): void {
+  if (runId) resolvedSecretsByRun.delete(runId);
+}
+
+function redactRegisteredSecrets(text: string): string {
+  let out = text;
+  for (const set of resolvedSecretsByRun.values()) {
+    for (const secret of set) {
+      if (secret && out.includes(secret)) out = out.split(secret).join('[REDACTED]');
+    }
+  }
+  return out;
+}
+
 /**
  * Compute single-way SHA-256 hash of a string (such as an opaque resume token)
  */
@@ -43,7 +70,7 @@ export function redactSecrets(data: any, seen = new WeakSet()): any {
       }
       // Replace directly: testing a global regexp first can leave lastIndex set
       // and miss a secret in the next string processed.
-      const cleaned = data.replace(EMBEDDED_SECRET_PATTERN, '[REDACTED]');
+      const cleaned = redactRegisteredSecrets(data.replace(EMBEDDED_SECRET_PATTERN, '[REDACTED]'));
       if (cleaned !== data) return cleaned;
     }
     return data;

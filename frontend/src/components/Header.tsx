@@ -1,20 +1,19 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Save,
   Copy,
   FolderOpen,
   Plus,
-  Workflow,
   CheckCircle2,
   AlertCircle,
   Loader2,
   Play,
   Settings,
-  History,
   Share2,
-  FileText,
+  Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 
 import { Project } from '@/lib/types';
@@ -28,6 +27,8 @@ interface HeaderProps {
   isExecuting?: boolean;
   projects?: Project[];
   activeProject?: Project | null;
+  assistantOpen?: boolean;
+  onToggleAssistant?: () => void;
   onSelectProject?: (projectId: string) => void;
   onOpenCreateProject?: () => void;
   onOpenManageProjects?: () => void;
@@ -49,6 +50,8 @@ export const Header: React.FC<HeaderProps> = ({
   isExecuting = false,
   projects = [],
   activeProject = null,
+  assistantOpen = false,
+  onToggleAssistant,
   onSelectProject = () => {},
   onOpenCreateProject = () => {},
   onOpenManageProjects = () => {},
@@ -61,14 +64,35 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettingsModal,
   onNameChange,
 }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
+
+  const runMenuAction = (action: () => void) => {
+    setMenuOpen(false);
+    action();
+  };
+
   return (
     <header className="header-container">
       <div className="header-left">
-        <div className="brand-badge">
-          <Workflow size={18} />
-          <span>Flow Studio</span>
-        </div>
-
         {projects.length > 0 && (
           <ProjectSelector
             projects={projects}
@@ -110,76 +134,87 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           )}
         </div>
+
       </div>
 
       <div className="header-actions">
-        <button
-          type="button"
-          className="btn btn-default"
-          onClick={onNewBoard}
-          title="Create a new blank board"
-        >
-          <Plus size={15} />
-          New
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-default"
-          onClick={onOpenLoadModal}
-          title="Load an existing graph from MongoDB"
-        >
-          <FolderOpen size={15} />
-          Load
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-default"
-          onClick={onSaveAs}
-          title="Save a copy under a new name"
-        >
-          <Copy size={15} />
-          Save As
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-default"
-          onClick={onSave}
-          disabled={isSaving}
-          title="Save changes to database"
-        >
-          {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-          Save
-        </button>
-
-        {graphId && onShare && (
+        {onToggleAssistant && (
           <button
             type="button"
-            className="btn btn-default"
-            onClick={onShare}
-            title="Copy shareable link for this flow"
+            className={`header-icon-btn${assistantOpen ? ' active' : ''}`}
+            onClick={onToggleAssistant}
+            title="Flow Assistant"
+            aria-label="Flow Assistant"
+            aria-pressed={assistantOpen}
           >
-            <Share2 size={15} />
-            Share
+            <Sparkles size={16} />
           </button>
         )}
 
         <button
           type="button"
-          className="btn btn-default"
+          className="header-icon-btn"
           onClick={onOpenSettingsModal}
-          title="Configure LLM Models and Modalities"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
+          title="Model settings"
+          aria-label="Model settings"
         >
-          <Settings size={15} />
-          Settings
+          <Settings size={16} />
         </button>
+
+        <div className={`header-split${isDirty ? ' is-dirty' : ''}`} ref={menuRef}>
+          <button type="button" className="btn btn-default" onClick={onSave} disabled={isSaving}>
+            {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+            Save
+          </button>
+          <button
+            type="button"
+            className="header-split-more"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label="More board actions"
+            aria-expanded={menuOpen}
+            disabled={isSaving}
+          >
+            <ChevronDown size={14} />
+          </button>
+          {menuOpen && (
+            <div className="header-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => runMenuAction(onNewBoard)}>
+                <Plus size={15} />
+                <div>
+                  <strong>New board</strong>
+                  <span>Start from an empty flow</span>
+                </div>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runMenuAction(onOpenLoadModal)}>
+                <FolderOpen size={15} />
+                <div>
+                  <strong>Open board</strong>
+                  <span>Load a saved flow</span>
+                </div>
+              </button>
+              <div className="header-menu-sep" />
+              <button type="button" role="menuitem" onClick={() => runMenuAction(onSaveAs)}>
+                <Copy size={15} />
+                <div>
+                  <strong>Save a copy</strong>
+                  <span>Keep this board and store a new one</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => onShare && runMenuAction(onShare)}
+                disabled={!graphId || !onShare}
+              >
+                <Share2 size={15} />
+                <div>
+                  <strong>Copy link</strong>
+                  <span>{graphId ? 'Share this saved flow' : 'Save the board before sharing'}</span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
 
         <button
           type="button"
@@ -187,24 +222,9 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenRunModal}
           disabled={isExecuting}
           title="Execute this workflow and inspect outputs"
-          style={{
-            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-            color: '#ffffff',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
-            border: 'none',
-            padding: '0 16px',
-          }}
         >
-          {isExecuting ? (
-            <Loader2 size={15} className="animate-spin" />
-          ) : (
-            <Play size={15} fill="#ffffff" />
-          )}
-          <span>{isExecuting ? 'Running...' : 'Run Flow'}</span>
+          {isExecuting ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} fill="#ffffff" />}
+          <span>{isExecuting ? 'Running...' : 'Run'}</span>
         </button>
       </div>
     </header>

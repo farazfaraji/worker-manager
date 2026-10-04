@@ -1,4 +1,5 @@
 import { Project, GraphSummary, GraphData, NodeDefinition, RunResult, ArtifactItem, ArtifactRelationItem, NodeCacheItem } from './types';
+import { FlowAssistantRequest, FlowAssistantResult } from './flow-assistant';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:6300/api';
 
@@ -85,6 +86,68 @@ export async function duplicateProject(
     throw new Error(
       formatApiError(errorData, `Failed to duplicate project: ${res.statusText}`),
     );
+  }
+  return res.json();
+}
+
+export interface ProjectSecretMeta {
+  name: string;
+  description: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastUsedAt?: string;
+}
+
+export async function fetchProjectEncryptionKeyStatus(projectId: string): Promise<{ configured: boolean }> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/secrets/encryption-key`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load encryption key status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setProjectEncryptionKey(projectId: string, key: string): Promise<{ configured: boolean }> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/secrets/encryption-key`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(errorData, `Failed to save encryption key: ${res.statusText}`));
+  }
+  return res.json();
+}
+
+export async function fetchProjectSecrets(projectId: string): Promise<ProjectSecretMeta[]> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/secrets`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to fetch secrets: ${res.statusText}`);
+  return res.json();
+}
+
+export async function upsertProjectSecret(
+  projectId: string,
+  name: string,
+  value: string,
+  description?: string,
+): Promise<ProjectSecretMeta> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/secrets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value, description }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(errorData, `Failed to save secret: ${res.statusText}`));
+  }
+  return res.json();
+}
+
+export async function deleteProjectSecret(projectId: string, name: string): Promise<{ name: string; deleted: boolean }> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/secrets/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(errorData, `Failed to delete secret: ${res.statusText}`));
   }
   return res.json();
 }
@@ -546,25 +609,7 @@ export async function generateSchema(data: {
   return res.json();
 }
 
-export async function executeFlowAssistant(data: {
-  message: string;
-  projectId?: string;
-  modelId?: string;
-  history?: { role: 'user' | 'assistant' | 'system'; content: string }[];
-  currentGraph?: {
-    blocks?: any[];
-    connections?: any[];
-  };
-}): Promise<{
-  reply: string;
-  flowChanges?: string[];
-  graph?: {
-    blocks: any[];
-    connections: any[];
-  };
-  modelUsed: string;
-  provider: string;
-}> {
+export async function executeFlowAssistant(data: FlowAssistantRequest): Promise<FlowAssistantResult> {
   const res = await fetch(`${API_BASE}/models/flow-assistant`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -830,8 +875,11 @@ export async function deleteNodeCache(graphId: string, nodeId: string): Promise<
   return res.json();
 }
 
-export async function clearAllCaches(graphId?: string): Promise<{ deletedCount: number }> {
-  const query = graphId ? `?graphId=${encodeURIComponent(graphId)}` : '';
+export async function clearAllCaches(filters?: { graphId?: string; projectId?: string }): Promise<{ deletedCount: number }> {
+  const params = new URLSearchParams();
+  if (filters?.graphId) params.set('graphId', filters.graphId);
+  if (filters?.projectId) params.set('projectId', filters.projectId);
+  const query = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(`${API_BASE}/caches${query}`, {
     method: 'DELETE',
   });

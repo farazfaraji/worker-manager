@@ -1,5 +1,4 @@
-import { Node, Edge } from '@xyflow/react';
-import { FlowNodeData, VariableItem, ToolOutput } from './types';
+import { FlowEdge, FlowNode, FlowNodeData, VariableItem, ToolOutput } from './types';
 
 /**
  * Cleans and normalizes Zod / TypeScript types into canonical schema types.
@@ -255,10 +254,15 @@ export function extractNodeOutputs(nodeData: any): ToolOutput[] {
       outputsDef = [
         { name: 'item', label: 'Item (Loop)', type: 'branch' },
         { name: 'done', label: 'Done', type: 'branch' },
+        { name: 'partial', label: 'Partial', type: 'branch' },
+        { name: 'failed', label: 'Failed', type: 'branch' },
         { name: 'result', label: 'Foreach Result', type: 'object' },
       ];
     } else {
       outputsDef = [
+        { name: 'done', label: 'Done', type: 'branch' },
+        { name: 'partial', label: 'Partial', type: 'branch' },
+        { name: 'failed', label: 'Failed', type: 'branch' },
         { name: 'result', label: 'Foreach Result', type: 'object' },
       ];
     }
@@ -336,6 +340,8 @@ export function extractNodeOutputs(nodeData: any): ToolOutput[] {
     outputsDef = [{ name: 'value', label: 'Assigned Value', type: 'object' }];
   }
 
+  outputsDef = withLifecycleEvents(defType, config, outputsDef);
+
   // If outputs has items with dependsOn, filter by matching config
   if (config && outputsDef.some((o: any) => o.dependsOn)) {
     outputsDef = outputsDef.filter((out: any) => {
@@ -403,12 +409,61 @@ export function extractNodeOutputs(nodeData: any): ToolOutput[] {
   });
 }
 
+const LIFECYCLE_EVENT_TYPES = new Set([
+  'action',
+  'agent',
+  'aggregate',
+  'app',
+  'browser',
+  'brower',
+  'embedding',
+  'execution',
+  'function',
+  'json-parser',
+  'memory',
+  'notification',
+  'repo-inspect',
+  'retrieval',
+  'script',
+  'subgraph',
+  'telegram',
+  'transform',
+  'web-search',
+  'websearch',
+  'web_search',
+]);
+
+function withLifecycleEvents(defType: string, config: Record<string, any>, outputs: any[]): any[] {
+  const operation = String(config.operation || '').toLowerCase();
+  const onFail = String(config.onFail || 'fail').toLowerCase();
+  const applicableOutputs = defType === 'log' && operation === 'assert' && onFail !== 'route'
+    ? outputs.filter((output) => !['true', 'false'].includes(String(output?.name || '').toLowerCase()))
+    : outputs;
+  const supportsLifecycle =
+    LIFECYCLE_EVENT_TYPES.has(defType) ||
+    (defType === 'database' && operation !== 'ping') ||
+    (defType === 'file' && operation !== 'exists') ||
+    (defType === 'log' && !(operation === 'assert' && onFail === 'route')) ||
+    (defType === 'secrets' && operation !== 'exists');
+  if (!supportsLifecycle) return applicableOutputs;
+
+  const result = [...applicableOutputs];
+  const names = new Set(result.map((output) => String(output?.name || '').toLowerCase()));
+  if (![...names].some((name) => ['done', 'success', 'onsuccess', 'onload', 'completed'].includes(name))) {
+    result.unshift({ name: 'done', label: 'Done', type: 'branch' });
+  }
+  if (![...names].some((name) => ['failed', 'onfailed', 'error'].includes(name))) {
+    result.push({ name: 'failed', label: 'Failed', type: 'branch' });
+  }
+  return result;
+}
+
 /**
  * Extracts all upstream and available variables from the graph.
  */
 export function extractAvailableVariables(
-  nodes: Node<FlowNodeData>[],
-  edges: Edge[] = [],
+  nodes: FlowNode[],
+  edges: FlowEdge[] = [],
   currentEditingNodeId?: string,
 ): VariableItem[] {
   const variables: VariableItem[] = [];
@@ -425,6 +480,7 @@ export function extractAvailableVariables(
     let outputs = (node.data?.outputs && node.data.outputs.length > 0)
       ? node.data.outputs
       : (node.data?.definitionOutputs || []);
+    outputs = outputs.filter((output) => output.type !== 'branch');
 
     const nodeConfig = node.data?.config || {};
     const nodeDefType = String(node.data?.definitionType || '').toLowerCase();
@@ -922,7 +978,7 @@ export function extractAvailableVariables(
  */
 export function generateUniqueNodeName(
   baseName: string,
-  existingNodes: Node<FlowNodeData>[],
+  existingNodes: FlowNode[],
 ): string {
   const cleanBase = baseName
     .toLowerCase()
@@ -942,4 +998,17 @@ export function generateUniqueNodeName(
     counter++;
   }
   return `${cleanBase}_${counter}`;
+}
+
+/** Project vault entries shown in the variable picker as {{secrets.NAME}}. */
+export function secretVariableItems(names: string[]): VariableItem[] {
+  return names.filter(Boolean).map((name) => ({
+    name,
+    label: `secrets → ${name}`,
+    path: `secrets.${name}`,
+    sourceNodeId: 'secrets',
+    sourceNodeName: 'secrets',
+    sourceNodeType: 'secrets',
+    type: 'string',
+  }));
 }

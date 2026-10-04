@@ -15,8 +15,7 @@ import {
   Globe,
   ArrowRight,
 } from 'lucide-react';
-import { Node } from '@xyflow/react';
-import { FlowNodeData, RunResult } from '@/lib/types';
+import { FlowNode, FlowNodeData, RunResult } from '@/lib/types';
 import { fetchRuns } from '@/lib/api';
 import {
   generateSampleJsonFromRoute,
@@ -27,8 +26,8 @@ import {
 
 interface ExecutionEndpointsTabProps {
   graphId?: string | null;
-  webserverNode?: Node<FlowNodeData>;
-  routeNodes: Node<FlowNodeData>[];
+  webserverNode?: FlowNode;
+  routeNodes: FlowNode[];
   serverStatus: 'running' | 'stopped';
   serverPort: number;
   serverHost: string;
@@ -64,7 +63,7 @@ export const ExecutionEndpointsTab: React.FC<ExecutionEndpointsTabProps> = ({
     setTimeout(() => setCopiedCurlKey(null), 2000);
   };
 
-  const handleSendTestRequest = async (routeNode: Node<FlowNodeData>) => {
+  const handleSendTestRequest = async (routeNode: FlowNode) => {
     const config = routeNode.data?.config || {};
     const method = String(config.method || 'POST').toUpperCase();
     const endpoint = String(config.endpoint || '/api/example');

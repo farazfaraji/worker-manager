@@ -34,7 +34,7 @@ export class LoopPlugin implements ToolPlugin {
   }
 
   getValidHandles(_config?: any, _outputs?: any[], _nodeData?: any, _nodeName?: string): Set<string> {
-    return new Set(['items', 'count', 'truncated', 'result']);
+    return new Set(['completed', 'incomplete', 'limitreached', 'failed', 'items', 'count', 'truncated', 'result']);
   }
 
   getProducedPaths(nodeName: string, _config?: any, _nodeData?: any): Set<string> {

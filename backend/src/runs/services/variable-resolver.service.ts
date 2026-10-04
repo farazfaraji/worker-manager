@@ -1,10 +1,30 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { SecretsService } from '../../secrets/secrets.service';
+import { registerResolvedSecret } from './redaction.util';
 
 export type RuntimeNode = any;
 
 @Injectable()
 export class VariableResolverService {
+  constructor(@Optional() private readonly secretsService?: SecretsService) {}
+
+  /**
+   * Load every {{secrets.NAME}} referenced by a value into the in-memory vault cache.
+   * Values stay out of run context so checkpoints do not persist them.
+   */
+  async warmSecrets(value: any, context: Record<string, any>): Promise<void> {
+    if (!this.secretsService) return;
+    const projectId = String(context?.projectId || '');
+    if (!projectId) return;
+    const names = new Set<string>();
+    this.collectSecretNames(value, names, 0);
+    for (const name of names) {
+      const resolved = await this.secretsService.resolve(projectId, name);
+      if (resolved !== undefined) registerResolvedSecret(String(context.runId || ''), resolved);
+    }
+  }
+
   resolveNodeInput(node: RuntimeNode, context: Record<string, any>, initialInput: any): any {
     const config = node.data?.config || {};
     const resolved = this.resolveValue(config, context);
@@ -129,6 +149,7 @@ export class VariableResolverService {
   resolveReference(reference: string, context: Record<string, any>): any {
     const rawParts = String(reference || '').split('.');
     const root = rawParts.shift()!;
+    if (root === 'secrets') return this.readSecret(rawParts, context);
     let current = context[root];
     if (current === undefined || current === null) return undefined;
 
@@ -272,5 +293,31 @@ export class VariableResolverService {
     }
 
     return rawOutput;
+  }
+
+  private readSecret(parts: string[], context: Record<string, any>): string | undefined {
+    const name = parts[0];
+    if (!name || !this.secretsService || parts.length > 1) return undefined;
+    const projectId = String(context?.projectId || '');
+    const value = this.secretsService.peek(projectId, name);
+    if (value === undefined) return undefined;
+    registerResolvedSecret(String(context?.runId || ''), value);
+    return value;
+  }
+
+  private collectSecretNames(value: any, names: Set<string>, depth: number): void {
+    if (depth > 20 || value == null) return;
+    if (typeof value === 'string') {
+      const found = value.match(new RegExp('secrets\\.([A-Z][A-Z0-9_]*)', 'g')) || [];
+      for (const item of found) names.add(item.slice('secrets.'.length));
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) this.collectSecretNames(item, names, depth + 1);
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const item of Object.values(value)) this.collectSecretNames(item, names, depth + 1);
+    }
   }
 }

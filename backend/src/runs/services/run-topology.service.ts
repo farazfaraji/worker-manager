@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { RuntimeNode } from './variable-resolver.service';
+import { usesBooleanBranch } from './branch-routing.util';
 
 export interface GraphAdjacency {
   nodeById: Map<string, RuntimeNode>;
@@ -85,7 +86,26 @@ export class RunTopologyService {
     const nodeConfig = node.data?.config || {};
     const nextTargets = new Set<string>();
 
-    if (nodeType === 'research-review') {
+    if (nodeType === 'loop') {
+      const status = String(lastNodeOutput?.status ?? lastNodeOutput?.result?.status ?? '').toLowerCase();
+      const reachedLimit = Boolean(
+        lastNodeOutput?.limitReached ??
+        lastNodeOutput?.result?.limitReached ??
+        lastNodeOutput?.truncated ??
+        lastNodeOutput?.result?.truncated,
+      );
+      const branch = status === 'failed' || status === 'error'
+        ? 'failed'
+        : reachedLimit
+          ? 'limitreached'
+          : status === 'completed'
+            ? 'completed'
+            : 'incomplete';
+      const matching = nodeEdges.filter(
+        (edge) => String(edge.sourceHandle || '').toLowerCase().trim() === branch,
+      );
+      for (const edge of matching.length > 0 ? matching : nodeEdges) nextTargets.add(edge.target);
+    } else if (nodeType === 'research-review') {
       const branch = lastNodeOutput?.status === 'incomplete_needs_human_review'
         ? 'incomplete_needs_human_review' : lastNodeOutput?.decision;
       for (const edge of nodeEdges) {
@@ -98,7 +118,7 @@ export class RunTopologyService {
       for (const edge of nodeEdges) {
         if (String(edge.sourceHandle || '').toLowerCase() === branch) nextTargets.add(edge.target);
       }
-    } else if (nodeType === 'condition') {
+    } else if (usesBooleanBranch(nodeType, nodeConfig)) {
       const branch = lastNodeOutput?.conditionMet ? 'true' : 'false';
       for (const edge of nodeEdges) {
         if (String(edge.sourceHandle || '').toLowerCase() === branch) {
@@ -133,25 +153,34 @@ export class RunTopologyService {
       }
     } else if (nodeType === 'foreach') {
       const mode = String(nodeConfig?.mode || 'canvas').toLowerCase();
+      const status = String(lastNodeOutput?.status ?? lastNodeOutput?.result?.status ?? 'completed').toLowerCase();
+      const completionHandle = status === 'failed' || status === 'error'
+        ? 'failed'
+        : status === 'partial'
+          ? 'partial'
+          : 'done';
       if (mode !== 'subgraph') {
-        let matchedDoneEdge = false;
+        let matchedCompletionEdge = false;
         for (const edge of nodeEdges) {
           const handle = String(edge.sourceHandle || '').toLowerCase().trim();
-          if (handle === 'done') {
+          if (handle === completionHandle) {
             nextTargets.add(edge.target);
-            matchedDoneEdge = true;
+            matchedCompletionEdge = true;
           }
         }
-        if (!matchedDoneEdge) {
+        if (!matchedCompletionEdge) {
           for (const edge of nodeEdges) {
             const handle = String(edge.sourceHandle || '').toLowerCase().trim();
-            if (handle !== 'item') {
+            if (!['item', 'done', 'partial', 'failed'].includes(handle)) {
               nextTargets.add(edge.target);
             }
           }
         }
       } else {
-        for (const edge of nodeEdges) {
+        const completionEdges = nodeEdges.filter(
+          (edge) => String(edge.sourceHandle || '').toLowerCase().trim() === completionHandle,
+        );
+        for (const edge of completionEdges.length > 0 ? completionEdges : nodeEdges) {
           nextTargets.add(edge.target);
         }
       }
@@ -185,6 +214,31 @@ export class RunTopologyService {
           nextTargets.add(edge.target);
         }
       }
+    } else if (this.hasLifecycleEvents(node)) {
+      const failed = this.outputFailed(lastNodeOutput);
+      const preferred = failed
+        ? new Set(['failed', 'onfailed', 'error'])
+        : new Set(['done', 'success', 'onsuccess', 'onload', 'completed']);
+      const lifecycleHandles = new Set([
+        'done', 'success', 'onsuccess', 'onload', 'completed', 'failed', 'onfailed', 'error',
+      ]);
+      let matched = false;
+      for (const edge of nodeEdges) {
+        const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+        if (preferred.has(handle)) {
+          nextTargets.add(edge.target);
+          matched = true;
+        }
+      }
+
+      // Backward compatibility for graphs created before event/data separation:
+      // data-socket edges continue only when no lifecycle edge is connected.
+      const hasLifecycleEdge = nodeEdges.some((edge) =>
+        lifecycleHandles.has(String(edge.sourceHandle || '').toLowerCase().trim()),
+      );
+      if (!matched && !hasLifecycleEdge) {
+        for (const edge of nodeEdges) nextTargets.add(edge.target);
+      }
     } else {
       for (const edge of nodeEdges) {
         nextTargets.add(edge.target);
@@ -192,6 +246,20 @@ export class RunTopologyService {
     }
 
     return Array.from(nextTargets);
+  }
+
+  private hasLifecycleEvents(node: RuntimeNode): boolean {
+    const outputs = Array.isArray(node.data?.outputs) ? node.data.outputs : [];
+    return outputs.some((output: any) => {
+      if (String(output?.type || '').toLowerCase() !== 'branch') return false;
+      return ['done', 'success', 'onsuccess', 'onload', 'completed', 'failed', 'onfailed', 'error']
+        .includes(String(output?.name || '').toLowerCase());
+    });
+  }
+
+  private outputFailed(output: any): boolean {
+    const status = String(output?.status ?? output?.result?.status ?? '').toLowerCase();
+    return output?.ok === false || output?.success === false || ['failed', 'error'].includes(status);
   }
 
   /** Identify all downstream node IDs that belong to the parallel jobs spawned by an orchestrator node. */

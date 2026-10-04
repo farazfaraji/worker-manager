@@ -19,7 +19,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import { RunResult, RunNodeRecord } from '@/lib/types';
-import { getNodeIcon } from '../../nodes/LangGraphCustomNode';
+import { getNodeIcon } from '../../nodes/node-icons';
 import { ExecutionGateReview } from './ExecutionGateReview';
 
 interface ExecutionTraceTabProps {

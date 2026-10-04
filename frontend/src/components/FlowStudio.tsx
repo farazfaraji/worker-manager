@@ -1,23 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Node,
-  Edge,
-  useNodesState,
-  useEdgesState,
-  useReactFlow,
-  ReactFlowProvider,
-  addEdge,
-  Connection,
-  NodeChange,
-  EdgeChange,
-} from '@xyflow/react';
-import { FlowNodeData, NodeDefinition, RunResult, RunNodeRecord, Project } from '@/lib/types';
+import { FlowEdge, FlowNode, FlowNodeData, NodeDefinition, RunResult, RunNodeRecord, Project } from '@/lib/types';
 import { generateUniqueNodeName, extractNodeOutputs } from '@/lib/variable-utils';
 import { Header } from '@/components/Header';
 import { LeftPanel } from '@/components/LeftPanel';
-import { FlowBoard } from '@/components/FlowBoard';
+import { BoardRightToolbar } from '@/components/BoardRightToolbar';
 import { SaveModal } from '@/components/SaveModal';
 import { LoadModal } from '@/components/LoadModal';
 import { NodeConfigModal } from '@/components/modal/NodeConfigModal';
@@ -37,28 +25,35 @@ import {
   validateGraph,
   validateGraphById,
   fetchRuns,
+  fetchNodeDefinitions,
 } from '@/lib/api';
-import { FolderOpen, Plus, Workflow, Check, AlertCircle, Sparkles } from 'lucide-react';
-import { FlowListView } from '@/components/list-view/FlowListView';
+import { FolderOpen, Plus, Workflow, Check, AlertCircle } from 'lucide-react';
+import { AppNav } from '@/components/AppNav';
+import {
+  clearStudioDraft,
+  persistStudioSession,
+  readStudioDraft,
+  rememberFlow,
+} from '@/lib/studio-session';
+import { BranchPath, FlowListView } from '@/components/list-view/FlowListView';
 import { FlowAssistantPanel } from '@/components/list-view/FlowAssistantPanel';
-import { ViewModeToggle } from '@/components/list-view/ViewModeToggle';
+import { FlowOperation } from '@/lib/flow-assistant';
+import { applyFlowOperations, previewFlowOperations } from '@/lib/flow-operations';
 
 interface FlowStudioProps {
   initialFlowId?: string;
 }
 
 function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
-  const reactFlow = useReactFlow();
-
   // Graph state
   const [graphId, setGraphId] = useState<string | null>(initialFlowId || null);
   const [graphName, setGraphName] = useState<string>('Untitled Graph');
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodes, setNodes] = useState<FlowNode[]>([]);
+  const [edges, setEdges] = useState<FlowEdge[]>([]);
   const [isDirty, setIsDirty] = useState<boolean>(false);
 
   // Selected Node & Config Modal state
-  const [selectedNode, setSelectedNode] = useState<Node<FlowNodeData> | null>(null);
+  const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState<boolean>(false);
 
   // Projects state
@@ -80,11 +75,15 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
   const [activeRunResult, setActiveRunResult] = useState<RunResult | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type?: 'success' | 'error' } | null>(null);
 
-  // ── List view & assistant ──────────────────────────────────────────────
-  const [viewMode, setViewMode] = useState<'canvas' | 'list'>('canvas');
   const [isAssistantOpen, setIsAssistantOpen] = useState<boolean>(false);
+  const [addTarget, setAddTarget] = useState<{
+    afterBlockId?: string;
+    beforeBlockId?: string;
+    output?: string;
+  } | null>(null);
 
   const initialLoadAttempted = useRef<boolean>(false);
+  const studioReady = useRef<boolean>(false);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -208,6 +207,20 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
         }
       }
 
+      const draft = readStudioDraft();
+      const sameBoard = !!draft && (draft.graphId || null) === (flowIdToLoad || null);
+      if (draft?.isDirty && sameBoard) {
+        setGraphId(draft.graphId);
+        setGraphName(draft.graphName || 'Untitled Graph');
+        setNodes(draft.nodes);
+        setEdges(draft.edges);
+        setIsDirty(true);
+        setShowInitialWelcome(false);
+        if (draft.graphId) rememberFlow(draft.graphId);
+        studioReady.current = true;
+        return;
+      }
+
       if (flowIdToLoad) {
         await handleSelectGraph(flowIdToLoad, true);
       } else {
@@ -221,10 +234,11 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
           // Backend not ready yet or empty, start fresh
         }
       }
+      studioReady.current = true;
     }
 
     initializeFlow();
-  }, [initialFlowId, handleSelectGraph]);
+  }, [initialFlowId, handleSelectGraph, setNodes, setEdges]);
 
   // Handle browser Back / Forward buttons (popstate)
   useEffect(() => {
@@ -232,14 +246,35 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
       const path = window.location.pathname;
       const flowMatch = path.match(/^\/flow\/([^/]+)/);
       if (flowMatch && flowMatch[1]) {
-        handleSelectGraph(flowMatch[1], false);
+        const draft = readStudioDraft();
+        if (draft?.isDirty && draft.graphId === flowMatch[1]) {
+          setGraphId(draft.graphId);
+          setGraphName(draft.graphName || 'Untitled Graph');
+          setNodes(draft.nodes);
+          setEdges(draft.edges);
+          setIsDirty(true);
+          setActiveRunResult(null);
+        } else {
+          handleSelectGraph(flowMatch[1], false);
+        }
       } else if (path === '/') {
-        setGraphId(null);
-        setGraphName('Untitled Graph');
-        setNodes([]);
-        setEdges([]);
-        setActiveRunResult(null);
-        setIsDirty(false);
+        const draft = readStudioDraft();
+        if (draft?.isDirty && !draft.graphId) {
+          setGraphId(null);
+          setGraphName(draft.graphName || 'Untitled Graph');
+          setNodes(draft.nodes);
+          setEdges(draft.edges);
+          setIsDirty(true);
+          setActiveRunResult(null);
+          setShowInitialWelcome(false);
+        } else {
+          setGraphId(null);
+          setGraphName('Untitled Graph');
+          setNodes([]);
+          setEdges([]);
+          setActiveRunResult(null);
+          setIsDirty(false);
+        }
       }
     };
 
@@ -249,124 +284,101 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
     };
   }, [handleSelectGraph, setNodes, setEdges]);
 
-  const handleNodesChange = useCallback(
-    (changes: NodeChange<Node<FlowNodeData>>[]) => {
-      onNodesChange(changes);
-      setIsDirty(true);
-    },
-    [onNodesChange],
-  );
+  useEffect(() => {
+    if (!studioReady.current) return;
+    persistStudioSession({ graphId, graphName, nodes, edges, isDirty });
+  }, [graphId, graphName, nodes, edges, isDirty]);
 
-  const handleEdgesChange = useCallback(
-    (changes: EdgeChange[]) => {
-      onEdgesChange(changes);
-      setIsDirty(true);
-    },
-    [onEdgesChange],
-  );
-
-  const handleConnect = useCallback(
-    (params: Connection) => {
-      setEdges((eds) => {
-        const sourceNode = nodes.find((n) => n.id === params.source);
-        const defType = String(
-          (sourceNode?.data as any)?.definitionType || sourceNode?.type || '',
-        ).toLowerCase();
-        const isBranching = defType === 'condition' || defType === 'router';
-
-        // For non-branching nodes, replace any existing edge between same source and target
-        const cleanedEdges = isBranching
-          ? eds.filter(
-              (e) =>
-                !(
-                  e.source === params.source &&
-                  e.target === params.target &&
-                  (e.sourceHandle || 'default') === (params.sourceHandle || 'default')
-                ),
-            )
-          : eds.filter((e) => !(e.source === params.source && e.target === params.target));
-
-        return addEdge(
-          {
-            ...params,
-            type: 'straight',
-            animated: true,
-            style: { stroke: 'var(--accent-primary)', strokeWidth: 2 },
-          },
-          cleanedEdges,
-        );
-      });
-      setIsDirty(true);
-    },
-    [nodes, setEdges],
-  );
-
-  // Add node handler for both palette click and drag-drop onto canvas
   const handleAddNode = useCallback(
-    (definition: NodeDefinition, position?: { x: number; y: number }) => {
-      setNodes((currentNodes) => {
-        const uniqueName = generateUniqueNodeName(definition.id || definition.name, currentNodes);
-
-        // Pre-fill initial config with default values
-        const initialConfig: Record<string, any> = {};
-        for (const input of definition.inputs || []) {
-          if (input.defaultValue !== undefined) {
-            initialConfig[input.name] = input.defaultValue;
-          }
+    (definition: NodeDefinition) => {
+      const uniqueName = generateUniqueNodeName(definition.id || definition.name, nodes);
+      const initialConfig: Record<string, any> = {};
+      for (const input of definition.inputs || []) {
+        if (input.defaultValue !== undefined) {
+          initialConfig[input.name] = input.defaultValue;
         }
-
-        // If no explicit position is provided (i.e. the node was clicked from
-        // the left palette rather than drag-dropped), place it at the center of
-        // the currently visible viewport so it always appears in view.
-        const pos = position || (() => {
-          const { x: vx, y: vy, zoom } = reactFlow.getViewport();
-          const boardEl = document.querySelector('.flow-board-wrapper') as HTMLElement | null;
-          const boardWidth = boardEl ? boardEl.offsetWidth : window.innerWidth;
-          const boardHeight = boardEl ? boardEl.offsetHeight : window.innerHeight;
-          // Convert screen center → flow coordinates
-          const centerX = (boardWidth / 2 - vx) / zoom;
-          const centerY = (boardHeight / 2 - vy) / zoom;
-          return {
-            x: centerX + (Math.random() - 0.5) * 40,
-            y: centerY + (Math.random() - 0.5) * 40,
-          };
-        })();
-
-        const outputs = extractNodeOutputs({
+      }
+      const outputs = extractNodeOutputs({
+        definitionType: definition.type,
+        outputs: definition.outputs || [],
+        config: initialConfig,
+        inputs: definition.inputs || [],
+      });
+      const newNode: FlowNode = {
+        id: `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        type: 'langgraphNode',
+        position: { x: 0, y: nodes.length * 32 },
+        data: {
+          name: uniqueName,
+          definitionId: definition.id,
           definitionType: definition.type,
-          outputs: definition.outputs || [],
+          definitionName: definition.name,
+          label: definition.name,
+          nodeName: uniqueName,
           config: initialConfig,
           inputs: definition.inputs || [],
+          definitionOutputs: definition.outputs || [],
+          outputs,
+          actionDefinitions: definition.actionDefinitions || [],
+        },
+      };
+      setNodes((currentNodes) => [...currentNodes, newNode]);
+
+      if (addTarget?.afterBlockId) {
+        const afterId = addTarget.afterBlockId;
+        const beforeId = addTarget.beforeBlockId;
+        const explicitOutput = addTarget.output;
+        setEdges((currentEdges) => {
+          const source = nodes.find((node) => node.id === afterId);
+          const primary = source?.data?.outputs?.[0]?.name || 'done';
+          const outgoing = currentEdges.filter(
+            (edge) =>
+              edge.source === afterId &&
+              (!beforeId || edge.target === beforeId) &&
+              (!explicitOutput || (edge.sourceHandle || 'done') === explicitOutput),
+          );
+          const handle = explicitOutput || outgoing[0]?.sourceHandle || primary;
+          const newEdge: FlowEdge = {
+            id: `e-${afterId}-${newNode.id}-${handle}`,
+            source: afterId,
+            target: newNode.id,
+            sourceHandle: handle,
+            targetHandle: 'in',
+            type: 'default',
+          };
+          if (outgoing.length === 1) {
+            const nextPrimary = newNode.data.outputs?.[0]?.name || 'done';
+            return [
+              ...currentEdges.map((edge) =>
+                edge.id === outgoing[0].id
+                  ? { ...edge, source: newNode.id, sourceHandle: nextPrimary }
+                  : edge,
+              ),
+              newEdge,
+            ];
+          }
+          return [...currentEdges, newEdge];
         });
+      }
 
-        const newNode: Node<FlowNodeData> = {
-          id: `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          type: 'langgraphNode',
-          position: pos,
-          data: {
-            name: uniqueName,
-            definitionId: definition.id,
-            definitionType: definition.type,
-            definitionName: definition.name,
-            label: definition.name,
-            nodeName: uniqueName,
-            config: initialConfig,
-            inputs: definition.inputs || [],
-            definitionOutputs: definition.outputs || [],
-            outputs: outputs,
-            actionDefinitions: definition.actionDefinitions || [],
-          },
-        };
-
-        return [...currentNodes, newNode];
-      });
+      setAddTarget(null);
       setIsDirty(true);
     },
-    [setNodes],
+    [nodes, addTarget],
   );
 
+  const handleRequestAddStep = (
+    afterBlockId?: string,
+    branchPath?: BranchPath[],
+    beforeBlockId?: string,
+  ) => {
+    const branch = branchPath?.[branchPath.length - 1];
+    const output = branch && branch.blockId === afterBlockId ? branch.output : undefined;
+    setAddTarget({ afterBlockId, beforeBlockId, output });
+  };
+
   // Open Node Configuration Modal on node click
-  const handleNodeSelect = (node: Node<FlowNodeData>) => {
+  const handleNodeSelect = (node: FlowNode) => {
     const latestNode = nodes.find((n) => n.id === node.id) || node;
     setSelectedNode(latestNode);
     setIsConfigModalOpen(true);
@@ -427,6 +439,8 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
       );
       if (!confirmDiscard) return;
     }
+    clearStudioDraft();
+    rememberFlow(null);
     setGraphId(null);
     setGraphName('Untitled Graph');
     setNodes([]);
@@ -478,13 +492,15 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
       setIsSaving(true);
       const finalProjectId = saveProjectId || activeProjectId || projects[0]?._id || '';
 
+      const savable = stripAssistantOverlay(nodes, edges);
+
       if (!graphId || isSaveAs) {
         // Create new graph record
         const created = await createGraph({
           name: targetName,
           projectId: finalProjectId,
-          nodes,
-          edges,
+          nodes: savable.nodes,
+          edges: savable.edges,
         });
         const newId = created._id || '';
         setGraphId(newId);
@@ -501,8 +517,8 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
         const updated = await updateGraph(graphId, {
           name: targetName,
           projectId: saveProjectId || activeProjectId || undefined,
-          nodes,
-          edges,
+          nodes: savable.nodes,
+          edges: savable.edges,
         });
         setGraphName(updated.name);
         setIsDirty(false);
@@ -865,9 +881,195 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
     return () => clearInterval(interval);
   }, [hasWebserver, graphId, applyRunResult]);
 
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
+
+  const [nodeDefinitions, setNodeDefinitions] = useState<NodeDefinition[]>([]);
+  const definitionsRef = useRef(nodeDefinitions);
+  definitionsRef.current = nodeDefinitions;
+  const previewBaseRef = useRef<{ nodes: FlowNode[]; edges: FlowEdge[] } | null>(null);
+  const assistantUndoRef = useRef<{ nodes: FlowNode[]; edges: FlowEdge[] } | null>(null);
+  const highlightTokenRef = useRef(0);
+
+  useEffect(() => {
+    fetchNodeDefinitions().then(setNodeDefinitions).catch(() => {});
+  }, []);
+
+  const stripAssistantOverlay = (sourceNodes: FlowNode[], sourceEdges: FlowEdge[]) => ({
+    nodes: sourceNodes
+      .filter((node) => !node.data?.assistantGhost)
+      .map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          assistantHighlight: undefined,
+          assistantDiff: undefined,
+          assistantGhost: undefined,
+        },
+      })),
+    edges: sourceEdges.filter((edge) => !(edge.data as any)?.assistantPreview),
+  });
+
+  const resolveOutputs = (source: FlowNode[]): FlowNode[] =>
+    source.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        outputs: extractNodeOutputs({
+          definitionType: node.data?.definitionType,
+          outputs: node.data?.definitionOutputs?.length
+            ? node.data.definitionOutputs
+            : node.data?.outputs || [],
+          config: node.data?.config || {},
+          inputs: node.data?.inputs || [],
+        }),
+      },
+    }));
+
+  const handleFocusBlock = (ids: string[], opts?: { pan?: boolean }) => {
+    const present = ids.filter((id) => nodesRef.current.some((node) => node.id === id));
+    if (present.length === 0) return;
+    const token = ++highlightTokenRef.current;
+    setNodes((prev) =>
+      prev.map((node) => ({
+        ...node,
+        selected: opts?.pan === false ? node.selected : present.includes(node.id),
+        data: {
+          ...node.data,
+          assistantHighlight: present.includes(node.id)
+            ? true
+            : opts?.pan === false
+              ? node.data?.assistantHighlight
+              : undefined,
+        },
+      })),
+    );
+    window.setTimeout(() => {
+      if (highlightTokenRef.current !== token) return;
+      setNodes((prev) =>
+        prev.map((node) => ({
+          ...node,
+          data: { ...node.data, assistantHighlight: undefined },
+        })),
+      );
+    }, 4000);
+  };
+
+  const handlePreviewOperations = (ops: FlowOperation[] | null) => {
+    if (!ops) {
+      const base = previewBaseRef.current;
+      if (!base) return;
+      previewBaseRef.current = null;
+      nodesRef.current = base.nodes;
+      edgesRef.current = base.edges;
+      setNodes(base.nodes);
+      setEdges(base.edges);
+      return;
+    }
+
+    if (!previewBaseRef.current) {
+      previewBaseRef.current = stripAssistantOverlay(nodesRef.current, edgesRef.current);
+    }
+    const base = previewBaseRef.current;
+    const preview = previewFlowOperations(base.nodes, base.edges, ops, definitionsRef.current);
+    nodesRef.current = preview.nodes as FlowNode[];
+    edgesRef.current = preview.edges as FlowEdge[];
+    setNodes(preview.nodes as FlowNode[]);
+    setEdges(preview.edges as FlowEdge[]);
+  };
+
+  const handleApplyOperations = (ops: FlowOperation[]) => {
+    const base = previewBaseRef.current || stripAssistantOverlay(nodesRef.current, edgesRef.current);
+    assistantUndoRef.current = base;
+    previewBaseRef.current = null;
+    const applied = applyFlowOperations(base.nodes, base.edges, ops, definitionsRef.current);
+    const resolved = resolveOutputs(applied.nodes as FlowNode[]);
+    nodesRef.current = resolved;
+    edgesRef.current = applied.edges as FlowEdge[];
+    setNodes(resolved);
+    setEdges(applied.edges as FlowEdge[]);
+    setIsDirty(true);
+    showToast('Applied the assistant edit', 'success');
+  };
+
+  const handleUndoAssistant = () => {
+    const snap = assistantUndoRef.current;
+    if (!snap) return;
+    assistantUndoRef.current = null;
+    previewBaseRef.current = null;
+    nodesRef.current = snap.nodes;
+    edgesRef.current = snap.edges;
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setIsDirty(true);
+    showToast('Undid the assistant change');
+  };
+
+  const handleApplyAssistantGraph = (newGraph: { blocks: any[]; connections: any[] }) => {
+    if (!newGraph.blocks || newGraph.blocks.length === 0) return;
+    const base = stripAssistantOverlay(nodesRef.current, edgesRef.current);
+    assistantUndoRef.current = base;
+    previewBaseRef.current = null;
+
+    const updatedNodes: FlowNode[] = newGraph.blocks.map((block, idx) => {
+      const existing = base.nodes.find((node) => node.id === block.id);
+      const definition = definitionsRef.current.find((item) => item.type === block.kind);
+      const definitionOutputs = definition?.outputs?.length
+        ? definition.outputs
+        : block.kind === 'condition'
+          ? [
+              { name: 'true', label: 'True', type: 'branch' },
+              { name: 'false', label: 'False', type: 'branch' },
+            ]
+          : [{ name: 'done', label: 'Done', type: 'default' }];
+
+      return {
+        id: block.id,
+        type: 'langgraphNode',
+        position: existing?.position || { x: 320, y: 100 + idx * 160 },
+        data: {
+          ...(existing?.data || {}),
+          name: block.name || existing?.data?.name || block.id,
+          label: block.label || block.name || existing?.data?.label || block.id,
+          nodeName: block.name || existing?.data?.nodeName || block.id,
+          definitionId: definition?.id || block.kind,
+          definitionType: block.kind,
+          definitionName: definition?.name || block.name || block.kind,
+          config: block.config || {},
+          inputs: definition?.inputs || existing?.data?.inputs || [],
+          definitionOutputs,
+          outputs: definitionOutputs,
+          actionDefinitions: definition?.actionDefinitions || existing?.data?.actionDefinitions || [],
+          assistantHighlight: undefined,
+          assistantDiff: undefined,
+          assistantGhost: undefined,
+        },
+      };
+    });
+
+    const updatedEdges: FlowEdge[] = (newGraph.connections || []).map((connection, idx) => ({
+      id: connection.id || `e-${connection.from}-${connection.to}-${idx}`,
+      source: connection.from,
+      target: connection.to,
+      sourceHandle: connection.output || 'done',
+      targetHandle: connection.input || 'in',
+      type: 'default',
+    }));
+
+    const resolved = resolveOutputs(updatedNodes);
+    nodesRef.current = resolved;
+    edgesRef.current = updatedEdges;
+    setNodes(resolved);
+    setEdges(updatedEdges);
+    setIsDirty(true);
+    showToast('Assistant updated the flow!', 'success');
+  };
+
   return (
     <div className="app-container">
-      {/* Top Navigation Header */}
+      <AppNav boardHref={graphId ? `/flow/${encodeURIComponent(graphId)}` : '/'} />
       <Header
         graphName={graphName}
         graphId={graphId}
@@ -889,90 +1091,38 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
         onOpenRunModal={() => setIsRunModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onNewBoard={handleNewBoard}
+        assistantOpen={isAssistantOpen}
+        onToggleAssistant={() => setIsAssistantOpen((open) => !open)}
         onNameChange={(name) => {
           setGraphName(name);
           setIsDirty(true);
         }}
       />
 
-      {/* Main Workspace */}
-      <main className="main-content" style={{ position: 'relative' }}>
-        {/* Dynamic Left Panel Node Palette — hidden in list view */}
-        {viewMode === 'canvas' && <LeftPanel onAddNode={handleAddNode} />}
-
-        {/* ── View mode toggle + assistant button (top-right of workspace) ── */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 12,
-            right: 16,
-            zIndex: 50,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <ViewModeToggle
-            mode={viewMode}
-            onChange={(m) => setViewMode(m)}
-          />
-          <button
-            onClick={() => setIsAssistantOpen((v) => !v)}
-            title="Flow Assistant"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '5px 12px',
-              borderRadius: 8,
-              border: `1px solid ${isAssistantOpen ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.1)'}`,
-              background: isAssistantOpen ? 'rgba(139,92,246,0.15)' : 'rgba(0,0,0,0.2)',
-              color: isAssistantOpen ? '#c4b5fd' : 'rgba(255,255,255,0.4)',
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            <Sparkles size={13} />
-            <span>Assistant</span>
-          </button>
-        </div>
-
-        {/* ── Canvas view ── */}
-        {viewMode === 'canvas' && (
-          <FlowBoard
-            nodes={nodes}
-            edges={edges}
-            graphId={graphId}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={handleConnect}
-            onNodeSelect={handleNodeSelect}
-            onAddNode={handleAddNode}
-            onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
-          />
-        )}
-
-        {/* ── List view ── */}
-        {viewMode === 'list' && (() => {
-          // Build a GraphFlowData from current nodes/edges for the list view
+      <main className="main-content" style={{ position: 'relative', display: 'flex' }}>
+        {addTarget && <LeftPanel onAddNode={handleAddNode} />}
+        {(() => {
           const listFlow = {
             version: 1,
-            blocks: nodes.map((n) => ({
-              id: n.id,
-              kind: n.data?.definitionType || n.type || 'unknown',
-              name: n.data?.name || n.id,
-              label: n.data?.label || n.data?.name || n.id,
-              config: n.data?.config || {},
-            })),
-            connections: edges.map((e) => ({
-              id: e.id,
-              from: e.source,
-              to: e.target,
-              output: e.sourceHandle || undefined,
-              input: e.targetHandle || undefined,
-            })),
+            blocks: nodes
+              .filter((node) => !node.data?.assistantGhost)
+              .map((n) => ({
+                id: n.id,
+                kind: n.data?.definitionType || n.type || 'unknown',
+                name: n.data?.name || n.id,
+                label: n.data?.label || n.data?.name || n.id,
+                config: n.data?.config || {},
+                events: (n.data?.outputs || []).filter((output) => output.type === 'branch'),
+              })),
+            connections: edges
+              .filter((edge) => !(edge.data as any)?.assistantPreview)
+              .map((e) => ({
+                id: e.id,
+                from: e.source,
+                to: e.target,
+                output: e.sourceHandle || undefined,
+                input: e.targetHandle || undefined,
+              })),
           };
           const listRunStatuses: Record<string, any> = {};
           if (activeRunResult?.nodes) {
@@ -981,20 +1131,16 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
             }
           }
           return (
-            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
               <FlowListView
                 flow={listFlow}
                 graphName={graphName}
                 runStatuses={listRunStatuses}
                 onNodeClick={(blockId) => {
                   const node = nodes.find((n) => n.id === blockId);
-                  if (node) { handleNodeSelect(node); }
+                  if (node) handleNodeSelect(node);
                 }}
-                onAddStep={(afterBlockId, branchPath) => {
-                  // Opens the node palette / add modal — reuse existing flow
-                  // For now just open the left panel by switching to canvas
-                  setViewMode('canvas');
-                }}
+                onAddStep={handleRequestAddStep}
                 onDeleteStep={(blockId) => {
                   setNodes((prev) => prev.filter((n) => n.id !== blockId));
                   setEdges((prev) => prev.filter((e) => e.source !== blockId && e.target !== blockId));
@@ -1004,16 +1150,21 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
                   const node = nodes.find((n) => n.id === blockId);
                   if (!node) return;
                   const newId = `${blockId}-copy-${Date.now()}`;
-                  setNodes((prev) => [
-                    ...prev,
-                    { ...node, id: newId, position: { x: node.position.x + 40, y: node.position.y + 40 } },
-                  ]);
+                  setNodes((prev) => [...prev, { ...node, id: newId, selected: false }]);
                   setIsDirty(true);
                 }}
               />
+              <BoardRightToolbar nodes={nodes} graphId={graphId} />
             </div>
           );
         })()}
+
+        <style>{`
+          @keyframes assistantPulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.55); }
+            50% { box-shadow: 0 0 0 10px rgba(129, 140, 248, 0.08); }
+          }
+        `}</style>
 
         {/* ── Flow Assistant chatbot panel ── */}
         {isAssistantOpen && (
@@ -1021,69 +1172,35 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
             graphName={graphName}
             activeProjectId={activeProjectId}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
+            selectedBlockIds={nodes
+              .filter((node) => node.selected && !node.data?.assistantGhost)
+              .map((node) => node.id)}
             currentGraph={{
-              blocks: nodes.map((n) => ({
-                id: n.id,
-                kind: n.data?.definitionType || n.type || 'unknown',
-                name: n.data?.name || n.id,
-                label: n.data?.label || n.data?.name || n.id,
-                config: n.data?.config || {},
-              })),
-              connections: edges.map((e) => ({
-                id: e.id,
-                from: e.source,
-                to: e.target,
-                output: e.sourceHandle || undefined,
-                input: e.targetHandle || undefined,
-              })),
+              blocks: nodes
+                .filter((node) => !node.data?.assistantGhost)
+                .map((n) => ({
+                  id: n.id,
+                  kind: n.data?.definitionType || n.type || 'unknown',
+                  name: n.data?.name || n.id,
+                  label: n.data?.label || n.data?.name || n.id,
+                  config: n.data?.config || {},
+                  events: (n.data?.outputs || []).filter((output) => output.type === 'branch'),
+                })),
+              connections: edges
+                .filter((edge) => !(edge.data as any)?.assistantPreview)
+                .map((e) => ({
+                  id: e.id,
+                  from: e.source,
+                  to: e.target,
+                  output: e.sourceHandle || undefined,
+                  input: e.targetHandle || undefined,
+                })),
             }}
-            onApplyGraph={(newGraph) => {
-              if (!newGraph.blocks || newGraph.blocks.length === 0) return;
-
-              const updatedNodes = newGraph.blocks.map((b, idx) => {
-                const existing = nodes.find((n) => n.id === b.id);
-                const pos = existing?.position || {
-                  x: 320,
-                  y: 100 + idx * 160,
-                };
-                const outputs =
-                  b.kind === 'condition'
-                    ? [
-                        { name: 'true', label: 'True', type: 'branch' },
-                        { name: 'false', label: 'False', type: 'branch' },
-                      ]
-                    : [{ name: 'done', label: 'Done', type: 'default' }];
-
-                return {
-                  id: b.id,
-                  type: 'langgraphNode',
-                  position: pos,
-                  data: {
-                    name: b.name || b.id,
-                    label: b.label || b.name || b.id,
-                    definitionId: b.definitionId || b.kind,
-                    definitionType: b.kind,
-                    definitionName: b.name || b.kind,
-                    config: b.config || {},
-                    outputs,
-                  },
-                };
-              });
-
-              const updatedEdges = (newGraph.connections || []).map((c, idx) => ({
-                id: c.id || `e-${c.from}-${c.to}-${idx}`,
-                source: c.from,
-                target: c.to,
-                sourceHandle: c.output || 'done',
-                targetHandle: c.input || 'in',
-                type: 'default',
-              }));
-
-              setNodes(updatedNodes as any);
-              setEdges(updatedEdges);
-              setIsDirty(true);
-              showToast('Assistant updated the flow!', 'success');
-            }}
+            onApplyGraph={handleApplyAssistantGraph}
+            onFocusBlock={handleFocusBlock}
+            onPreviewOperations={handlePreviewOperations}
+            onApplyOperations={handleApplyOperations}
+            onUndoAssistant={handleUndoAssistant}
             onClose={() => setIsAssistantOpen(false)}
           />
         )}
@@ -1136,6 +1253,7 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
         allNodes={nodes}
         edges={edges}
         graphId={graphId}
+        projectId={activeProjectId}
         onClose={() => setIsConfigModalOpen(false)}
         onSaveConfig={handleSaveNodeConfig}
       />
@@ -1238,9 +1356,5 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
 }
 
 export function FlowStudio({ initialFlowId }: FlowStudioProps) {
-  return (
-    <ReactFlowProvider>
-      <FlowStudioInner initialFlowId={initialFlowId} />
-    </ReactFlowProvider>
-  );
+  return <FlowStudioInner initialFlowId={initialFlowId} />;
 }

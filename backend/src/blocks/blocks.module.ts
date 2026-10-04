@@ -22,6 +22,8 @@ import { SettingsModule } from '../settings/settings.module';
 import { EventsModule } from '../events/events.module';
 
 import { ArtifactsController } from './artifacts.controller';
+import { FileStorageService } from './file-storage.service';
+import { DatabaseConnectorService } from './database-connector.service';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { ArtifactsController } from './artifacts.controller';
     EmbeddingService,
     VectorStoreService,
     BlockRuntimeService,
+    FileStorageService,
+    DatabaseConnectorService,
     AgentToolRegistryService,
     AgentRunnerService,
     VariableResolverService,
@@ -60,6 +64,8 @@ import { ArtifactsController } from './artifacts.controller';
     EmbeddingService,
     VectorStoreService,
     BlockRuntimeService,
+    FileStorageService,
+    DatabaseConnectorService,
     AgentToolRegistryService,
   ],
 })

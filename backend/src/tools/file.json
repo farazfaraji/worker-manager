@@ -1,0 +1,126 @@
+{
+  "name": "File",
+  "type": "file",
+  "description": "Read and write files inside the project sandbox (files/projects/<projectId>).",
+  "inputs": [
+    {
+      "name": "operation",
+      "label": "Operation",
+      "type": "select",
+      "defaultValue": "read",
+      "options": [
+        { "label": "Read", "value": "read" },
+        { "label": "Write", "value": "write" },
+        { "label": "List", "value": "list" },
+        { "label": "Delete", "value": "delete" },
+        { "label": "Move", "value": "move" },
+        { "label": "Copy", "value": "copy" },
+        { "label": "Exists", "value": "exists" },
+        { "label": "Stat", "value": "stat" },
+        { "label": "Parse", "value": "parse" },
+        { "label": "Download", "value": "download" }
+      ]
+    },
+    {
+      "name": "path",
+      "label": "Path",
+      "type": "valueOrVariable",
+      "placeholder": "reports/summary.md",
+      "helpText": "Path relative to the project sandbox. Parent segments that escape the sandbox are rejected."
+    },
+    {
+      "name": "content",
+      "label": "Content",
+      "type": "valueOrVariable",
+      "dependsOn": { "field": "operation", "equals": "write" }
+    },
+    {
+      "name": "mode",
+      "label": "Write Mode",
+      "type": "select",
+      "defaultValue": "overwrite",
+      "options": [
+        { "label": "Overwrite", "value": "overwrite" },
+        { "label": "Append", "value": "append" },
+        { "label": "Create only", "value": "createOnly" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "write" }
+    },
+    {
+      "name": "encoding",
+      "label": "Encoding",
+      "type": "select",
+      "defaultValue": "utf8",
+      "options": [
+        { "label": "UTF-8", "value": "utf8" },
+        { "label": "Base64", "value": "base64" },
+        { "label": "JSON", "value": "json" }
+      ],
+      "dependsOn": { "field": "operation", "in": ["read", "write"] }
+    },
+    {
+      "name": "to",
+      "label": "Destination",
+      "type": "valueOrVariable",
+      "dependsOn": { "field": "operation", "in": ["move", "copy"] }
+    },
+    {
+      "name": "glob",
+      "label": "Glob",
+      "type": "text",
+      "placeholder": "*.csv",
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
+      "name": "recursive",
+      "label": "Recursive",
+      "type": "boolean",
+      "defaultValue": false,
+      "dependsOn": { "field": "operation", "in": ["list", "delete"] }
+    },
+    {
+      "name": "format",
+      "label": "Format",
+      "type": "select",
+      "defaultValue": "json",
+      "options": [
+        { "label": "JSON", "value": "json" },
+        { "label": "CSV", "value": "csv" },
+        { "label": "Markdown", "value": "markdown" },
+        { "label": "Text", "value": "text" }
+      ],
+      "dependsOn": { "field": "operation", "equals": "parse" }
+    },
+    {
+      "name": "url",
+      "label": "URL",
+      "type": "valueOrVariable",
+      "dependsOn": { "field": "operation", "equals": "download" }
+    },
+    {
+      "name": "allowedHosts",
+      "label": "Allowed Hosts",
+      "type": "json",
+      "placeholder": "[\"example.com\"]",
+      "dependsOn": { "field": "operation", "equals": "download" }
+    },
+    {
+      "name": "allowedExtensions",
+      "label": "Allowed Extensions",
+      "type": "json",
+      "placeholder": "[\".md\", \".csv\", \".json\"]"
+    },
+    {
+      "name": "maxBytes",
+      "label": "Max Bytes",
+      "type": "number",
+      "defaultValue": 10485760,
+      "helpText": "Reads and writes larger than this are rejected. Default is 10 MB."
+    }
+  ],
+  "outputs": [
+    { "name": "result", "label": "Result", "type": "object" },
+    { "name": "true", "label": "True", "type": "branch", "dependsOn": { "field": "operation", "equals": "exists" } },
+    { "name": "false", "label": "False", "type": "branch", "dependsOn": { "field": "operation", "equals": "exists" } }
+  ]
+}

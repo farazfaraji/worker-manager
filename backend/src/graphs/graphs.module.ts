@@ -20,10 +20,13 @@ import { NodeExecutorService } from '../runs/services/node-executor.service';
 import { WebSearchRunnerService } from '../runs/services/web-search-runner.service';
 import { TavilySearchService } from '../runs/services/tavily-search.service';
 import { BlocksModule } from '../blocks/blocks.module';
+import { SecretsModule } from '../secrets/secrets.module';
 import { EventsModule } from '../events/events.module';
 import { SettingsModule } from '../settings/settings.module';
 import { GraphEventDispatcherService } from './graph-event-dispatcher.service';
 import { GraphShapeService } from './graph-shape.service';
+import { GraphValidationService } from './services/graph-validation.service';
+import { GraphEnrichmentService } from './services/graph-enrichment.service';
 
 import { RunLeaseService } from '../runs/services/run-lease.service';
 import { RunCheckpointService } from '../runs/services/run-checkpoint.service';
@@ -70,6 +73,10 @@ import {
   AggregatePlugin,
   ExecutionPlugin,
   NotificationPlugin,
+  LogPlugin,
+  SecretsPlugin,
+  FilePlugin,
+  DatabasePlugin,
 } from '../runs/plugins';
 import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
 
@@ -85,6 +92,7 @@ import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
     NodeDefinitionsModule,
     ModelsModule,
     BlocksModule,
+    SecretsModule,
     EventsModule,
     SettingsModule,
     forwardRef(() => WebserverModule),
@@ -94,6 +102,8 @@ import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
   providers: [
     GraphsService,
     GraphShapeService,
+    GraphValidationService,
+    GraphEnrichmentService,
     GraphRunnerService,
     RunLeaseService,
     RunCheckpointService,
@@ -146,6 +156,10 @@ import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
     AggregatePlugin,
     ExecutionPlugin,
     NotificationPlugin,
+    LogPlugin,
+    SecretsPlugin,
+    FilePlugin,
+    DatabasePlugin,
     ToolPluginRegistry,
 
     // LangGraph Compiler & Checkpointing
@@ -154,6 +168,8 @@ import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
   ],
   exports: [
     GraphsService,
+    GraphValidationService,
+    GraphEnrichmentService,
     GraphRunnerService,
     RunLeaseService,
     RunCheckpointService,

@@ -35,7 +35,7 @@ export class CachesController {
   }
 
   @Delete()
-  clearAllCaches(@Query('graphId') graphId?: string) {
-    return this.nodeCacheService.clearCache(graphId);
+  clearAllCaches(@Query('graphId') graphId?: string, @Query('projectId') projectId?: string) {
+    return this.nodeCacheService.clearCache(graphId, undefined, projectId);
   }
 }

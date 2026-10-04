@@ -14,6 +14,7 @@ import { Memory, MemorySchema } from '../blocks/schemas/memory.schema';
 import { Trace, TraceSchema } from '../blocks/schemas/trace.schema';
 import { VectorRecord, VectorRecordSchema } from '../blocks/schemas/vector-record.schema';
 import { EventRecord, EventRecordSchema } from '../events/schemas/event.schema';
+import { SecretsModule } from '../secrets/secrets.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { EventRecord, EventRecordSchema } from '../events/schemas/event.schema';
       { name: VectorRecord.name, schema: VectorRecordSchema },
       { name: EventRecord.name, schema: EventRecordSchema },
     ]),
+    SecretsModule,
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService],

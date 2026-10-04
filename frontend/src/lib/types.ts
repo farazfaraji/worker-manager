@@ -1,4 +1,33 @@
-import { Node, Edge, Viewport } from '@xyflow/react';
+export interface FlowViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface FlowNode<T = FlowNodeData> {
+  id: string;
+  type?: string;
+  position: { x: number; y: number };
+  data: T;
+  selected?: boolean;
+  width?: number;
+  height?: number;
+  hidden?: boolean;
+  dragging?: boolean;
+}
+
+export interface FlowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  type?: string;
+  animated?: boolean;
+  selected?: boolean;
+  data?: Record<string, any>;
+  style?: Record<string, any>;
+}
 
 export interface ModelCapabilities {
   supportsVision: boolean;
@@ -161,7 +190,7 @@ export interface GraphSummary {
 
 export interface GraphLayoutData {
   version: number;
-  viewport: Viewport;
+  viewport: FlowViewport;
   nodes: Record<string, {
     x: number;
     y: number;
@@ -182,6 +211,7 @@ export interface GraphFlowData {
     definitionId?: string;
     definitionName?: string;
     config: Record<string, any>;
+    events?: ToolOutput[];
   }>;
   connections: Array<{
     id: string;
@@ -197,11 +227,11 @@ export interface GraphData {
   _id?: string;
   name: string;
   projectId: string;
-  nodes: Node<FlowNodeData>[];
-  edges: Edge[];
+  nodes: FlowNode[];
+  edges: FlowEdge[];
   flow?: GraphFlowData;
   layout?: GraphLayoutData;
-  viewport?: Viewport;
+  viewport?: FlowViewport;
   createdAt?: string;
   updatedAt?: string;
   metadata?: Record<string, any>;

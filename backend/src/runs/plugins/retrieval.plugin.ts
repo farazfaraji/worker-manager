@@ -128,7 +128,7 @@ export class RetrievalPlugin implements ToolPlugin {
   }
 
   getValidHandles(_config?: any, _outputs?: any[], _nodeData?: any, _nodeName?: string): Set<string> {
-    return new Set(['done', 'onfailed', 'result', 'results']);
+    return new Set(['done', 'failed', 'onfailed', 'result', 'results']);
   }
 
   getProducedPaths(nodeName: string, _config?: any, _nodeData?: any): Set<string> {

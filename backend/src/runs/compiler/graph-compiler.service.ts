@@ -4,6 +4,7 @@ import { ToolPluginRegistry } from '../plugins/tool-plugin.registry';
 import { VariableResolverService, RuntimeNode } from '../services/variable-resolver.service';
 import { RunTopologyService } from '../services/run-topology.service';
 import { FlowGraphState, FlowGraphStateType } from './graph-state';
+import { usesBooleanBranch } from '../services/branch-routing.util';
 import { MongoCheckpointSaver } from './mongo-checkpoint-saver';
 
 export type CompiledFlowGraph = CompiledStateGraph<any, any, any, any, any, any>;
@@ -294,7 +295,7 @@ export class GraphCompilerService {
 
   private defaultResolveTargets(node: RuntimeNode, output: any, outEdges: any[]): string[] {
     const type = String(node.data?.definitionType || node.type || '').toLowerCase();
-    if (type === 'condition') {
+    if (usesBooleanBranch(type, node.data?.config || {})) {
       const branch = output?.conditionMet ? 'true' : 'false';
       const match = outEdges.find((e) => String(e.sourceHandle || '').toLowerCase() === branch);
       return match ? [match.target] : [];
