@@ -51,9 +51,10 @@ When an Agent node executes during a flow run:
 | `reasoningFormat` | `select` | No | `"hidden"` | Formatting of reasoning tokens: `"hidden"`, `"parsed"`, `"raw"`. |
 | `systemPrompt` | `textarea` | Yes | `"You are a helpful AI assistant..."` | High-level instructions defining role, persona, constraints, and instructions. |
 | `userPrompt` | `textarea` | Yes | `""` | The prompt sent as the user turn. Supports mustache templates `{{nodeName.field}}`. |
-| `enableAttachment` | `checkbox` | No | `false` | Enables attaching external media (images, audio, PDFs) to the prompt. |
-| `attachment` | `valueOrVariable` | Conditional | `null` | Local file path, remote URL, or upstream node variable (e.g. `{{browser.screenshot}}`). |
-| `attachmentType` | `select` | Conditional | `"auto"` | Media category: `"auto"`, `"image"`, `"audio"`, or `"document"`. |
+| `enableAttachment` | `checkbox` | No | `false` | Enables attaching external media (images, audio, PDFs, text files) to the prompt. |
+| `attachment` | `attachmentUpload` | Conditional | `null` | Attachment source. Three modes: **Upload** (file from your computer, stored inline as a data URL), **URL / Path** (`data:`, `http(s):`, absolute host path, or a project sandbox path), **Variable** (any upstream value holding a URL, path, base64 payload, or file object). |
+| `maxSizeMb` | `number` | Conditional | `2` | Upload picker limit. Base64 inflates the saved graph by roughly a third, so keep this small. |
+| `attachmentType` | `select` | Conditional | `"auto"` | Media category: `"auto"` (detect from the source mime type), `"image"`, `"audio"`, or `"document"`. Only set it explicitly when the source has no usable file extension. |
 | `outputFormat` | `radio` | Yes | `"text"` | Response formatting: `"text"` or `"json"`. |
 | `outputType` | `code` (ts) | Conditional | `null` | Zod schema definition for JSON mode. Downstream nodes can autocomplete its properties. |
 
@@ -193,21 +194,44 @@ Extracted Text:
 
 ## 6. Multi-Modal Attachments (Vision, Audio, Docs)
 
-When analyzing browser screenshots, diagrams, photos, or documents, enable **Attach File / Media**:
+When analyzing browser screenshots, diagrams, photos, or documents, enable **Attach File / Media** and pick a source mode.
+
+### Supported Attachment Sources
+
+| Mode | Source | Notes |
+| :--- | :--- | :--- |
+| **Upload** | A file from your computer | Read with the browser File API and stored inline in the flow as a `data:` URL. Rejected above `maxSizeMb`. |
+| **URL / Path** | `data:` URL | Passed through untouched. |
+| **URL / Path** | `http(s)` URL | Passed through untouched (vision URLs and browser screenshots). |
+| **URL / Path** | Absolute host path | Read from the runner disk, e.g. `/Users/.../files/screenshots/shot.png`. |
+| **URL / Path** | Sandbox-relative path | Resolved inside `files/projects/<projectId>`, e.g. `reports/summary.pdf`. Escaping the sandbox is rejected. |
+| **Variable** | File block output | Wire `{{file_1.result}}` or `{{file_1.result.path}}`. The runner uses the inline `content` (utf8 or base64) when present, otherwise it reads the path from the project sandbox. |
+| **Variable** | Browser screenshot | Wire `{{browser_1.screenshot}}` or any action `path` / `data_url`. |
+| **Variable** | Any upstream payload | Objects exposing `content`, `base64`, `data`, or `screenshot` are accepted; arrays use their first entry. |
+
+The mime type is detected from the source (file extension, `mimeType` field, or data URL header). When it cannot be determined, `attachmentType` is used as a hint.
+
+### How Each Media Type Is Sent
+
+| Media | OpenAI & OpenAI-compatible | Anthropic | LM Studio native |
+| :--- | :--- | :--- | :--- |
+| Image (`image/*`) | `image_url` part | `image` base64 block | `image` part with `data_url` |
+| Audio (`audio/*`) | `input_audio` part (`wav`, `mp3`, `mp4`, `ogg`) | Rejected with a clear error | Rejected with a clear error |
+| PDF (`application/pdf`) | Rejected with a clear error | `document` base64 block | Rejected with a clear error |
+| Text (`text/*`, JSON) | Inlined into the user prompt (truncated at 20,000 characters) | Inlined into the user prompt | Inlined into the user prompt |
+
+Unsupported combinations fail the node with an actionable message instead of silently dropping the file. A missing attachment also fails the node, naming the path that could not be resolved.
 
 ```json
 {
   "enableAttachment": true,
   "attachment": "{{nodes.browser_1.result.actions[4].path}}",
-  "attachmentType": "image"
+  "attachmentType": "auto"
 }
 ```
 
-### Supported Attachment Sources:
-1. **Local File Paths**: Absolute paths on the runner disk (e.g., `/Users/.../files/screenshots/shot.png`). The runner automatically detects mime types (`image/png`, `image/jpeg`, `image/webp`, `audio/mp3`, `application/pdf`) and encodes the file into a base64 Data URL.
-2. **Data URLs**: Direct `data:image/png;base64,...` strings.
-3. **HTTP/HTTPS URLs**: Publicly accessible web image URLs.
-4. **Structured Objects**: Objects containing a `.path` property returned by tools like the Browser screenshot action.
+> [!NOTE]
+> OpenAI-compatible chat completions cannot ingest PDFs. Extract the text first (for example with a File block) and pass it through a variable, or route the node to an Anthropic model.
 
 ---
 
@@ -308,6 +332,8 @@ This agent searches the live web, selects relevant articles, reads page text, an
 3. **JSON Validation Failures**: If the model occasionally wraps responses in markdown code blocks (\`\`\`json ... \`\`\`), the backend automatically cleans and unescapes it, but using clear field names in your Zod schema ensures the model returns exact matches.
 4. **Reasoning Models (Qwen / DeepSeek / o1)**: When using reasoning models, note that `o1-mini` and `o1-preview` do not support tool calling. Use `gpt-4o`, `gpt-4o-mini`, or `claude-3-5-sonnet` for autonomous tool execution.
 5. **Context Window Protection**: The runner automatically truncates tool results (`maxContentLength` for `read_url` and snippet character limits for `search_web`) to ensure the agent's context window does not overflow.
+6. **Attachment Not Attached**: The node now fails loudly instead of dropping the file. `Attachment not found in the "<projectId>" project sandbox: <path>` means the File block path and the project do not match; `Attachment file not found: <path>` means the absolute path does not exist on the runner host. Both confirm the `📎 Attachment attached` log line is absent when nothing was attached.
+7. **Large Attachments**: Prefer a File block over the upload picker for big files. Uploads are stored inline in the saved graph and inflate it by about a third.
 
 ## Research findings and source provenance
 

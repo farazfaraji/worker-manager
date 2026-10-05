@@ -8,6 +8,7 @@ import {
   AgentToolTraceItem,
 } from './agent-tool-registry.service';
 import { redactSecrets } from './redaction.util';
+import { FileStorageService, mimeFromPath } from '../../blocks/file-storage.service';
 import { validateResearchFindings } from '../../research/research.contract';
 
 // ============================================================================
@@ -23,6 +24,7 @@ export const DEFAULT_TEMPERATURE = 0.7;
 export const DEFAULT_MAX_STEPS = 5;
 export const MAX_AGENT_STEPS = 20;
 export const CIRCUIT_BREAKER_INVALID_CALL_LIMIT = 3;
+export const MAX_INLINE_ATTACHMENT_CHARS = 20000;
 
 // ============================================================================
 // Type Definitions
@@ -47,6 +49,7 @@ export interface ResolvedAgentExecutionConfig {
   outputSchema?: string;
   temperature?: number;
   attachmentDataUrl: string | null;
+  attachmentType: string;
   reasoningEffort: string;
   reasoningFormat: string;
   timeoutMs: number;
@@ -77,9 +80,14 @@ export class AgentRunnerService {
     private readonly modelsService: ModelsService,
     @Optional()
     toolRegistry?: AgentToolRegistryService,
+    @Optional()
+    fileStorage?: FileStorageService,
   ) {
     this.toolRegistry = toolRegistry || new AgentToolRegistryService();
+    this.fileStorage = fileStorage || new FileStorageService();
   }
+
+  private readonly fileStorage: FileStorageService;
 
   // --------------------------------------------------------------------------
   // Public Entry Point
@@ -222,7 +230,8 @@ export class AgentRunnerService {
     const temperature = this.resolveTemperature(config, model.modelId, modelRecord);
 
     // 5. Resolve file attachment
-    const attachmentDataUrl = this.resolveAttachment(config, context);
+    const attachmentDataUrl = await this.resolveAttachment(config, context);
+    const attachmentType = String(config.attachmentType || 'auto').toLowerCase();
 
     // 6. Resolve reasoning settings
     const reasoningEffort =
@@ -250,6 +259,7 @@ export class AgentRunnerService {
       outputSchema,
       temperature,
       attachmentDataUrl,
+      attachmentType,
       reasoningEffort,
       reasoningFormat,
       timeoutMs,
@@ -391,25 +401,269 @@ export class AgentRunnerService {
     return DEFAULT_TEMPERATURE;
   }
 
-  private resolveAttachment(config: Record<string, any>, context: Record<string, any>): string | null {
-    if (!config.enableAttachment || config.attachment === undefined) {
+  /**
+   * Resolves the configured attachment into a data URL (or a remote http(s) URL).
+   *
+   * Supported sources:
+   *  - `data:` / `http(s):` URL  -> passed through untouched (browser screenshots, uploads)
+   *  - absolute host file path   -> read from disk
+   *  - sandbox-relative path     -> read from files/projects/<projectId>
+   *  - File block output object  -> `{ content, mimeType, encoding }` or `{ path }`
+   */
+  private async resolveAttachment(
+    config: Record<string, any>,
+    context: Record<string, any>,
+  ): Promise<string | null> {
+    if (!config.enableAttachment || config.attachment === undefined || config.attachment === null) {
       return null;
     }
 
     const resolved = this.variableResolver.resolveValue(config.attachment, context);
+
+    // 1. Inline string: data URL, remote URL, or file path
     if (typeof resolved === 'string' && resolved.trim()) {
       const attStr = resolved.trim();
       if (attStr.startsWith('data:') || attStr.startsWith('http://') || attStr.startsWith('https://')) {
         return attStr;
       }
-      const encoded = this.encodeLocalFileToBase64(attStr);
-      return encoded ? `data:${encoded.mimeType};base64,${encoded.base64}` : null;
+      return this.toAttachmentDataUrl(attStr, context);
     }
-    if (typeof resolved === 'object' && resolved?.path) {
-      const encoded = this.encodeLocalFileToBase64(resolved.path);
-      return encoded ? `data:${encoded.mimeType};base64,${encoded.base64}` : null;
+
+    // 2. Structured source (File block output, browser screenshot object, ...)
+    if (typeof resolved === 'object' && resolved !== null) {
+      const record = resolved as Record<string, any>;
+
+      // 2a. Inline bytes already carried by the source
+      const content = record.content ?? record.base64 ?? record.data ?? record.screenshot;
+      if (typeof content === 'string' && content) {
+        if (content.startsWith('data:') || content.startsWith('http://') || content.startsWith('https://')) {
+          return content;
+        }
+        const mediaType =
+          record.mimeType || record.mime || mimeFromPath(String(record.path || record.file || ''));
+        const isBase64 =
+          record.encoding === 'base64' || record.isBase64 === true || isProbablyBase64(content);
+        const base64 = isBase64 ? content : Buffer.from(content, 'utf8').toString('base64');
+        return `data:${mediaType};base64,${base64}`;
+      }
+
+      // 2b. Path reference (absolute host path or sandbox-relative path)
+      const pathRef = record.path || record.file || record.filePath || record.filepath;
+      if (typeof pathRef === 'string' && pathRef.trim()) {
+        return this.toAttachmentDataUrl(pathRef.trim(), context);
+      }
     }
+
+    // 3. Array source: take the first resolvable entry
+    if (Array.isArray(resolved) && resolved.length) {
+      return this.resolveAttachment(
+        { ...config, attachment: { mode: 'literal', value: resolved[0] } },
+        context,
+      );
+    }
+
     return null;
+  }
+
+  private async toAttachmentDataUrl(
+    reference: string,
+    context: Record<string, any>,
+  ): Promise<string> {
+    const encoded = this.encodeLocalFileToBase64(reference);
+    if (encoded) return `data:${encoded.mimeType};base64,${encoded.base64}`;
+
+    const projectId = context?.projectId ? String(context.projectId) : '';
+    if (projectId && !path.isAbsolute(reference)) {
+      try {
+        const sandboxed = await this.fileStorage.readBuffer(projectId, reference);
+        return `data:${sandboxed.mimeType};base64,${sandboxed.base64}`;
+      } catch (err: any) {
+        throw new BadRequestException(
+          `Attachment not found in the "${projectId}" project sandbox: ${reference}`,
+        );
+      }
+    }
+
+    throw new BadRequestException(`Attachment file not found: ${reference}`);
+  }
+
+  private parseDataUrl(value: string): { mediaType: string; base64: string } | null {
+    if (!value.startsWith('data:')) return null;
+    const commaIndex = value.indexOf(',');
+    if (commaIndex < 0) return null;
+    const header = value.slice('data:'.length, commaIndex);
+    return {
+      mediaType: header.split(';')[0].trim() || 'application/octet-stream',
+      base64: value.slice(commaIndex + 1),
+    };
+  }
+
+  private classifyAttachment(
+    mediaType: string,
+    hint?: string,
+  ): 'image' | 'audio' | 'pdf' | 'text' {
+    const type = String(mediaType || '').toLowerCase();
+    if (type.startsWith('image/')) return 'image';
+    if (type.startsWith('audio/')) return 'audio';
+    if (type === 'application/pdf') return 'pdf';
+    if (type.startsWith('text/') || type === 'application/json') return 'text';
+
+    const fallback = String(hint || '').toLowerCase();
+    if (fallback === 'image') return 'image';
+    if (fallback === 'audio') return 'audio';
+    if (fallback === 'document') return 'pdf';
+    return 'image';
+  }
+
+  private inlineAttachmentText(mediaType: string, base64: string): string {
+    let text = '';
+    try {
+      text = Buffer.from(base64, 'base64').toString('utf8');
+    } catch {
+      return '';
+    }
+    if (text.length > MAX_INLINE_ATTACHMENT_CHARS) {
+      text = `${text.slice(0, MAX_INLINE_ATTACHMENT_CHARS)}\n[truncated]`;
+    }
+    return `\n\nAttached ${mediaType} content:\n${text}`;
+  }
+
+  /** Builds the Anthropic user message, mapping images, PDFs and text to their native blocks. */
+  private buildAnthropicUserMessage(config: ResolvedAgentExecutionConfig): any {
+    const { attachmentDataUrl, attachmentType, userPrompt } = config;
+    if (!attachmentDataUrl) return { role: 'user', content: userPrompt };
+
+    if (!attachmentDataUrl.startsWith('data:')) {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: `An attached file is available at: ${attachmentDataUrl}` },
+          { type: 'text', text: userPrompt },
+        ],
+      };
+    }
+
+    const parsed = this.parseDataUrl(attachmentDataUrl);
+    if (!parsed) return { role: 'user', content: userPrompt };
+
+    const kind = this.classifyAttachment(parsed.mediaType, attachmentType);
+    if (kind === 'text') {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: `${userPrompt}${this.inlineAttachmentText(parsed.mediaType, parsed.base64)}` },
+        ],
+      };
+    }
+    if (kind === 'audio') {
+      throw new BadRequestException(
+        `Anthropic models cannot ingest audio (${parsed.mediaType}). Transcribe the audio first, or route the node to an audio-capable model.`,
+      );
+    }
+
+    const block =
+      kind === 'pdf'
+        ? {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: parsed.base64 },
+          }
+        : {
+            type: 'image',
+            source: { type: 'base64', media_type: parsed.mediaType, data: parsed.base64 },
+          };
+
+    return { role: 'user', content: [block, { type: 'text', text: userPrompt }] };
+  }
+
+  /** Builds the OpenAI-compatible user message, supporting image_url and input_audio parts. */
+  private buildOpenAiUserMessage(config: ResolvedAgentExecutionConfig): any {
+    const { attachmentDataUrl, attachmentType, userPrompt } = config;
+    if (!attachmentDataUrl) return { role: 'user', content: userPrompt };
+
+    if (!attachmentDataUrl.startsWith('data:')) {
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: userPrompt },
+          { type: 'image_url', image_url: { url: attachmentDataUrl } },
+        ],
+      };
+    }
+
+    const parsed = this.parseDataUrl(attachmentDataUrl);
+    if (!parsed) return { role: 'user', content: userPrompt };
+
+    const kind = this.classifyAttachment(parsed.mediaType, attachmentType);
+    if (kind === 'text') {
+      return {
+        role: 'user',
+        content: [{ type: 'text', text: `${userPrompt}${this.inlineAttachmentText(parsed.mediaType, parsed.base64)}` }],
+      };
+    }
+    if (kind === 'audio') {
+      const mediaType = parsed.mediaType.toLowerCase();
+      const format = mediaType.includes('wav')
+        ? 'wav'
+        : mediaType.includes('mp4') || mediaType.includes('m4a')
+        ? 'mp4'
+        : mediaType.includes('ogg')
+        ? 'ogg'
+        : 'mp3';
+      return {
+        role: 'user',
+        content: [
+          { type: 'input_audio', input_audio: { data: parsed.base64, format } },
+          { type: 'text', text: userPrompt },
+        ],
+      };
+    }
+    if (kind === 'pdf') {
+      throw new BadRequestException(
+        'OpenAI-compatible chat completions cannot accept PDF attachments. Extract the text first (for example with a File block) and pass it through a variable.',
+      );
+    }
+
+    return {
+      role: 'user',
+      content: [
+        { type: 'text', text: userPrompt },
+        { type: 'image_url', image_url: { url: attachmentDataUrl } },
+      ],
+    };
+  }
+
+  /** Builds the LM Studio native chat input, which only understands text and image parts. */
+  private buildLmStudioInput(config: ResolvedAgentExecutionConfig): any {
+    const { attachmentDataUrl, attachmentType, userPrompt } = config;
+    if (!attachmentDataUrl) return userPrompt;
+
+    if (!attachmentDataUrl.startsWith('data:')) {
+      return [
+        { type: 'text', content: userPrompt },
+        { type: 'image', data_url: attachmentDataUrl },
+      ];
+    }
+
+    const parsed = this.parseDataUrl(attachmentDataUrl);
+    if (!parsed) return userPrompt;
+
+    const kind = this.classifyAttachment(parsed.mediaType, attachmentType);
+    if (kind === 'text') {
+      return {
+        type: 'text',
+        content: `${userPrompt}${this.inlineAttachmentText(parsed.mediaType, parsed.base64)}`,
+      };
+    }
+    if (kind !== 'image') {
+      throw new BadRequestException(
+        `LM Studio vision endpoints only accept image attachments (received ${parsed.mediaType}).`,
+      );
+    }
+
+    return [
+      { type: 'text', content: userPrompt },
+      { type: 'image', data_url: attachmentDataUrl },
+    ];
   }
 
   // --------------------------------------------------------------------------
@@ -440,7 +694,7 @@ export class AgentRunnerService {
     config: ResolvedAgentExecutionConfig,
     context: Record<string, any>,
   ): Promise<LlmExecutionResult> {
-    const { model, systemPrompt, userPrompt, attachmentDataUrl, timeoutMs } = config;
+    const { model, systemPrompt, timeoutMs } = config;
     const abortSignal = AbortSignal.timeout(timeoutMs);
 
     const cleanAnthropicEndpoint = model.endpoint.replace(/\/+$/, '');
@@ -449,27 +703,7 @@ export class AgentRunnerService {
         ? `${DEFAULT_ANTHROPIC_ENDPOINT}/messages`
         : cleanAnthropicEndpoint;
 
-    const messages: any[] = [];
-    if (attachmentDataUrl && attachmentDataUrl.startsWith('data:')) {
-      const [header, base64Part] = attachmentDataUrl.split(';base64,');
-      const mediaType = header.replace('data:', '');
-      messages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: base64Part,
-            },
-          },
-          { type: 'text', text: userPrompt },
-        ],
-      });
-    } else {
-      messages.push({ role: 'user', content: userPrompt });
-    }
+    const messages: any[] = [this.buildAnthropicUserMessage(config)];
 
     if (!config.enableTools) {
       return this.executeAnthropicSingleTurn(anthropicUrl, messages, config, abortSignal);
@@ -634,17 +868,11 @@ export class AgentRunnerService {
   private async executeLmStudioFlow(
     config: ResolvedAgentExecutionConfig,
   ): Promise<LlmExecutionResult> {
-    const { model, systemPrompt, userPrompt, attachmentDataUrl, timeoutMs } = config;
+    const { model, systemPrompt, timeoutMs } = config;
     const targetUrl = model.endpoint.trim().replace(/\/+$/, '');
     const abortSignal = AbortSignal.timeout(timeoutMs);
 
-    let inputPayload: any = userPrompt;
-    if (attachmentDataUrl) {
-      inputPayload = [
-        { type: 'text', content: userPrompt },
-        { type: 'image', data_url: attachmentDataUrl },
-      ];
-    }
+    const inputPayload = this.buildLmStudioInput(config);
 
     const payload: any = {
       model: model.modelId,
@@ -700,18 +928,10 @@ export class AgentRunnerService {
     const completionsUrl = this.resolveOpenAiCompletionsUrl(config.model.endpoint);
     const abortSignal = AbortSignal.timeout(config.timeoutMs);
 
-    const messages: any[] = [{ role: 'system', content: config.systemPrompt }];
-    if (config.attachmentDataUrl) {
-      messages.push({
-        role: 'user',
-        content: [
-          { type: 'text', text: config.userPrompt },
-          { type: 'image_url', image_url: { url: config.attachmentDataUrl } },
-        ],
-      });
-    } else {
-      messages.push({ role: 'user', content: config.userPrompt });
-    }
+    const messages: any[] = [
+      { role: 'system', content: config.systemPrompt },
+      this.buildOpenAiUserMessage(config),
+    ];
 
     const reqHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -1081,20 +1301,11 @@ export class AgentRunnerService {
 
   private encodeLocalFileToBase64(filePath: string): { base64: string; mimeType: string } | null {
     try {
-      if (!fs.existsSync(filePath)) return null;
-      const ext = path.extname(filePath).toLowerCase();
-      let mimeType = 'image/png';
-      if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
-      else if (ext === '.webp') mimeType = 'image/webp';
-      else if (ext === '.gif') mimeType = 'image/gif';
-      else if (ext === '.mp3') mimeType = 'audio/mp3';
-      else if (ext === '.wav') mimeType = 'audio/wav';
-      else if (ext === '.pdf') mimeType = 'application/pdf';
-
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return null;
       const fileBuffer = fs.readFileSync(filePath);
       return {
         base64: fileBuffer.toString('base64'),
-        mimeType,
+        mimeType: mimeFromPath(filePath),
       };
     } catch {
       return null;
@@ -1166,4 +1377,11 @@ export class AgentRunnerService {
     (err as any).code = causeCode || 'LLM_CALL_FAILED';
     throw err;
   }
+}
+
+/** Heuristic check for already base64-encoded payload text. */
+function isProbablyBase64(value: string): boolean {
+  const sample = value.replace(/\s+/g, '');
+  if (!sample.length || sample.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(sample);
 }

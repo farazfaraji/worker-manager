@@ -16,18 +16,36 @@ import * as path from 'path';
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
-const MIME_BY_EXT: Record<string, string> = {
+export const MIME_BY_EXT: Record<string, string> = {
   '.json': 'application/json',
   '.csv': 'text/csv',
   '.md': 'text/markdown',
+  '.markdown': 'text/markdown',
   '.txt': 'text/plain',
+  '.log': 'text/plain',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
   '.html': 'text/html',
+  '.xml': 'application/xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.pdf': 'application/pdf',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
 };
+
+export function mimeFromPath(filePath: string): string {
+  return MIME_BY_EXT[path.extname(String(filePath || '')).toLowerCase()] || 'application/octet-stream';
+}
 
 @Injectable()
 export class FileStorageService {
@@ -56,6 +74,19 @@ export class FileStorageService {
     else if (encoding === 'json') content = JSON.parse(buffer.toString('utf8'));
     else content = buffer.toString('utf8');
     return { path: this.displayPath(projectId, target), content, size: info.size, mimeType: this.mime(target) };
+  }
+
+  /**
+   * Reads a sandboxed file as raw base64 plus its detected mime type.
+   * Used by consumers that need the bytes themselves (e.g. LLM attachments).
+   */
+  async readBuffer(projectId: string, rel: string, options: { maxBytes?: number } = {}) {
+    const target = await this.resolveSafe(projectId, rel, { allowMissing: false });
+    const info = await stat(target);
+    if (info.isDirectory()) throw new BadRequestException('readBuffer expects a file, not a directory');
+    this.assertSize(info.size, options.maxBytes);
+    const buffer = await readFile(target);
+    return { path: this.displayPath(projectId, target), base64: buffer.toString('base64'), size: info.size, mimeType: this.mime(target) };
   }
 
   async write(
@@ -237,7 +268,7 @@ export class FileStorageService {
   }
 
   private mime(target: string): string {
-    return MIME_BY_EXT[path.extname(target).toLowerCase()] || 'application/octet-stream';
+    return mimeFromPath(target);
   }
 
   private toBuffer(content: any, encoding: string): Buffer {
