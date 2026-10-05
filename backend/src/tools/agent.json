@@ -131,14 +131,26 @@
       "label": "Attach File / Media",
       "type": "checkbox",
       "defaultValue": false,
-      "helpText": "Attach an image (vision), audio, or document from an upstream variable or URL/path."
+      "helpText": "Attach an image, audio clip, PDF or document from your computer, an upstream variable, a URL, or a file in the project sandbox."
     },
     {
       "name": "attachment",
       "label": "Attachment Source",
-      "type": "valueOrVariable",
-      "placeholder": "Select variable (e.g. browser.screenshot) or enter path/URL",
+      "type": "attachmentUpload",
+      "placeholder": "Upload a file, paste a URL or path, or select a variable",
+      "helpText": "Upload File stores the file inline as a data URL. Variable accepts browser screenshots, File block output, or any upstream variable holding a URL, path or base64 payload.",
       "accepts": ["string", "image", "file", "audio"],
+      "dependsOn": {
+        "field": "enableAttachment",
+        "equals": true
+      }
+    },
+    {
+      "name": "maxSizeMb",
+      "label": "Max Upload Size (MB)",
+      "type": "number",
+      "defaultValue": 2,
+      "helpText": "Largest file accepted by the upload picker. Base64 inflates the saved graph by about a third, so keep this small.",
       "dependsOn": {
         "field": "enableAttachment",
         "equals": true
@@ -149,6 +161,7 @@
       "label": "Media Type",
       "type": "select",
       "defaultValue": "auto",
+      "helpText": "Auto Detect reads the mime type of the source. Set it explicitly only when the source has no usable file extension.",
       "options": [
         { "label": "Auto Detect", "value": "auto" },
         { "label": "Image (Vision)", "value": "image" },

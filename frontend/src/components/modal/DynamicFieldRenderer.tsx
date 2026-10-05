@@ -7,7 +7,7 @@ import { CodeEditor } from './CodeEditor';
 import { RevisePromptModal } from './RevisePromptModal';
 import { SchemaAiGenerator } from './SchemaAiGenerator';
 import { SuggestionCombobox } from './SuggestionCombobox';
-import { Code, Code2, AlignLeft, Sliders, ToggleLeft, ToggleRight, Check, AlertCircle, Sparkles, Wand2, Variable } from 'lucide-react';
+import { Code, Code2, AlignLeft, Sliders, ToggleLeft, ToggleRight, Check, AlertCircle, Sparkles, Wand2, Variable, Upload, Paperclip, FileText, X } from 'lucide-react';
 
 interface DynamicFieldRendererProps {
   input: ToolInput;
@@ -91,6 +91,26 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
   const [isValueMode, setIsValueMode] = useState<boolean>(parsedValOrVar.mode === 'literal');
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [multiInputText, setMultiInputText] = useState<string>('');
+  const [attachmentMode, setAttachmentMode] = useState<'upload' | 'literal' | 'variable'>('upload');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: number; mimeType: string } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Keep the attachment mode in sync with the stored value (uploaded data URL, variable, or literal)
+  useEffect(() => {
+    if (typeof value === 'object' && value !== null && value.mode === 'variable') {
+      setAttachmentMode('variable');
+      return;
+    }
+    const stored =
+      typeof value === 'string'
+        ? value
+        : typeof value === 'object' && value !== null && typeof value.value === 'string'
+        ? value.value
+        : '';
+    if (stored.startsWith('data:')) setAttachmentMode('upload');
+    else if (stored) setAttachmentMode('literal');
+  }, [value]);
 
   useEffect(() => {
     if (input.type === 'valueOrVariable' && typeof value === 'object' && value !== null && value.mode) {
@@ -792,6 +812,167 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
                 required={input.required}
                 accepts={input.accepts || (input.multiselect ? ['array', 'string'] : ['string'])}
               />
+            )}
+          </div>
+        );
+      }
+
+      case 'attachmentUpload': {
+        const maxMb = Number(formValues.maxSizeMb) > 0 ? Number(formValues.maxSizeMb) : 2;
+        const maxBytes = maxMb * 1024 * 1024;
+        const acceptByType: Record<string, string> = {
+          auto: '',
+          image: 'image/*',
+          audio: 'audio/*',
+          document: '.pdf,.txt,.md,.csv,.json,.html,.docx',
+        };
+        const accept = acceptByType[String(formValues.attachmentType || 'auto')] || '';
+        const attachmentString =
+          typeof value === 'string'
+            ? value
+            : typeof value === 'object' && value !== null && typeof value.value === 'string'
+            ? value.value
+            : '';
+
+        const handlePickFile = (file: File) => {
+          if (file.size > maxBytes) {
+            setUploadError(
+              `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB, which is over the ${maxMb} MB upload limit.`,
+            );
+            return;
+          }
+          setUploadError(null);
+          const reader = new FileReader();
+          reader.onload = () => {
+            onChange({ mode: 'literal', value: String(reader.result) });
+            setUploadedFile({ name: file.name, size: file.size, mimeType: file.type || 'unknown' });
+          };
+          reader.onerror = () => setUploadError(`Could not read "${file.name}".`);
+          reader.readAsDataURL(file);
+        };
+
+        const handleClear = () => {
+          onChange({ mode: 'literal', value: '' });
+          setUploadedFile(null);
+          setUploadError(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        };
+
+        const modeButton = (mode: 'upload' | 'literal' | 'variable', label: string, icon: React.ReactNode) => (
+          <button
+            key={mode}
+            type="button"
+            className={`btn ${attachmentMode === mode ? 'btn-primary' : 'btn-default'}`}
+            style={{ padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            onClick={() => {
+              setAttachmentMode(mode);
+              setUploadError(null);
+            }}
+          >
+            {icon} {label}
+          </button>
+        );
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {modeButton('upload', 'Upload', <Upload size={12} />)}
+              {modeButton('literal', 'URL / Path', <Paperclip size={12} />)}
+              {modeButton('variable', 'Variable', <Variable size={12} />)}
+              {attachmentString && (
+                <button
+                  type="button"
+                  className="btn btn-default"
+                  style={{ padding: '4px 10px', fontSize: 12, marginLeft: 'auto' }}
+                  onClick={handleClear}
+                  title="Remove the configured attachment"
+                >
+                  <X size={12} /> Clear
+                </button>
+              )}
+            </div>
+
+            {attachmentMode === 'upload' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  hidden
+                  accept={accept}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handlePickFile(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-default"
+                  style={{
+                    padding: '10px 12px',
+                    fontSize: 12.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    borderStyle: 'dashed',
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload size={14} />
+                  {uploadedFile ? 'Replace file' : `Choose file (max ${maxMb} MB)`}
+                </button>
+                {uploadedFile && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 11.5,
+                      color: 'var(--text-secondary)',
+                      background: 'var(--bg-subtle)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 6,
+                      padding: '6px 8px',
+                    }}
+                  >
+                    <FileText size={13} />
+                    <span style={{ fontWeight: 600 }}>{uploadedFile.name}</span>
+                    <span>{(uploadedFile.size / 1024).toFixed(1)} KB</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{uploadedFile.mimeType}</span>
+                  </div>
+                )}
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Stored inline in the flow as a base64 data URL. For larger files, read them from the project
+                  sandbox with a File block and wire the path here instead.
+                </span>
+              </div>
+            )}
+
+            {attachmentMode === 'literal' && (
+              <input
+                type="text"
+                className="form-input"
+                value={attachmentString}
+                onChange={(e) => onChange({ mode: 'literal', value: e.target.value })}
+                placeholder={input.placeholder || 'https://example.com/chart.png or files/reports/summary.pdf'}
+              />
+            )}
+
+            {attachmentMode === 'variable' && (
+              <VariablePicker
+                value={attachmentString}
+                onChange={(selected) => onChange({ mode: 'variable', value: selected })}
+                availableVariables={availableVariables}
+                placeholder={input.placeholder || 'Select variable (e.g. browser_1.screenshot, file_1.result)'}
+                required={input.required}
+                accepts={input.accepts || ['string', 'image', 'file', 'audio']}
+              />
+            )}
+
+            {uploadError && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--danger)' }}>
+                <AlertCircle size={13} /> {uploadError}
+              </span>
             )}
           </div>
         );
