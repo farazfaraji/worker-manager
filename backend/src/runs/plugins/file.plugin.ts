@@ -18,9 +18,11 @@ export class FilePlugin implements ToolPlugin {
     const op = String(payload.operation || 'read').toLowerCase();
     const projectId = String(context?.projectId || 'default');
     const rel = String(payload.path || payload.file || '');
+    const folder = stringOrUndefined(payload.folder || payload.root || payload.directory);
     const limits = {
       maxBytes: numberOrUndefined(payload.maxBytes),
       allowedExtensions: arrayOfStrings(payload.allowedExtensions),
+      folder,
     };
 
     if (op === 'read') {
@@ -39,6 +41,7 @@ export class FilePlugin implements ToolPlugin {
       const result = await this.storage.list(projectId, payload.path || '.', {
         glob: payload.glob ? String(payload.glob) : undefined,
         recursive: payload.recursive === true || payload.recursive === 'true',
+        folder,
       });
       return { status: 'completed', result: { files: result } };
     }
@@ -47,27 +50,28 @@ export class FilePlugin implements ToolPlugin {
         projectId,
         rel,
         payload.recursive === true || payload.recursive === 'true',
+        folder,
       );
       return { status: 'completed', result };
     }
     if (op === 'move' || op === 'copy') {
       const to = String(payload.to || payload.destination || '');
       const result = op === 'move'
-        ? await this.storage.move(projectId, rel, to)
-        : await this.storage.copy(projectId, rel, to);
+        ? await this.storage.move(projectId, rel, to, folder)
+        : await this.storage.copy(projectId, rel, to, folder);
       return { status: 'completed', result };
     }
     if (op === 'exists') {
-      const exists = await this.storage.exists(projectId, rel);
+      const exists = await this.storage.exists(projectId, rel, folder);
       return { status: 'completed', conditionMet: exists, result: { path: rel, exists } };
     }
     if (op === 'stat') {
-      return { status: 'completed', result: await this.storage.stat(projectId, rel) };
+      return { status: 'completed', result: await this.storage.stat(projectId, rel, folder) };
     }
     if (op === 'parse') {
       return {
         status: 'completed',
-        result: await this.storage.parse(projectId, rel, payload.format, limits.maxBytes),
+        result: await this.storage.parse(projectId, rel, payload.format, limits.maxBytes, folder),
       };
     }
     if (op === 'download') {
@@ -108,6 +112,11 @@ export class FilePlugin implements ToolPlugin {
     const filename = String(payload.path || payload.filename || new URL(url).pathname.split('/').pop() || 'download.bin');
     return this.storage.write(projectId, filename, bytes, { mode: 'overwrite', ...limits });
   }
+}
+
+function stringOrUndefined(value: any): string | undefined {
+  const parsed = String(value ?? '').trim();
+  return parsed || undefined;
 }
 
 function numberOrUndefined(value: any): number | undefined {

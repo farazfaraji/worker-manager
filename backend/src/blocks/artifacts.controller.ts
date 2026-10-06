@@ -24,6 +24,11 @@ export class ArtifactsController {
     return this.artifactService.getDistinctTypes(projectId);
   }
 
+  @Get('categories')
+  async listCategories(@Query('projectId') projectId?: string) {
+    return this.artifactService.getDistinctCategories(projectId);
+  }
+
   @Get()
   async list(
     @Query('projectId') projectId?: string,

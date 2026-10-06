@@ -136,9 +136,16 @@ export class AgentRunnerService {
 
     this.logger.log(`   🤖 [Agent Execution Complete] Result keys: ${Object.keys(agentResult).join(', ')}`);
 
+    const result =
+      agentResult.result !== undefined ? agentResult.result : agentResult;
+    const text =
+      agentResult.text ??
+      (typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+
     return {
       ...agentResult,
-      result: agentResult.result !== undefined ? agentResult.result : agentResult,
+      result,
+      text,
       ...(config.enableTools ? { toolCalls: executionResult.toolCallsTrace, toolTrace: executionResult.toolCallsTrace } : {}),
     };
   }

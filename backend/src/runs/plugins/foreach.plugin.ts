@@ -7,6 +7,7 @@ import {
 } from './tool-plugin.interface';
 import { SubgraphRunnerService } from '../services/subgraph-runner.service';
 import { VariableResolverService } from '../services/variable-resolver.service';
+import { normalizeCollectionInput } from '../utils/collection-input.util';
 
 @Injectable()
 export class ForeachPlugin implements ToolPlugin {
@@ -54,7 +55,7 @@ export class ForeachPlugin implements ToolPlugin {
       } catch {}
     }
 
-    const itemsToProcess = Array.isArray(items) ? items : [];
+    const itemsToProcess = normalizeCollectionInput(items) ?? [];
     const maxIterations = Math.min(100, Math.max(1, Number(config.maxIterations || 100)));
     const sliced = itemsToProcess.slice(0, maxIterations);
     const isTruncated = itemsToProcess.length > maxIterations;
@@ -83,7 +84,12 @@ export class ForeachPlugin implements ToolPlugin {
   }
 
   getProducedPaths(nodeName: string, _config?: any, _nodeData?: any): Set<string> {
-    const paths = new Set<string>();
+    const paths = new Set<string>([
+      `${nodeName}.item`,
+      `${nodeName}.index`,
+      `${nodeName}.total`,
+      `${nodeName}.result`,
+    ]);
     for (const k of ['status', 'count', 'processed', 'truncated', 'items', 'errors']) {
       paths.add(`${nodeName}.result.${k}`);
     }

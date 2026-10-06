@@ -63,6 +63,7 @@ export function generateResumeToken(): {
  */
 export function redactSecrets(data: any, seen = new WeakSet()): any {
   if (data === null || data === undefined) return data;
+  if (data instanceof Date) return data;
   if (typeof data !== 'object') {
     if (typeof data === 'string') {
       if (SENSITIVE_VALUE_PATTERN.test(data.trim())) {

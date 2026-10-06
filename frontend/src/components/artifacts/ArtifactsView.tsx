@@ -33,8 +33,9 @@ import {
 import {
   fetchProjects,
   fetchArtifacts,
+  fetchArtifactTypes,
+  fetchArtifactCategories,
   deleteArtifact,
-  createArtifact,
   updateArtifact,
   approveArtifact,
   fetchArtifactVersions,
@@ -44,8 +45,11 @@ import {
 } from '@/lib/api';
 import { ArtifactItem, ArtifactRelationItem, Project } from '@/lib/types';
 import { MarkdownViewer } from '@/components/artifacts/MarkdownViewer';
+import { CreateArtifactModal } from '@/components/artifacts/CreateArtifactModal';
+import { SuggestionCombobox } from '@/components/modal/SuggestionCombobox';
 import { AppNav } from '@/components/AppNav';
 import { readActiveProjectId, writeActiveProjectId } from '@/lib/studio-session';
+import { downloadArtifact, downloadArtifacts } from '@/lib/artifact-download';
 
 const TYPE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   'high-level': { label: 'High-Level Concept', color: '#0284c7', bg: '#e0f2fe' },
@@ -77,8 +81,17 @@ export function ArtifactsView() {
   const [projectReady, setProjectReady] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<string>('');
+  const [artifactTypes, setArtifactTypes] = useState<Array<{ label: string; value: string }>>([
+    { label: 'All Document Types', value: '' },
+  ]);
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [artifactCategories, setArtifactCategories] = useState<Array<{ label: string; value: string }>>([]);
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [latestOnly, setLatestOnly] = useState<boolean>(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   // Selected item for full content display
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -103,14 +116,26 @@ export function ArtifactsView() {
     try {
       setLoading(true);
       setError(null);
-      const [items, projList] = await Promise.all([
-        fetchArtifacts({ latestOnly, projectId: selectedProjectId || undefined }),
+      const [items, projList, types, categories] = await Promise.all([
+        fetchArtifacts({
+          latestOnly,
+          projectId: selectedProjectId || undefined,
+          type: selectedType || undefined,
+          status: selectedStatus || undefined,
+        }),
         fetchProjects().catch(() => []),
+        fetchArtifactTypes(selectedProjectId || undefined).catch(() => [{ label: 'All Document Types', value: '' }]),
+        fetchArtifactCategories(selectedProjectId || undefined).catch(() => []),
       ]);
       setArtifacts(items);
       setProjects(projList);
+      setArtifactTypes(types);
+      setArtifactCategories(categories);
+      setSelectedIds(new Set());
       if (items.length > 0 && !selectedId) {
         setSelectedId(items[0].artifactId);
+      } else if (selectedId && !items.some((item) => item.artifactId === selectedId)) {
+        setSelectedId(items[0]?.artifactId || null);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load artifacts');
@@ -127,13 +152,21 @@ export function ArtifactsView() {
   useEffect(() => {
     if (!projectReady) return;
     void loadData();
-  }, [latestOnly, selectedProjectId, projectReady]);
+  }, [latestOnly, selectedProjectId, selectedType, selectedStatus, projectReady]);
+
+  const categoryOptions = useMemo(
+    () => artifactCategories.filter((option) => option.value),
+    [artifactCategories],
+  );
 
   // Filtered items
   const filteredArtifacts = useMemo(() => {
     return artifacts.filter((item) => {
-      if (selectedType && item.type !== selectedType) return false;
-      if (selectedStatus && item.status !== selectedStatus) return false;
+      if (categoryFilter.trim()) {
+        const q = categoryFilter.toLowerCase();
+        const category = (item.category || '').toLowerCase();
+        if (!category.includes(q)) return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const titleMatch = (item.title || '').toLowerCase().includes(q);
@@ -146,7 +179,28 @@ export function ArtifactsView() {
       }
       return true;
     });
-  }, [artifacts, searchQuery, selectedType, selectedStatus]);
+  }, [artifacts, categoryFilter, searchQuery]);
+
+  const allVisibleSelected =
+    filteredArtifacts.length > 0 && filteredArtifacts.every((item) => selectedIds.has(item.artifactId));
+  const someVisibleSelected = filteredArtifacts.some((item) => selectedIds.has(item.artifactId));
+
+  const toggleArtifactSelection = (artifactId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(artifactId)) next.delete(artifactId);
+      else next.add(artifactId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(filteredArtifacts.map((item) => item.artifactId)));
+  };
 
   // Selected artifact
   const currentArtifact = useMemo(() => {
@@ -185,20 +239,39 @@ export function ArtifactsView() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // Download whole content
-  const handleDownload = (artifact: ArtifactItem) => {
-    const isJson = artifact.format === 'json' || typeof artifact.content === 'object';
-    const ext = isJson ? 'json' : artifact.format === 'code' ? 'txt' : 'md';
-    const mime = isJson ? 'application/json' : 'text/markdown';
-    const text = isJson ? JSON.stringify(artifact.content, null, 2) : String(artifact.content || '');
+  const buildBulkZipName = (suffix = '') => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const projectName = projects.find((p) => p._id === selectedProjectId)?.name;
+    const safeProject = projectName
+      ? projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      : 'artifacts';
+    return `${safeProject || 'artifacts'}${suffix}-${stamp}.zip`;
+  };
 
-    const blob = new Blob([text], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${artifact.logicalId || artifact.artifactId || 'artifact'}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownload = (artifact: ArtifactItem) => {
+    downloadArtifact(artifact, 'native');
+  };
+
+  const handleDownloadMarkdown = (artifact: ArtifactItem) => {
+    downloadArtifact(artifact, 'markdown');
+  };
+
+  const handleBulkDownload = (mode: 'native' | 'markdown' = 'native') => {
+    const targets = filteredArtifacts.filter((item) => selectedIds.has(item.artifactId));
+    if (targets.length === 0) return;
+
+    try {
+      setBulkDownloading(true);
+      downloadArtifacts(
+        targets,
+        mode,
+        buildBulkZipName(mode === 'markdown' ? '-md' : ''),
+      );
+    } catch (err: any) {
+      window.alert(`Bulk download failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setBulkDownloading(false);
+    }
   };
 
   const handleSaveContent = async (artifact: ArtifactItem) => {
@@ -240,14 +313,60 @@ export function ArtifactsView() {
       return;
     }
     try {
-      await deleteArtifact(artifact.artifactId);
+      await deleteArtifact(artifact.artifactId, artifact.projectId || selectedProjectId || undefined);
       const nextList = artifacts.filter((a) => a.artifactId !== artifact.artifactId);
       setArtifacts(nextList);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(artifact.artifactId);
+        return next;
+      });
       if (selectedId === artifact.artifactId) {
         setSelectedId(nextList[0]?.artifactId || null);
       }
     } catch (err: any) {
       window.alert(`Error deleting artifact: ${err.message}`);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${ids.length} selected artifact${ids.length === 1 ? '' : 's'}? This removes all versions of each selected document.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setBulkDeleting(true);
+      const targets = artifacts.filter((item) => selectedIds.has(item.artifactId));
+      const results = await Promise.allSettled(
+        targets.map((artifact) =>
+          deleteArtifact(artifact.artifactId, artifact.projectId || selectedProjectId || undefined),
+        ),
+      );
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      const deletedIds = new Set(
+        results
+          .map((result, index) => (result.status === 'fulfilled' ? targets[index].artifactId : null))
+          .filter(Boolean) as string[],
+      );
+      const nextList = artifacts.filter((item) => !deletedIds.has(item.artifactId));
+      setArtifacts(nextList);
+      setSelectedIds(new Set());
+      if (selectedId && deletedIds.has(selectedId)) {
+        setSelectedId(nextList[0]?.artifactId || null);
+      }
+      if (failed > 0) {
+        window.alert(`Deleted ${deletedIds.size} artifact(s), but ${failed} failed.`);
+      }
+    } catch (err: any) {
+      window.alert(`Bulk delete failed: ${err.message}`);
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -295,24 +414,15 @@ export function ArtifactsView() {
     }
   };
 
-  // Create sample artifact if empty
-  const handleCreateSample = async () => {
-    try {
-      const sample = await createArtifact({
-        artifactId: `doc-${Date.now().toString().slice(-4)}`,
-        logicalId: `system-arch-spec`,
-        title: 'System Architecture Specification',
-        type: 'tech-spec',
-        category: 'architecture',
-        tags: ['microservices', 'vector-rag', 'retrieval', 'api-gateway'],
-        format: 'markdown',
-        content: `# System Architecture Specification\n\n## Overview\nThis artifact documents the microservice boundaries, event pipelines, and storage engines.\n\n### Key Components\n1. **API Gateway**: Handles authentication and routing.\n2. **Workflow Orchestrator**: LangGraph state machine.\n3. **Artifact Repository**: Persistent store for documents & PRDs with logical identity.\n\n\`\`\`json\n{\n  \"service\": \"flow-builder\",\n  \"status\": \"healthy\",\n  \"version\": \"1.0.0\"\n}\n\`\`\`\n\n> This document was generated automatically by the flow tool builder.`,
-      });
-      setArtifacts([sample, ...artifacts]);
-      setSelectedId(sample.artifactId);
-    } catch (err: any) {
-      window.alert(`Failed to create sample: ${err.message}`);
+  const handleArtifactCreated = (artifact: ArtifactItem) => {
+    setArtifacts((prev) => [artifact, ...prev]);
+    setSelectedId(artifact.artifactId);
+    setActiveTab('content');
+    if (artifact.projectId && artifact.projectId !== selectedProjectId) {
+      setSelectedProjectId(artifact.projectId);
+      writeActiveProjectId(artifact.projectId);
     }
+    void loadData();
   };
 
   const renderContentBody = (artifact: ArtifactItem) => {
@@ -365,7 +475,7 @@ export function ArtifactsView() {
             <div className="artifacts-title-row">
               <FileText size={20} className="artifacts-brand-icon" />
               <h1 className="artifacts-title">Documents & Artifacts</h1>
-              <span className="artifacts-count-pill">{artifacts.length}</span>
+              <span className="artifacts-count-pill">{filteredArtifacts.length}</span>
             </div>
             <p className="artifacts-subtitle">
               Browse versioned logical artifacts, immutable history, and bidirectional semantic relations.
@@ -374,28 +484,60 @@ export function ArtifactsView() {
         </div>
 
         <div className="artifacts-header-right">
+          {selectedIds.size > 0 && (
+            <>
+              <button
+                type="button"
+                className="btn btn-default"
+                onClick={() => handleBulkDownload('native')}
+                disabled={bulkDownloading || bulkDeleting}
+                title="Download selected artifacts in their native format"
+              >
+                <Download size={15} />
+                <span>{bulkDownloading ? 'Preparing...' : `Download ${selectedIds.size} selected`}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-default"
+                onClick={() => handleBulkDownload('markdown')}
+                disabled={bulkDownloading || bulkDeleting}
+                title="Download selected artifacts as markdown files"
+              >
+                <FileText size={15} />
+                <span>{bulkDownloading ? 'Preparing...' : `Download ${selectedIds.size} as MD`}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void handleBulkDelete()}
+                disabled={bulkDeleting || bulkDownloading}
+                title="Delete selected artifacts"
+              >
+                <Trash2 size={15} />
+                <span>{bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size} selected`}</span>
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setCreateModalOpen(true)}
+            title="Create a new artifact"
+          >
+            <PlusCircle size={15} />
+            <span>New Artifact</span>
+          </button>
+
           <button
             type="button"
             className="btn btn-default"
             onClick={() => void loadData()}
-            disabled={loading}
+            disabled={loading || bulkDeleting || bulkDownloading}
             title="Refresh artifacts list"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
-
-          {artifacts.length === 0 && !loading && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleCreateSample}
-              title="Create a sample artifact document"
-            >
-              <PlusCircle size={15} />
-              <span>Create Sample Doc</span>
-            </button>
-          )}
         </div>
       </header>
 
@@ -443,6 +585,8 @@ export function ArtifactsView() {
               onChange={(e) => {
                 const next = e.target.value;
                 setSelectedProjectId(next);
+                setSelectedType('');
+                setCategoryFilter('');
                 if (next) writeActiveProjectId(next);
               }}
               aria-label="Filter by Project"
@@ -466,16 +610,23 @@ export function ArtifactsView() {
             onChange={(e) => setSelectedType(e.target.value)}
             aria-label="Filter by Type"
           >
-            <option value="">All Document Types</option>
-            <option value="high-level">High-Level Concept</option>
-            <option value="prd">Product Spec (PRD)</option>
-            <option value="tech-spec">Technical Spec</option>
-            <option value="task">Task / Plan</option>
-            <option value="decision">Decision</option>
-            <option value="change">Change Request</option>
-            <option value="document">General Document</option>
-            <option value="code">Code / Patch</option>
+            {artifactTypes.map((typeOption) => (
+              <option key={typeOption.value || 'all'} value={typeOption.value}>
+                {typeOption.label}
+              </option>
+            ))}
           </select>
+        </div>
+
+        {/* Category Filter */}
+        <div className="artifacts-filter-group artifacts-category-filter">
+          <Tag size={14} className="filter-icon" />
+          <SuggestionCombobox
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={categoryOptions}
+            placeholder="Filter by category..."
+          />
         </div>
 
         {/* Status Filter */}
@@ -496,15 +647,18 @@ export function ArtifactsView() {
         </div>
 
         {/* Quick Filter Reset */}
-        {(selectedType || selectedStatus || searchQuery || !latestOnly) && (
+        {(selectedType || categoryFilter || selectedStatus || searchQuery || !latestOnly || selectedProjectId) && (
           <button
             type="button"
             className="btn btn-subtle"
             onClick={() => {
               setSelectedType('');
+              setCategoryFilter('');
               setSelectedStatus('');
               setSearchQuery('');
               setLatestOnly(true);
+              setSelectedProjectId('');
+              setSelectedIds(new Set());
             }}
           >
             Reset Filters
@@ -516,6 +670,24 @@ export function ArtifactsView() {
       <div className="artifacts-split-layout">
         {/* Left Master List */}
         <div className="artifacts-master-list">
+          {filteredArtifacts.length > 0 && (
+            <label className="artifacts-bulk-select-row">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                ref={(input) => {
+                  if (input) input.indeterminate = someVisibleSelected && !allVisibleSelected;
+                }}
+                onChange={toggleSelectAllVisible}
+              />
+              <span>
+                {selectedIds.size > 0
+                  ? `${selectedIds.size} selected`
+                  : `Select all (${filteredArtifacts.length})`}
+              </span>
+            </label>
+          )}
+
           {error && (
             <div className="artifacts-error-card">
               <AlertCircle size={18} />
@@ -528,21 +700,19 @@ export function ArtifactsView() {
               <FileText size={32} strokeWidth={1.5} />
               <h4>No artifacts found</h4>
               <p>
-                {searchQuery || selectedType || selectedStatus
+                {searchQuery || selectedType || categoryFilter || selectedStatus
                   ? 'No documents match the current filter criteria.'
                   : 'Flows using the Artifact tool will automatically register documents here.'}
               </p>
-              {artifacts.length === 0 && (
-                <button
-                  type="button"
-                  className="btn btn-default"
-                  style={{ marginTop: 12 }}
-                  onClick={handleCreateSample}
-                >
-                  <PlusCircle size={14} />
-                  <span>Generate Sample Artifact</span>
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ marginTop: 12 }}
+                onClick={() => setCreateModalOpen(true)}
+              >
+                <PlusCircle size={14} />
+                <span>Create Artifact</span>
+              </button>
             </div>
           )}
 
@@ -563,9 +733,18 @@ export function ArtifactsView() {
             return (
               <div
                 key={artifact.artifactId}
-                className={`artifact-list-card ${isSelected ? 'selected' : ''}`}
+                className={`artifact-list-card ${isSelected ? 'selected' : ''} ${selectedIds.has(artifact.artifactId) ? 'bulk-selected' : ''}`}
                 onClick={() => setSelectedId(artifact.artifactId)}
               >
+                <div className="artifact-card-select-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(artifact.artifactId)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => toggleArtifactSelection(artifact.artifactId)}
+                    aria-label={`Select ${artifact.title || artifact.artifactId}`}
+                  />
+                </div>
                 <div className="artifact-card-header">
                   <span
                     className="artifact-type-chip"
@@ -611,7 +790,17 @@ export function ArtifactsView() {
                 {(artifact.category || (artifact.tags || []).length > 0) && (
                   <div className="artifact-card-keywords">
                     {artifact.category && (
-                      <span className="artifact-card-kw-pill">{artifact.category}</span>
+                      <button
+                        type="button"
+                        className="artifact-card-kw-pill"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setCategoryFilter(artifact.category || '');
+                        }}
+                        title={`Filter by category "${artifact.category}"`}
+                      >
+                        {artifact.category}
+                      </button>
                     )}
                     {(artifact.tags || []).slice(0, 3).map((tag: string, i: number) => (
                       <span key={i} className="artifact-card-kw-pill">#{tag}</span>
@@ -683,7 +872,7 @@ export function ArtifactsView() {
 
                     {currentArtifact.projectId && (
                       <span className="artifact-project-chip">
-                        Project: {currentArtifact.projectId}
+                        Project: {projects.find((p) => p._id === currentArtifact.projectId)?.name || currentArtifact.projectId}
                       </span>
                     )}
                   </div>
@@ -811,10 +1000,20 @@ export function ArtifactsView() {
                     type="button"
                     className="btn btn-default"
                     onClick={() => handleDownload(currentArtifact)}
-                    title="Download document file"
+                    title="Download in native format (json, md, or txt)"
                   >
                     <Download size={14} />
                     <span>Download</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-default"
+                    onClick={() => handleDownloadMarkdown(currentArtifact)}
+                    title="Download content as a markdown file named after the document title"
+                  >
+                    <FileText size={14} />
+                    <span>Download MD</span>
                   </button>
 
                   <button
@@ -889,9 +1088,14 @@ export function ArtifactsView() {
                       <div className="artifact-keywords-header-title">
                         <Tag size={15} />
                         <span>Category and tags</span>
-                        <span className="artifact-keywords-count">
+                        <button
+                          type="button"
+                          className="artifact-keywords-count"
+                          onClick={() => setCategoryFilter(currentArtifact.category || 'general')}
+                          title={`Filter by category "${currentArtifact.category || 'general'}"`}
+                        >
                           {currentArtifact.category || 'general'}
-                        </span>
+                        </button>
                       </div>
                       <div className="artifact-retrieval-badge">
                         <Search size={12} />
@@ -1174,6 +1378,14 @@ export function ArtifactsView() {
         </div>
       </div>
       </div>
+
+      <CreateArtifactModal
+        isOpen={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onCreated={handleArtifactCreated}
+        projects={projects}
+        defaultProjectId={selectedProjectId}
+      />
     </div>
   );
 }

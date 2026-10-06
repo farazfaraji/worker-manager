@@ -1,0 +1,177 @@
+{
+  "name": "Course Fixer",
+  "projectId": "6ac543ea530788282c450cad",
+  "flow": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "trigger_start",
+        "kind": "trigger",
+        "name": "trigger",
+        "label": "Course ID Input",
+        "definitionName": "Trigger",
+        "config": {
+          "triggerType": "human-input",
+          "question": "Enter the course ID (MongoDB ObjectId), for example: 6ab915e41b4f63c7dfd31ede",
+          "inputKey": "courseId"
+        }
+      },
+      {
+        "id": "fetch_contents",
+        "kind": "database",
+        "name": "fetch_contents",
+        "label": "Fetch Course Contents",
+        "definitionName": "Database",
+        "config": {
+          "driver": "mongodb",
+          "connectionSecret": "MONGO_URI",
+          "readOnly": true,
+          "operation": "aggregate",
+          "collection": "contents",
+          "maxRows": 5000,
+          "timeoutMs": 60000,
+          "pipeline": [
+            {
+              "$match": {
+                "$expr": {
+                  "$eq": [
+                    "$courseId",
+                    {
+                      "$toObjectId": "{{trigger.courseId}}"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "$lookup": {
+                "from": "table_of_contents",
+                "localField": "tableOfContentId",
+                "foreignField": "_id",
+                "as": "tableOfContent"
+              }
+            },
+            {
+              "$lookup": {
+                "from": "sub_table_of_contents",
+                "localField": "subItemId",
+                "foreignField": "_id",
+                "as": "subTableOfContent"
+              }
+            },
+            {
+              "$lookup": {
+                "from": "courses",
+                "localField": "courseId",
+                "foreignField": "_id",
+                "as": "course"
+              }
+            },
+            {
+              "$unwind": {
+                "path": "$tableOfContent",
+                "preserveNullAndEmptyArrays": true
+              }
+            },
+            {
+              "$unwind": {
+                "path": "$subTableOfContent",
+                "preserveNullAndEmptyArrays": true
+              }
+            },
+            {
+              "$unwind": {
+                "path": "$course",
+                "preserveNullAndEmptyArrays": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "extract_artifacts",
+        "kind": "script",
+        "name": "extract_artifacts",
+        "label": "Extract Vocabulary & Grammar",
+        "definitionName": "Script",
+        "config": {
+          "input": "fetch_contents.result.documents",
+          "code": "const toId = (value) => {\n  if (!value) return '';\n  if (typeof value === 'string') return value;\n  if (value.$oid) return value.$oid;\n  if (typeof value.toHexString === 'function') return value.toHexString();\n  if (typeof value.toString === 'function') {\n    const s = value.toString();\n    return s !== '[object Object]' ? s : '';\n  }\n  return String(value);\n};\n\nconst pickText = (value, lang) => {\n  if (!value) return '';\n  if (typeof value === 'string') return value;\n  if (typeof value === 'object') {\n    if (lang && typeof value[lang] === 'string') return value[lang];\n    for (const v of Object.values(value)) {\n      if (typeof v === 'string' && v.trim()) return v;\n    }\n  }\n  return '';\n};\n\nlet docs = input;\nif (typeof docs === 'string') {\n  try {\n    docs = JSON.parse(docs);\n  } catch {\n    docs = [];\n  }\n}\nif (!Array.isArray(docs)) docs = [];\n\nconst artifacts = [];\n\nfor (const doc of docs) {\n  if (!doc || typeof doc !== 'object') continue;\n\n  const documentId = toId(doc._id);\n  const courseId = toId(doc.courseId);\n  const subItemId = toId(doc.subItemId);\n  const tableOfContentId = toId(doc.tableOfContentId);\n\n  const courseLang = String(doc.course?.courseLanguage || 'de');\n  const courseTitle = pickText(doc.course?.title, courseLang);\n  const tableOfContentTitle = pickText(doc.tableOfContent?.title, courseLang);\n  const subTableOfContentTitle = pickText(doc.subTableOfContent?.title, courseLang);\n\n  const section = Array.isArray(doc.sections) && doc.sections.length ? doc.sections[0] : null;\n  const blocks = Array.isArray(section?.blocks) ? section.blocks : [];\n\n  const vocabularies = [];\n  const grammars = [];\n\n  for (const block of blocks) {\n    if (!block || typeof block !== 'object') continue;\n    const tool = String(block.tool || '');\n    const lang = String(block.language || courseLang || 'de');\n    const content = block.content && typeof block.content === 'object' ? block.content : {};\n\n    if (tool === 'vocabulary') {\n      const items = Array.isArray(content.items)\n        ? content.items.map((item) => ({\n            text: item?.text || '',\n            wordId: toId(item?.wordId),\n          }))\n        : [];\n      vocabularies.push({\n        blockId: block.blockId || '',\n        language: lang,\n        title: pickText(content.title, lang),\n        items,\n      });\n    }\n\n    if (tool === 'grammar') {\n      const examples = Array.isArray(content.examples) ? content.examples : [];\n      grammars.push({\n        blockId: block.blockId || '',\n        language: lang,\n        title: pickText(content.title, lang),\n        example: typeof examples[0] === 'string' ? examples[0] : pickText(examples[0], lang),\n      });\n    }\n  }\n\n  if (!vocabularies.length && !grammars.length) continue;\n\n  const metadata = {\n    documentId,\n    courseId,\n    subItemId,\n    tableOfContentId,\n    courseTitle,\n    tableOfContentTitle,\n    subTableOfContentTitle,\n  };\n\n  const titleParts = [tableOfContentTitle, subTableOfContentTitle].filter(Boolean);\n  const title = titleParts.length ? titleParts.join(' — ') : documentId;\n\n  const tags = [courseId, subItemId, tableOfContentId, documentId].filter(Boolean).join(',');\n\n  artifacts.push({\n    logicalId: documentId,\n    title,\n    metadata,\n    tags,\n    content: {\n      documentId,\n      courseId,\n      subItemId,\n      tableOfContentId,\n      courseTitle,\n      tableOfContentTitle,\n      subTableOfContentTitle,\n      vocabularies,\n      grammars,\n    },\n  });\n}\n\nreturn {\n  artifacts,\n  count: artifacts.length,\n};",
+          "outputType": "z.object({\n  artifacts: z.array(z.object({\n    logicalId: z.string(),\n    title: z.string(),\n    metadata: z.object({\n      documentId: z.string(),\n      courseId: z.string(),\n      subItemId: z.string(),\n      tableOfContentId: z.string(),\n      courseTitle: z.string(),\n      tableOfContentTitle: z.string(),\n      subTableOfContentTitle: z.string()\n    }),\n    tags: z.string(),\n    content: z.object({\n      documentId: z.string(),\n      courseId: z.string(),\n      subItemId: z.string(),\n      tableOfContentId: z.string(),\n      courseTitle: z.string(),\n      tableOfContentTitle: z.string(),\n      subTableOfContentTitle: z.string(),\n      vocabularies: z.array(z.any()),\n      grammars: z.array(z.any())\n    })\n  })),\n  count: z.number()\n})"
+        }
+      },
+      {
+        "id": "each_content",
+        "kind": "foreach",
+        "name": "each_content",
+        "label": "Each Content Document",
+        "definitionName": "Foreach",
+        "config": {
+          "mode": "canvas",
+          "executionType": "sync",
+          "items": "extract_artifacts.result.artifacts",
+          "maxIterations": 100,
+          "concurrency": 1,
+          "stopOnError": false,
+          "outputMode": "result",
+          "timeoutMs": 900000
+        }
+      },
+      {
+        "id": "save_artifact",
+        "kind": "artifact",
+        "name": "save_artifact",
+        "label": "Save Content Artifact",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "{{each_content.item.logicalId}}",
+          "title": "{{each_content.item.title}}",
+          "type": "document",
+          "category": "course-fixer",
+          "format": "json",
+          "content": {
+            "mode": "variable",
+            "value": "each_content.item.content"
+          },
+          "metadata": {
+            "mode": "variable",
+            "value": "each_content.item.metadata"
+          },
+          "tags": "{{each_content.item.tags}}"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "trigger_to_fetch",
+        "from": "trigger_start",
+        "to": "fetch_contents",
+        "output": "flow",
+        "input": "in"
+      },
+      {
+        "id": "fetch_to_extract",
+        "from": "fetch_contents",
+        "to": "extract_artifacts",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "extract_to_foreach",
+        "from": "extract_artifacts",
+        "to": "each_content",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "foreach_to_save",
+        "from": "each_content",
+        "to": "save_artifact",
+        "output": "item",
+        "input": "in"
+      }
+    ]
+  }
+}

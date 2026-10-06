@@ -11,6 +11,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { createHash, randomUUID } from 'crypto';
 import { Artifact, ArtifactDocument } from './schemas/artifact.schema';
+import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 import { EventEngineService } from '../events/event-engine.service';
 import {
   ArtifactCreateEventData,
@@ -174,6 +175,7 @@ export class ArtifactService implements OnModuleInit {
 
   constructor(
     @InjectModel(Artifact.name) private readonly model: Model<ArtifactDocument>,
+    @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     private readonly eventEngine: EventEngineService,
     @Optional() private readonly relationService?: ArtifactRelationService,
     @Optional() private readonly indexingService?: ArtifactIndexingService,
@@ -185,13 +187,92 @@ export class ArtifactService implements OnModuleInit {
     await this.model.syncIndexes().catch((err) => {
       this.logger.warn(`Artifact index sync skipped: ${err?.message || err}`);
     });
+    await this.migrateLegacyDefaultProjectIds();
+    await this.syncArtifactProjectIdsFromRuns();
+  }
+
+  private async resolveDefaultProjectId(): Promise<string> {
+    const defaultProject = await this.projectModel.findOne().sort({ createdAt: 1 }).lean().exec();
+    return defaultProject?._id ? String(defaultProject._id) : 'default';
+  }
+
+  private async normalizeProjectId(projectId?: string): Promise<string> {
+    const raw = String(projectId || '').trim();
+    if (!raw || raw === 'default') {
+      return this.resolveDefaultProjectId();
+    }
+    return raw;
+  }
+
+  private async syncArtifactProjectIdsFromRuns(): Promise<void> {
+    const runsCol = this.model.db.collection('runs');
+    const artifacts = await this.model
+      .find({ 'metadata.sourceRunId': { $exists: true, $ne: '' } })
+      .select('logicalId projectId metadata.sourceRunId')
+      .lean()
+      .exec();
+
+    const logicalIdsToFix = new Map<string, string>();
+    for (const artifact of artifacts) {
+      const runId = String(artifact.metadata?.sourceRunId || '').trim();
+      const logicalId = String(artifact.logicalId || '').trim();
+      if (!runId || !logicalId) continue;
+      const run = await runsCol.findOne({ runId }, { projection: { projectId: 1 } });
+      const runProjectId = String(run?.projectId || '').trim();
+      if (!runProjectId || runProjectId === artifact.projectId) continue;
+      logicalIdsToFix.set(logicalId, runProjectId);
+    }
+
+    let updated = 0;
+    for (const [logicalId, projectId] of logicalIdsToFix.entries()) {
+      const result = await this.model.updateMany({ logicalId }, { $set: { projectId } }).exec();
+      updated += result.modifiedCount;
+    }
+
+    if (updated > 0) {
+      this.logger.log(`Synced projectId on ${updated} artifact version(s) across ${logicalIdsToFix.size} logical artifact(s) from run metadata`);
+    }
+  }
+
+  private async migrateLegacyDefaultProjectIds(): Promise<void> {
+    const defaultProject = await this.projectModel.findOne().sort({ createdAt: 1 }).lean().exec();
+    if (!defaultProject?._id) return;
+    const defaultProjectId = String(defaultProject._id);
+    const result = await this.model
+      .updateMany({ projectId: 'default' }, { $set: { projectId: defaultProjectId } })
+      .exec();
+    if (result.modifiedCount > 0) {
+      this.logger.log(`Migrated ${result.modifiedCount} artifact(s) from legacy projectId "default" to ${defaultProjectId}`);
+    }
+  }
+
+  private async resolveProjectIds(projectId?: string): Promise<string[] | null> {
+    const id = String(projectId || '').trim();
+    if (!id) return null;
+    if (id === 'default') {
+      const defaultProject = await this.projectModel.findOne().sort({ createdAt: 1 }).lean().exec();
+      const defaultProjectId = defaultProject?._id ? String(defaultProject._id) : '';
+      return defaultProjectId ? ['default', defaultProjectId] : ['default'];
+    }
+    const defaultProject = await this.projectModel.findOne().sort({ createdAt: 1 }).lean().exec();
+    const defaultProjectId = defaultProject?._id ? String(defaultProject._id) : '';
+    if (defaultProjectId && defaultProjectId === id) {
+      return [id, 'default'];
+    }
+    return [id];
+  }
+
+  private async projectIdFilter(projectId?: string): Promise<Record<string, any> | null> {
+    const ids = await this.resolveProjectIds(projectId);
+    if (!ids) return null;
+    return ids.length === 1 ? { projectId: ids[0] } : { projectId: { $in: ids } };
   }
 
   /**
    * Create a new logical artifact (version 1). The physical artifactId is always server-generated.
    */
   async create(input: ArtifactCreateInput | any): Promise<ArtifactVersion> {
-    const projectId = String(input.projectId || input.namespace || 'default').trim() || 'default';
+    const projectId = await this.normalizeProjectId(input.projectId || input.namespace);
     const idempotencyKey = String(input.idempotencyKey || '').trim();
     if (idempotencyKey) {
       const existingByKey = await this.model.findOne({ projectId, idempotencyKey }).lean().exec();
@@ -526,8 +607,9 @@ export class ArtifactService implements OnModuleInit {
     }
 
     const baseFilter: any = {};
-    if (projectId && String(projectId).trim()) {
-      baseFilter.projectId = String(projectId).trim();
+    const scopedProjectFilter = await this.projectIdFilter(projectId);
+    if (scopedProjectFilter) {
+      Object.assign(baseFilter, scopedProjectFilter);
     }
 
     // 1. Exact artifactId check
@@ -581,17 +663,21 @@ export class ArtifactService implements OnModuleInit {
       $or: [{ logicalId: cleanId }, { artifactId: cleanId }],
       isLatest: true,
     };
-    if (projectId && String(projectId).trim()) {
-      filter.projectId = String(projectId).trim();
+    const scopedProjectFilter = await this.projectIdFilter(projectId);
+    if (scopedProjectFilter) {
+      Object.assign(filter, scopedProjectFilter);
     }
     const item = await this.model.findOne(filter).sort({ version: -1 }).lean().exec();
     if (!item) {
       // Fallback without isLatest flag if legacy unmigrated data
+      const fallbackFilter: any = {
+        $or: [{ logicalId: cleanId }, { artifactId: cleanId }],
+      };
+      if (scopedProjectFilter) {
+        Object.assign(fallbackFilter, scopedProjectFilter);
+      }
       const fallback = await this.model
-        .findOne({
-          $or: [{ logicalId: cleanId }, { artifactId: cleanId }],
-          ...(projectId ? { projectId: String(projectId).trim() } : {}),
-        })
+        .findOne(fallbackFilter)
         .sort({ version: -1, updatedAt: -1 })
         .lean()
         .exec();
@@ -608,8 +694,9 @@ export class ArtifactService implements OnModuleInit {
     const filter: any = {
       $or: [{ logicalId: cleanId }, { rootArtifactId: cleanId }, { artifactId: cleanId }],
     };
-    if (projectId && String(projectId).trim()) {
-      filter.projectId = String(projectId).trim();
+    const scopedProjectFilter = await this.projectIdFilter(projectId);
+    if (scopedProjectFilter) {
+      Object.assign(filter, scopedProjectFilter);
     }
     const items = await this.model.find(filter).sort({ version: 1 }).lean().exec();
     return items.map((item) => this.public(item));
@@ -620,8 +707,9 @@ export class ArtifactService implements OnModuleInit {
    */
   async getByArtifactId(artifactId: string, projectId?: string): Promise<any> {
     const filter: any = { artifactId: String(artifactId).trim() };
-    if (projectId && String(projectId).trim()) {
-      filter.projectId = String(projectId).trim();
+    const scopedProjectFilter = await this.projectIdFilter(projectId);
+    if (scopedProjectFilter) {
+      Object.assign(filter, scopedProjectFilter);
     }
     const item = await this.model.findOne(filter).lean().exec();
     return item ? this.public(item) : null;
@@ -633,7 +721,8 @@ export class ArtifactService implements OnModuleInit {
   async list(query: ArtifactListQuery | any = {}): Promise<any[]> {
     const clauses: any[] = [];
     const listProjectId = query.projectId || query.namespace;
-    if (listProjectId) clauses.push({ projectId: listProjectId });
+    const scopedProjectFilter = await this.projectIdFilter(listProjectId);
+    if (scopedProjectFilter) clauses.push(scopedProjectFilter);
     const targetType = query.filterType || query.type;
     if (targetType) clauses.push({ type: slugValue(targetType) });
     const targetCategory = query.filterCategory || query.category;
@@ -888,12 +977,12 @@ export class ArtifactService implements OnModuleInit {
 
   async getDistinctTypes(projectId?: string): Promise<{ label: string; value: string }[]> {
     const filter: any = {};
-    if (projectId) {
-      filter.projectId = projectId;
+    const scopedProjectFilter = await this.projectIdFilter(projectId);
+    if (scopedProjectFilter) {
+      Object.assign(filter, scopedProjectFilter);
     }
     const dbTypes: string[] = await this.model.distinct('type', filter).exec();
 
-    // Default canonical types to always provide if db is empty or has a subset
     const canonicalMap: Record<string, string> = {
       'prd': 'Product Requirements Document (PRD)',
       'tech-spec': 'Technical Specification',
@@ -905,15 +994,39 @@ export class ArtifactService implements OnModuleInit {
       'code': 'Code / Patch',
     };
 
-    const merged = Array.from(new Set([...Object.keys(canonicalMap), ...dbTypes.map(String).map((s) => s.trim()).filter(Boolean)]));
-
-    const options = merged.map((t) => ({
+    const sourceTypes = projectId
+      ? dbTypes.map(String).map((s) => s.trim()).filter(Boolean)
+      : Array.from(new Set([...Object.keys(canonicalMap), ...dbTypes.map(String).map((s) => s.trim()).filter(Boolean)]));
+    const options = sourceTypes.map((t) => ({
       label: canonicalMap[t] || t.charAt(0).toUpperCase() + t.slice(1).replace(/[-_]/g, ' '),
       value: t,
     }));
 
     return [
-      { label: 'All Artifact Types', value: '' },
+      { label: 'All Document Types', value: '' },
+      ...options,
+    ];
+  }
+
+  async getDistinctCategories(projectId?: string): Promise<{ label: string; value: string }[]> {
+    const filter: any = { isLatest: true };
+    const scopedProjectFilter = await this.projectIdFilter(projectId);
+    if (scopedProjectFilter) {
+      Object.assign(filter, scopedProjectFilter);
+    }
+    const dbCategories: string[] = await this.model.distinct('category', filter).exec();
+    const options = dbCategories
+      .map(String)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .map((category) => ({
+        label: category.charAt(0).toUpperCase() + category.slice(1).replace(/[-_]/g, ' '),
+        value: category,
+      }));
+
+    return [
+      { label: 'All Categories', value: '' },
       ...options,
     ];
   }

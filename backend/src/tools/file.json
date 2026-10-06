@@ -1,7 +1,7 @@
 {
   "name": "File",
   "type": "file",
-  "description": "Read and write files inside the project sandbox (files/projects/<projectId>).",
+  "description": "Read and write files inside the project file folder. Configure the default folder in project settings, or override it per node.",
   "inputs": [
     {
       "name": "operation",
@@ -22,11 +22,18 @@
       ]
     },
     {
+      "name": "folder",
+      "label": "Folder",
+      "type": "valueOrVariable",
+      "placeholder": "/absolute/path/to/folder",
+      "helpText": "Optional absolute folder override. Must be inside the project's file storage path or allowed file roots."
+    },
+    {
       "name": "path",
       "label": "Path",
       "type": "valueOrVariable",
       "placeholder": "reports/summary.md",
-      "helpText": "Path relative to the project sandbox. Parent segments that escape the sandbox are rejected."
+      "helpText": "Path relative to the project file folder. Parent segments that escape the folder are rejected."
     },
     {
       "name": "content",

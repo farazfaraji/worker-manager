@@ -1,0 +1,205 @@
+{
+  "name": "Screenshot Features PRD",
+  "projectId": "6ac2a2bd682346f4db2bef3c",
+  "flow": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "trigger_start",
+        "kind": "trigger",
+        "name": "trigger",
+        "label": "Start",
+        "definitionName": "Trigger",
+        "config": {
+          "triggerType": "manual"
+        }
+      },
+      {
+        "id": "list_analyses",
+        "kind": "artifact",
+        "name": "list_analyses",
+        "label": "List Screenshot Analyses",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "list",
+          "filterCategory": "screenshots",
+          "filterTags": "analysis",
+          "filterType": "document",
+          "includeContent": true,
+          "latestOnly": true,
+          "limit": 100,
+          "sortBy": "title",
+          "sortOrder": "asc"
+        }
+      },
+      {
+        "id": "collect_analyses",
+        "kind": "script",
+        "name": "collect_analyses",
+        "label": "Collect Analyses & Sources",
+        "definitionName": "Script",
+        "config": {
+          "input": "list_analyses.artifacts",
+          "code": "let artifacts = input;\nif (typeof artifacts === 'string') {\n  try {\n    artifacts = JSON.parse(artifacts);\n  } catch {\n    artifacts = [];\n  }\n}\nif (!Array.isArray(artifacts)) artifacts = [];\n\nconst screens = {};\nconst sources = {};\n\nfor (const item of artifacts) {\n  let body = item?.content;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch {\n      body = null;\n    }\n  }\n\n  const fileName = body?.fileName || item?.logicalId || item?.title || 'unknown';\n  const logicalId = item?.logicalId || `screenshot-${fileName}`;\n  const analysis = body?.analysis;\n  if (analysis && typeof analysis === 'object') {\n    screens[fileName] = analysis;\n    sources[fileName] = logicalId;\n  }\n}\n\nconst fileNames = Object.keys(screens).sort();\n\nreturn {\n  screens,\n  sources,\n  screenCount: fileNames.length,\n  fileNames,\n  payloadJson: JSON.stringify({ screens, sources }, null, 2),\n};",
+          "outputType": "z.object({\n  screens: z.record(z.any()),\n  sources: z.record(z.string()),\n  screenCount: z.number(),\n  fileNames: z.array(z.string()),\n  payloadJson: z.string()\n})"
+        }
+      },
+      {
+        "id": "write_prd",
+        "kind": "agent",
+        "name": "write_prd",
+        "label": "Write Features PRD",
+        "definitionName": "Agent",
+        "config": {
+          "model": "openai/gpt-6-luna",
+          "systemPrompt": "You are a product manager drafting a lightweight PRD for non-technical stakeholders.\n\nFrom screen-by-screen analysis, identify the distinct product features this application needs. Each feature should be user-facing capability, not a technical component.\n\nRules:\n- Write for a non-technical audience. No APIs, databases, frameworks, or implementation detail.\n- Keep each feature concise: a clear title plus 1–2 short paragraphs explaining what it is and why it matters.\n- Do not over-elaborate. Avoid long bullet lists inside feature descriptions.\n- Merge overlapping capabilities into one feature when they clearly belong together.\n- Every feature MUST list the source artifact logical IDs it was derived from, using only IDs from the provided sources map.\n- Use the exact logicalId strings from sources (e.g. screenshot-13.jpg). A feature may cite multiple source artifacts.\n- For each feature, provide a short keyword slug (2–4 lowercase words, hyphen-separated, e.g. workout-logging) for search and discovery.\n- For each feature, assign a thematic category slug (lowercase, hyphen-separated, e.g. onboarding, workouts, nutrition, social, settings).",
+          "userPrompt": "Screen analyses and their source artifact IDs ({{collect_analyses.result.screenCount}} screens):\n\n```json\n{{collect_analyses.result.payloadJson}}\n```\n\nThe `sources` object maps each file name to its artifact logicalId. Use those logicalId values in `sourceArtifacts`.\n\nProduce a PRD listing every feature needed for this product. For each feature provide:\n- title\n- description (1–2 non-technical paragraphs)\n- sourceArtifacts (artifact logical IDs)\n- keyword (short searchable slug)\n- category (thematic grouping slug)",
+          "outputFormat": "json",
+          "outputType": "z.object({\n  productName: z.string(),\n  introduction: z.string(),\n  features: z.array(z.object({\n    title: z.string(),\n    description: z.string(),\n    sourceArtifacts: z.array(z.string()),\n    keyword: z.string(),\n    category: z.string()\n  }))\n})",
+          "enableTools": false,
+          "cacheResult": true
+        }
+      },
+      {
+        "id": "prepare_features",
+        "kind": "script",
+        "name": "prepare_features",
+        "label": "Prepare Feature Artifacts",
+        "definitionName": "Script",
+        "config": {
+          "input": "write_prd.result.features",
+          "code": "const slugify = (value) => String(value || 'feature').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'feature';\n\nlet features = input;\nif (typeof features === 'string') {\n  try {\n    features = JSON.parse(features);\n  } catch {\n    features = [];\n  }\n}\nif (!Array.isArray(features)) features = [];\n\nconst used = new Set();\n\nreturn features.map((feature, index) => {\n  const keyword = slugify(feature?.keyword || feature?.title || `feature-${index + 1}`);\n  let logicalId = `feature-${keyword}`;\n  if (used.has(logicalId)) logicalId = `${logicalId}-${index + 1}`;\n  used.add(logicalId);\n\n  const category = slugify(feature?.category || 'product-features');\n\n  return {\n    title: feature?.title || `Feature ${index + 1}`,\n    description: feature?.description || '',\n    sourceArtifacts: Array.isArray(feature?.sourceArtifacts) ? feature.sourceArtifacts : [],\n    keyword,\n    category,\n    logicalId,\n    tags: `feature,prd,${keyword},${category},screenshots,product`,\n  };\n});",
+          "outputType": "z.array(z.object({\n  title: z.string(),\n  description: z.string(),\n  sourceArtifacts: z.array(z.string()),\n  keyword: z.string(),\n  category: z.string(),\n  logicalId: z.string(),\n  tags: z.string()\n}))"
+        }
+      },
+      {
+        "id": "each_feature",
+        "kind": "foreach",
+        "name": "each_feature",
+        "label": "Each Feature",
+        "definitionName": "Foreach",
+        "config": {
+          "mode": "canvas",
+          "executionType": "sync",
+          "items": "prepare_features",
+          "maxIterations": 50,
+          "concurrency": 1,
+          "stopOnError": false,
+          "outputMode": "result"
+        }
+      },
+      {
+        "id": "save_feature",
+        "kind": "artifact",
+        "name": "save_feature",
+        "label": "Save Feature",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "{{each_feature.item.logicalId}}",
+          "title": "{{each_feature.item.title}}",
+          "type": "prd",
+          "category": "{{each_feature.item.category}}",
+          "format": "json",
+          "content": {
+            "mode": "variable",
+            "value": "each_feature.item"
+          },
+          "tags": "{{each_feature.item.tags}}"
+        }
+      },
+      {
+        "id": "format_prd",
+        "kind": "script",
+        "name": "format_prd",
+        "label": "Format PRD Markdown",
+        "definitionName": "Script",
+        "config": {
+          "input": "write_prd.result",
+          "code": "const prd = input && typeof input === 'object' ? input : {};\nconst productName = prd.productName || 'Product Features PRD';\nconst introduction = prd.introduction || '';\nconst features = Array.isArray(prd.features) ? prd.features : [];\n\nconst lines = [\n  `# ${productName}`,\n  '',\n  introduction,\n  '',\n  '## Features',\n  '',\n];\n\nfor (const feature of features) {\n  const title = feature?.title || 'Untitled feature';\n  const description = feature?.description || '';\n  const keyword = feature?.keyword || '';\n  const category = feature?.category || '';\n  const sources = Array.isArray(feature?.sourceArtifacts) ? feature.sourceArtifacts : [];\n  lines.push(`### ${title}`);\n  lines.push('');\n  if (keyword || category) {\n    lines.push(`_${[keyword && `keyword: ${keyword}`, category && `category: ${category}`].filter(Boolean).join(' · ')}_`);\n    lines.push('');\n  }\n  lines.push(description);\n  lines.push('');\n  lines.push(`**Source artifacts:** ${sources.length ? sources.join(', ') : 'none cited'}`);\n  lines.push('');\n}\n\nconst document = {\n  productName,\n  introduction,\n  featureCount: features.length,\n  features,\n  markdown: lines.join('\\n'),\n};\n\nreturn document;",
+          "outputType": "z.object({\n  productName: z.string(),\n  introduction: z.string(),\n  featureCount: z.number(),\n  features: z.array(z.object({\n    title: z.string(),\n    description: z.string(),\n    sourceArtifacts: z.array(z.string()),\n    keyword: z.string(),\n    category: z.string()\n  })),\n  markdown: z.string()\n})"
+        }
+      },
+      {
+        "id": "save_prd",
+        "kind": "artifact",
+        "name": "save_prd",
+        "label": "Save Features PRD Index",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "screenshot-features-prd",
+          "title": "Screenshot Features PRD",
+          "type": "prd",
+          "category": "project",
+          "format": "json",
+          "content": {
+            "mode": "variable",
+            "value": "format_prd.result"
+          },
+          "tags": "prd,features,index,screenshots,product"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "trigger_to_list",
+        "from": "trigger_start",
+        "to": "list_analyses",
+        "output": "input",
+        "input": "in"
+      },
+      {
+        "id": "list_to_collect",
+        "from": "list_analyses",
+        "to": "collect_analyses",
+        "output": "onSuccess",
+        "input": "in"
+      },
+      {
+        "id": "collect_to_agent",
+        "from": "collect_analyses",
+        "to": "write_prd",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "agent_to_prepare",
+        "from": "write_prd",
+        "to": "prepare_features",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "prepare_to_foreach",
+        "from": "prepare_features",
+        "to": "each_feature",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "foreach_to_save",
+        "from": "each_feature",
+        "to": "save_feature",
+        "output": "item",
+        "input": "in"
+      },
+      {
+        "id": "foreach_to_format",
+        "from": "each_feature",
+        "to": "format_prd",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "format_to_save",
+        "from": "format_prd",
+        "to": "save_prd",
+        "output": "done",
+        "input": "in"
+      }
+    ]
+  }
+}

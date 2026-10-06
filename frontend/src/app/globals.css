@@ -1943,6 +1943,21 @@ body {
   border-color: var(--accent-primary);
 }
 
+.artifacts-category-filter {
+  min-width: 180px;
+  max-width: 240px;
+}
+
+.artifacts-category-filter .form-input {
+  height: 36px;
+  padding-left: 30px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
 .btn-subtle {
   background: transparent;
   border: 1px dashed var(--border-color);
@@ -2004,6 +2019,35 @@ body {
   border-color: var(--accent-primary);
   background: #f5f3ff;
   box-shadow: 0 0 0 1px var(--accent-primary), var(--shadow-sm);
+}
+
+.artifact-list-card.bulk-selected {
+  border-color: #f87171;
+  background: #fff7f7;
+}
+
+.artifacts-bulk-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+}
+
+.artifacts-bulk-select-row input,
+.artifact-card-select-row input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.artifact-card-select-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
 }
 
 .artifact-card-header {
@@ -2499,6 +2543,7 @@ body {
   padding: 1px 6px;
   border-radius: 4px;
   letter-spacing: 0.1px;
+  cursor: pointer;
 }
 
 .artifact-card-kw-more {
@@ -2548,6 +2593,8 @@ body {
   padding: 2px 7px;
   border-radius: 10px;
   text-transform: none;
+  border: none;
+  cursor: pointer;
 }
 
 .artifact-retrieval-badge {

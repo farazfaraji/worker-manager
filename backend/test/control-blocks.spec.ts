@@ -590,6 +590,50 @@ async function runTests() {
     assert.strictEqual(executed.length, 4); // 2 nodes * 2 items
   });
 
+  await test('in-canvas foreach respects artifact branch routing inside item branch', async () => {
+    const executed: string[] = [];
+    const runner = createTestGraphRunner(async () => ({ status: 'completed' }));
+
+    const nodes: any[] = [
+      { id: 'foreach_1', type: 'foreach', data: { name: 'each_item', config: { mode: 'canvas', executionType: 'sync' } } },
+      { id: 'check_1', type: 'artifact', data: { name: 'check_existing', definitionType: 'artifact' } },
+      { id: 'worker_1', type: 'agent', data: { name: 'describe_png', definitionType: 'agent', outputs: [{ type: 'branch', name: 'done' }] } },
+      { id: 'save_1', type: 'artifact', data: { name: 'save_analysis', definitionType: 'artifact' } },
+    ];
+    const edges: any[] = [
+      { source: 'foreach_1', target: 'check_1', sourceHandle: 'item' },
+      { source: 'check_1', target: 'worker_1', sourceHandle: 'onNotFound' },
+      { source: 'worker_1', target: 'save_1', sourceHandle: 'done' },
+    ];
+
+    const res = await runner.executeForeachNode(
+      nodes[0],
+      { items: [{ path: '12.jpg' }, { path: '99.jpg' }], mode: 'canvas', executionType: 'sync' },
+      'test-run-branch',
+      0,
+      [],
+      {
+        nodes,
+        edges,
+        context: {},
+        resolveInput: () => ({}),
+        executeNode: async (n: any, _inp: any, _ctx: any, item: any) => {
+          executed.push(n.id);
+          if (n.id === 'check_1') {
+            return item.path === '12.jpg'
+              ? { branch: 'onSuccess', status: 'completed', existing: true }
+              : { branch: 'onNotFound', status: 'not_found', existing: false };
+          }
+          return { branch: 'onSuccess', status: 'completed' };
+        },
+      },
+    );
+
+    assert.strictEqual(res.result.status, 'completed');
+    assert.strictEqual(res.result.processed, 2);
+    assert.deepStrictEqual(executed, ['check_1', 'check_1', 'worker_1', 'save_1']);
+  });
+
   await test('in-canvas foreach supports non-blocking async execution', async () => {
     const runner = createTestGraphRunner(async () => ({ status: 'completed' }));
     const nodes: any[] = [

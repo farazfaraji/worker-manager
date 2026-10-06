@@ -1,0 +1,15 @@
+---
+description: Never run or test this project; the user verifies manually
+alwaysApply: true
+---
+
+# Do not run or test this project
+
+The user runs and tests this repository themselves. Do not execute the app, its tests, or a browser check against it.
+
+- Do not start frontend or backend processes (`npm run start`, `npm run dev`, nest, vite, or similar).
+- Do not run unit, integration, or end-to-end tests (`npm test`, jest, playwright, or similar).
+- Do not open the app in a browser, send requests to a local server, or otherwise verify runtime behavior.
+- After code changes, stop at the edit. Tell the user what to run if a check would help, and leave the run to them.
+
+Git inspection, file reads, and static edits are fine. Do not launch the project to confirm a change.

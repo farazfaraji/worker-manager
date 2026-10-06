@@ -159,8 +159,49 @@ async function run() {
     console.log('  ✅ PASS: GraphEnrichmentService successfully delegates output synthesis to individual plugins');
   }
 
-  // --- 7. Validation Service Waiting Gate Checking ---
-  console.log('\n--- 7. GraphValidationService assertNoWaitingGatesInChildGraph ---');
+  // --- 7. ArtifactPlugin prefers resolved nodeInput over raw config ---
+  console.log('\n--- 7. ArtifactPlugin resolved nodeInput precedence ---');
+  {
+    let capturedTitle = '';
+    const plugin = new ArtifactPlugin({
+      create: async (payload: any) => {
+        capturedTitle = payload.title;
+        return {
+          artifactId: 'art_1',
+          logicalId: payload.logicalId,
+          title: payload.title,
+          content: payload.content,
+          version: 1,
+          isLatest: true,
+        };
+      },
+    } as any);
+    await plugin.run({
+      node: {
+        id: 'save_1',
+        data: {
+          config: {
+            operation: 'create',
+            title: { mode: 'literal', value: 'Screenshot: {{each_png.item.path}}' },
+          },
+        },
+      },
+      nodeInput: {
+        operation: 'create',
+        title: 'Screenshot: 1.png',
+        logicalId: 'screenshot-1.png',
+        content: 'analysis',
+      },
+      context: {},
+      initialInput: { projectId: 'proj-1' },
+      runId: 'run-1',
+    });
+    assert.strictEqual(capturedTitle, 'Screenshot: 1.png');
+    console.log('  ✅ PASS: ArtifactPlugin uses resolved nodeInput instead of raw valueOrVariable config');
+  }
+
+  // --- 8. Validation Service Waiting Gate Checking ---
+  console.log('\n--- 8. GraphValidationService assertNoWaitingGatesInChildGraph ---');
   const fakeModel: any = {
     findById: (id: string) => ({
       lean: () => ({

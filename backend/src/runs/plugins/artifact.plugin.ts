@@ -70,11 +70,11 @@ export class ArtifactPlugin implements ToolPlugin {
     const config = node?.data?.config || {};
     const op = String(config.operation || nodeInput?.operation || 'create').toLowerCase();
     const payload: any = {
-      ...(nodeInput && typeof nodeInput === 'object' ? nodeInput : {}),
       ...config,
+      ...(nodeInput && typeof nodeInput === 'object' ? nodeInput : {}),
     };
-    if (!payload.projectId && ctx.initialInput?.projectId) {
-      payload.projectId = ctx.initialInput.projectId;
+    if (!payload.projectId) {
+      payload.projectId = ctx.context?.projectId || ctx.initialInput?.projectId;
     }
     payload.runId = payload.runId || runId;
     payload.nodeId = payload.nodeId || node?.id;

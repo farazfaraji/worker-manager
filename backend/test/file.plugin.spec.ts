@@ -62,6 +62,18 @@ async function runTests() {
   const listed = await run({ operation: 'list', path: 'notes', glob: '*.md' });
   assert(listed.result.files.length === 2, 'list returns matching files');
 
+  const customDir = join(storage.rootFor('proj_1'), '..', 'custom-list-root');
+  const fs = await import('fs');
+  fs.mkdirSync(customDir, { recursive: true });
+  fs.writeFileSync(join(customDir, 'shot.png'), 'png');
+  const listedCustom = await run({
+    operation: 'list',
+    folder: customDir,
+    path: customDir,
+    glob: '*.png',
+  });
+  assert(listedCustom.result.files.length === 1, 'list honors folder overrides and absolute paths inside the folder');
+
   console.log(`\n=============================================`);
   console.log(`📊 RESULTS: ${passed} passed, ${failed} failed`);
   console.log(`=============================================\n`);

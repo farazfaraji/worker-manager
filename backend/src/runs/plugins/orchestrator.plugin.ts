@@ -174,8 +174,8 @@ export class OrchestratorPlugin implements ToolPlugin {
             researchOutput:
               agent.researchOutput !== undefined ? Boolean(agent.researchOutput) : requireResearchOutput,
             evidenceLimit,
-            timeoutMs: Math.min(120000, Math.max(1000, Number(agent.timeoutMs || 60000))),
-            maxTimeoutMs: 120000,
+            timeoutMs: Math.min(1200000, Math.max(1000, Number(agent.timeoutMs || 60000))),
+            maxTimeoutMs: 1200000,
           },
         },
       };

@@ -207,23 +207,24 @@ function FlowStudioInner({ initialFlowId }: FlowStudioProps) {
         }
       }
 
-      const draft = readStudioDraft();
-      const sameBoard = !!draft && (draft.graphId || null) === (flowIdToLoad || null);
-      if (draft?.isDirty && sameBoard) {
-        setGraphId(draft.graphId);
-        setGraphName(draft.graphName || 'Untitled Graph');
-        setNodes(draft.nodes);
-        setEdges(draft.edges);
-        setIsDirty(true);
-        setShowInitialWelcome(false);
-        if (draft.graphId) rememberFlow(draft.graphId);
-        studioReady.current = true;
-        return;
-      }
-
       if (flowIdToLoad) {
         await handleSelectGraph(flowIdToLoad, true);
       } else {
+        const draft = readStudioDraft();
+        if (draft?.isDirty) {
+          setGraphId(draft.graphId);
+          setGraphName(draft.graphName || 'Untitled Graph');
+          setNodes(draft.nodes);
+          setEdges(draft.edges);
+          setIsDirty(true);
+          setShowInitialWelcome(false);
+          if (draft.graphId) rememberFlow(draft.graphId);
+          studioReady.current = true;
+          return;
+        }
+      }
+
+      if (!flowIdToLoad) {
         // If on root with no ID, check if any graphs exist to show initial welcome
         try {
           const list = await fetchGraphs();

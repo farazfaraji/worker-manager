@@ -109,7 +109,7 @@ export class GraphRunnerService {
     this.checkpointService = checkpointService || new RunCheckpointService(this.checkpointModel);
     this.leaseService = leaseService || new RunLeaseService(this.runModel);
     this.topologyService = topologyService || new RunTopologyService();
-    this.subgraphRunner = subgraphRunner || new SubgraphRunnerService();
+    this.subgraphRunner = subgraphRunner || new SubgraphRunnerService(this.topologyService);
     this.storageService = storageService || new RunStorageService(this.runModel, this.checkpointService);
     this.recoveryService =
       recoveryService ||

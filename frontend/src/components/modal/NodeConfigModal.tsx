@@ -994,6 +994,50 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                       );
                     }
 
+                    if (defType === 'foreach') {
+                      const loopVars = [
+                        { name: 'item', type: 'any', hint: 'current iteration item (item branch only)' },
+                        { name: 'index', type: 'number', hint: 'zero-based item index' },
+                        { name: 'total', type: 'number', hint: 'total item count' },
+                        { name: 'result', type: 'object', hint: 'aggregated foreach result' },
+                        { name: 'result.items', type: 'array', hint: 'per-item outputs after done' },
+                        { name: 'result.status', type: 'string', hint: 'completed | partial | failed' },
+                        { name: 'result.count', type: 'number', hint: 'input item count' },
+                        { name: 'result.processed', type: 'number', hint: 'items processed' },
+                      ];
+                      return loopVars.map((entry) => (
+                        <div
+                          key={entry.name}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '4px 10px',
+                            background: '#ffffff',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 12,
+                          }}
+                          title={entry.hint}
+                        >
+                          <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                            {nodeName}.{entry.name}
+                          </strong>
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              padding: '1px 5px',
+                              background: 'var(--bg-subtle)',
+                              borderRadius: 3,
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {entry.type}
+                          </span>
+                        </div>
+                      ));
+                    }
+
                     // Check if node has a single output with an output schema (e.g. script, agent, transform)
                     const isSingleWithSchema = dataOutputs.length === 1 && (dataOutputs[0].schemaFrom || formConfig.outputType || formConfig.inputSchema);
                     const schemaField = isSingleWithSchema ? (dataOutputs[0].schemaFrom || 'outputType') : undefined;

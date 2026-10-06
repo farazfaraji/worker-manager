@@ -104,6 +104,15 @@ export class ProjectsService implements OnModuleInit {
       );
     }
 
+    const legacyArtifacts = await this.artifactModel.countDocuments({ projectId: 'default' }).exec();
+    if (legacyArtifacts > 0) {
+      this.logger.log(`Migrating ${legacyArtifacts} artifact(s) from legacy projectId "default"...`);
+      await this.artifactModel.updateMany(
+        { projectId: 'default' },
+        { $set: { projectId: defaultProjectId } },
+      );
+    }
+
     return defaultProject;
   }
 

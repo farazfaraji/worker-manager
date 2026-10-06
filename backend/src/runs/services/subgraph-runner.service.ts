@@ -1,8 +1,16 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { isValidObjectId } from 'mongoose';
 import { RuntimeNode } from './variable-resolver.service';
 import { ForEachResult, ForEachItemResult } from '../../blocks/block.types';
 import { redactSecrets } from './redaction.util';
+import { normalizeCollectionInput } from '../utils/collection-input.util';
+import { RunTopologyService } from './run-topology.service';
+
+interface CanvasBranchContext {
+  startNodeId: string;
+  nodeById: Map<string, RuntimeNode>;
+  outgoing: Map<string, any[]>;
+}
 
 export type RunGraphDelegate = (
   graphId: string,
@@ -22,6 +30,11 @@ export interface ForeachExecutionOptions {
 @Injectable()
 export class SubgraphRunnerService {
   private readonly logger = new Logger(SubgraphRunnerService.name);
+  private readonly topologyService: RunTopologyService;
+
+  constructor(@Optional() topologyService?: RunTopologyService) {
+    this.topologyService = topologyService || new RunTopologyService();
+  }
 
   /** Runs a saved child graph once per research round without adding graph cycles. */
   async executeIterativeLoopNode(
@@ -236,19 +249,10 @@ export class SubgraphRunnerService {
       }
     }
 
-    let itemsArray: any[] | null = null;
-    if (Array.isArray(rawItemsInput)) {
-      itemsArray = rawItemsInput;
-    } else if (rawItemsInput && typeof rawItemsInput === 'object') {
-      if (Array.isArray(rawItemsInput.items)) {
-        itemsArray = rawItemsInput.items;
-      } else if (rawItemsInput.result && Array.isArray(rawItemsInput.result.items)) {
-        itemsArray = rawItemsInput.result.items;
-      }
-    }
+    const itemsArray = normalizeCollectionInput(rawItemsInput);
 
     if (itemsArray === null) {
-      const err = `Foreach node "${nodeName}" items must be an array or an object containing an items array`;
+      const err = `Foreach node "${nodeName}" items must be an array or an object containing an items or files array`;
       const result: ForEachResult = {
         status: 'failed',
         count: 0,
@@ -332,7 +336,7 @@ export class SubgraphRunnerService {
     }
 
     // In-Canvas Mode: Identify the loop iteration branch starting from 'item' handle
-    let sortedBranchNodes: RuntimeNode[] = [];
+    let canvasBranch: CanvasBranchContext | null = null;
     if (mode !== 'subgraph') {
       const loopStartEdge = (options?.edges || []).find(
         (e: any) => e.source === node.id && String(e.sourceHandle || '').toLowerCase() === 'item',
@@ -353,7 +357,6 @@ export class SubgraphRunnerService {
         }
 
         const branchNodes: RuntimeNode[] = [];
-        const branchEdges: any[] = [];
         const visited = new Set<string>();
         const q = [startNodeId];
         visited.add(startNodeId);
@@ -372,7 +375,6 @@ export class SubgraphRunnerService {
           const outEdges = outgoingMap.get(currId) || [];
           for (const edge of outEdges) {
             if (edge.target === node.id) continue;
-            branchEdges.push(edge);
             if (!visited.has(edge.target)) {
               visited.add(edge.target);
               q.push(edge.target);
@@ -380,11 +382,16 @@ export class SubgraphRunnerService {
           }
         }
 
-        sortedBranchNodes = this.sortBranchNodes(branchNodes, branchEdges);
-        if (sortedBranchNodes.some((branchNode) => {
+        if (branchNodes.some((branchNode) => {
           const branchType = String(branchNode.data?.definitionType || branchNode.type || '').toLowerCase();
           return branchType === 'human-gate' || branchType === 'humangate' || (branchType === 'telegram' && branchNode.data?.config?.mode === 'question');
         })) throw new BadRequestException('Human gates inside a foreach item branch are not supported. Place the gate after foreach.');
+
+        canvasBranch = {
+          startNodeId,
+          nodeById: new Map(branchNodes.map((branchNode) => [branchNode.id, branchNode])),
+          outgoing: outgoingMap,
+        };
       } else {
         this.logger.warn(`Foreach node "${nodeName}" in canvas mode has no connected item branch edges.`);
       }
@@ -403,7 +410,7 @@ export class SubgraphRunnerService {
 
         // 1. IN-CANVAS EXECUTION
         if (mode !== 'subgraph') {
-          if (sortedBranchNodes.length === 0) {
+          if (!canvasBranch) {
             indexedResults[currentIndex] = {
               index: currentIndex,
               item: currentItem,
@@ -431,7 +438,17 @@ export class SubgraphRunnerService {
           const executedRecords: any[] = [];
           let itemFailed = false;
 
-          for (const currNode of sortedBranchNodes) {
+          const executionQueue = [canvasBranch.startNodeId];
+          const executedNodeIds = new Set<string>();
+
+          while (executionQueue.length > 0) {
+            const currId = executionQueue.shift()!;
+            if (executedNodeIds.has(currId)) continue;
+            executedNodeIds.add(currId);
+
+            const currNode = canvasBranch.nodeById.get(currId);
+            if (!currNode) continue;
+
             const currNodeName = currNode.data?.name || currNode.data?.nodeName || currNode.id;
             try {
               const currInput = options?.resolveInput
@@ -454,6 +471,16 @@ export class SubgraphRunnerService {
               if (currType === 'output') {
                 capturedResult = normalized?.result !== undefined ? normalized.result : (normalized?.value !== undefined ? normalized.value : normalized);
                 break;
+              }
+
+              const nodeEdges = (canvasBranch.outgoing.get(currId) || []).filter(
+                (edge) => canvasBranch!.nodeById.has(edge.target),
+              );
+              const nextNodeIds = this.topologyService.resolveNextTargets(currNode, normalized, nodeEdges);
+              for (const nextNodeId of nextNodeIds) {
+                if (!executedNodeIds.has(nextNodeId)) {
+                  executionQueue.push(nextNodeId);
+                }
               }
             } catch (err: any) {
               itemFailed = true;
@@ -603,49 +630,4 @@ export class SubgraphRunnerService {
     };
   }
 
-  private sortBranchNodes(nodes: RuntimeNode[], edges: any[]): RuntimeNode[] {
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const incoming = new Map<string, Set<string>>();
-    const outgoing = new Map<string, Set<string>>();
-
-    for (const n of nodes) {
-      incoming.set(n.id, new Set());
-      outgoing.set(n.id, new Set());
-    }
-    for (const e of edges) {
-      if (byId.has(e.source) && byId.has(e.target)) {
-        incoming.get(e.target)!.add(e.source);
-        outgoing.get(e.source)!.add(e.target);
-      }
-    }
-
-    const roots = nodes.filter((n) => (incoming.get(n.id)?.size || 0) === 0);
-    const q = [...roots];
-    const result: RuntimeNode[] = [];
-    const emitted = new Set<string>();
-
-    while (q.length > 0) {
-      const n = q.shift()!;
-      if (emitted.has(n.id)) continue;
-      const deps = incoming.get(n.id) || new Set<string>();
-      if ([...deps].some((id) => !emitted.has(id))) {
-        q.push(n);
-        continue;
-      }
-      emitted.add(n.id);
-      result.push(n);
-      for (const targetId of outgoing.get(n.id) || []) {
-        if (byId.has(targetId)) {
-          q.push(byId.get(targetId)!);
-        }
-      }
-    }
-
-    for (const n of nodes) {
-      if (!emitted.has(n.id)) {
-        result.push(n);
-      }
-    }
-    return result;
-  }
 }

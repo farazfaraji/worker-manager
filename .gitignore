@@ -30,3 +30,5 @@ yarn-error.log*
 *.pem
 .vscode
 .idea
+screenshots
+.agents/flows

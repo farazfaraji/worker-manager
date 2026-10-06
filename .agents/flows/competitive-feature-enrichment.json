@@ -1,0 +1,333 @@
+{
+  "name": "Competitive Feature Enrichment",
+  "projectId": "6ac2a2bd682346f4db2bef3c",
+  "flow": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "trigger_start",
+        "kind": "trigger",
+        "name": "trigger",
+        "label": "Start",
+        "definitionName": "Trigger",
+        "config": {
+          "triggerType": "manual"
+        }
+      },
+      {
+        "id": "list_our_features",
+        "kind": "artifact",
+        "name": "list_our_features",
+        "label": "List Our Features",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "list",
+          "filterTags": "feature",
+          "filterType": "prd",
+          "includeContent": true,
+          "latestOnly": true,
+          "limit": 100,
+          "sortBy": "title",
+          "sortOrder": "asc"
+        }
+      },
+      {
+        "id": "list_competitors",
+        "kind": "artifact",
+        "name": "list_competitors",
+        "label": "List Competitors",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "list",
+          "filterCategory": "competitors",
+          "includeContent": true,
+          "latestOnly": true,
+          "limit": 50,
+          "sortBy": "title",
+          "sortOrder": "asc"
+        }
+      },
+      {
+        "id": "collect_context",
+        "kind": "script",
+        "name": "collect_context",
+        "label": "Collect Features & Competitors",
+        "definitionName": "Script",
+        "config": {
+          "input": "list_our_features.artifacts",
+          "code": "const parseBody = (value) => {\n  if (!value) return null;\n  if (typeof value === 'object') return value;\n  if (typeof value === 'string') {\n    try {\n      return JSON.parse(value);\n    } catch {\n      return null;\n    }\n  }\n  return null;\n};\n\nlet featureArtifacts = input;\nif (typeof featureArtifacts === 'string') {\n  try {\n    featureArtifacts = JSON.parse(featureArtifacts);\n  } catch {\n    featureArtifacts = [];\n  }\n}\nif (!Array.isArray(featureArtifacts)) featureArtifacts = [];\n\nconst competitorArtifacts = Array.isArray(context?.list_competitors?.artifacts)\n  ? context.list_competitors.artifacts\n  : [];\n\nconst ourFeatures = featureArtifacts.map((item) => {\n  const body = parseBody(item?.content) || {};\n  return {\n    logicalId: item?.logicalId || body?.logicalId || '',\n    title: body?.title || item?.title || '',\n    description: body?.description || '',\n    keyword: body?.keyword || '',\n    category: body?.category || item?.category || '',\n    sourceArtifacts: Array.isArray(body?.sourceArtifacts) ? body.sourceArtifacts : [],\n    competitorInsights: Array.isArray(body?.competitorInsights) ? body.competitorInsights : [],\n  };\n});\n\nconst competitors = competitorArtifacts.map((item) => {\n  const body = parseBody(item?.content);\n  return {\n    logicalId: item?.logicalId || '',\n    title: item?.title || '',\n    category: item?.category || '',\n    tags: item?.tags || [],\n    content: body ?? item?.content ?? '',\n  };\n});\n\nreturn {\n  ourFeatures,\n  competitors,\n  featureCount: ourFeatures.length,\n  competitorCount: competitors.length,\n  featuresJson: JSON.stringify(ourFeatures, null, 2),\n};",
+          "outputType": "z.object({\n  ourFeatures: z.array(z.any()),\n  competitors: z.array(z.any()),\n  featureCount: z.number(),\n  competitorCount: z.number(),\n  featuresJson: z.string()\n})"
+        }
+      },
+      {
+        "id": "each_competitor",
+        "kind": "foreach",
+        "name": "each_competitor",
+        "label": "Each Competitor",
+        "definitionName": "Foreach",
+        "config": {
+          "mode": "canvas",
+          "executionType": "sync",
+          "items": "list_competitors.artifacts",
+          "maxIterations": 25,
+          "concurrency": 1,
+          "stopOnError": false,
+          "outputMode": "result",
+          "timeoutMs": 900000
+        }
+      },
+      {
+        "id": "check_competitor_done",
+        "kind": "artifact",
+        "name": "check_competitor_done",
+        "label": "Check Competitor Already Enriched",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "get",
+          "logicalId": "competitive-enrichment-{{each_competitor.item.logicalId}}"
+        }
+      },
+      {
+        "id": "prepare_competitor",
+        "kind": "script",
+        "name": "prepare_competitor",
+        "label": "Prepare Competitor Payload",
+        "definitionName": "Script",
+        "config": {
+          "input": "each_competitor.item",
+          "code": "const parseBody = (value) => {\n  if (!value) return null;\n  if (typeof value === 'object') return value;\n  if (typeof value === 'string') {\n    try {\n      return JSON.parse(value);\n    } catch {\n      return value;\n    }\n  }\n  return null;\n};\n\nconst record = input && typeof input === 'object' ? input : {};\nconst body = parseBody(record.content);\nconst payload = {\n  logicalId: record.logicalId || '',\n  title: record.title || '',\n  category: record.category || '',\n  tags: record.tags || [],\n  content: body ?? record.content ?? '',\n};\n\nreturn {\n  logicalId: payload.logicalId,\n  title: payload.title,\n  competitorJson: JSON.stringify(payload, null, 2),\n};",
+          "outputType": "z.object({\n  logicalId: z.string(),\n  title: z.string(),\n  competitorJson: z.string()\n})"
+        }
+      },
+      {
+        "id": "enrich_features",
+        "kind": "agent",
+        "name": "enrich_features",
+        "label": "Enrich Features vs Competitor",
+        "definitionName": "Agent",
+        "config": {
+          "model": "openai/gpt-6-luna",
+          "systemPrompt": "You are a product owner enriching a feature backlog with competitive intelligence.\n\nYou will receive:\n1) Our full feature list (static context)\n2) One competitor profile\n\nFor EVERY existing feature, explain how this competitor addresses the same capability, where we differ, and what we should emphasize. Keep descriptions non-technical.\n\nAlso identify net-new features this competitor has that we do not. Mark those with isNew: true.\n\nRules:\n- Preserve existing logicalId, keyword, and category for existing features.\n- For existing features, keep the original description but you may lightly refine it if competitor insight improves clarity.\n- competitiveNotes: 1 short paragraph on what the competitor does for this capability.\n- differentiation: 1 short paragraph on how we should position differently.\n- For net-new features, propose keyword and category slugs.\n- Include the competitor logicalId in competitorLogicalId on every row.",
+          "userPrompt": "## Our product features ({{collect_context.result.featureCount}} features)\n\n```json\n{{collect_context.result.featuresJson}}\n```\n\n## Competitor to analyze\n\n```json\n{{prepare_competitor.result.competitorJson}}\n```\n\nAnalyze this competitor against ALL of our features above.\n\nReturn:\n- competitorLogicalId and competitorName\n- features: every existing feature enriched for this competitor, plus any net-new features inspired by this competitor (isNew: true)\n\nUse the exact logicalId from our features for existing items. For net-new features, omit logicalId.",
+          "outputFormat": "json",
+          "outputType": "z.object({\n  competitorLogicalId: z.string(),\n  competitorName: z.string(),\n  features: z.array(z.object({\n    logicalId: z.string().optional(),\n    title: z.string(),\n    description: z.string(),\n    keyword: z.string(),\n    category: z.string(),\n    sourceArtifacts: z.array(z.string()),\n    competitiveNotes: z.string(),\n    differentiation: z.string(),\n    isNew: z.boolean()\n  }))\n})",
+          "enableTools": false,
+          "cacheResult": true,
+          "timeoutMs": 300000
+        }
+      },
+      {
+        "id": "prepare_enriched",
+        "kind": "script",
+        "name": "prepare_enriched",
+        "label": "Prepare Enriched Features",
+        "definitionName": "Script",
+        "config": {
+          "input": "enrich_features.result.features",
+          "code": "const slugify = (value) => String(value || 'feature').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'feature';\n\nconst root = context?.enrich_features && typeof context.enrich_features === 'object' ? context.enrich_features : {};\nconst competitorLogicalId = root.competitorLogicalId || context?.prepare_competitor?.logicalId || '';\nconst competitorName = root.competitorName || context?.prepare_competitor?.title || '';\n\nlet features = input;\nif (typeof features === 'string') {\n  try {\n    features = JSON.parse(features);\n  } catch {\n    features = [];\n  }\n}\nif (!Array.isArray(features)) features = [];\n\nconst used = new Set();\n\nreturn features.map((feature, featureIndex) => {\n  const keyword = slugify(feature?.keyword || feature?.title || `feature-${featureIndex + 1}`);\n  let logicalId = feature?.logicalId || `feature-${keyword}`;\n  if (!feature?.logicalId && feature?.isNew) {\n    logicalId = `feature-${keyword}`;\n  }\n  if (used.has(logicalId)) logicalId = `${logicalId}-${featureIndex + 1}`;\n  used.add(logicalId);\n\n  const category = slugify(feature?.category || 'product-features');\n\n  const insight = {\n    competitorLogicalId,\n    competitorName,\n    notes: feature?.competitiveNotes || '',\n    differentiation: feature?.differentiation || '',\n  };\n\n  return {\n    logicalId,\n    title: feature?.title || `Feature ${featureIndex + 1}`,\n    description: feature?.description || '',\n    keyword,\n    category,\n    sourceArtifacts: Array.isArray(feature?.sourceArtifacts) ? feature.sourceArtifacts : [],\n    competitorInsights: [insight],\n    isNew: Boolean(feature?.isNew),\n    competitorLogicalId,\n    competitorName,\n    tags: `feature,prd,competitive,${keyword},${category},product`,\n  };\n});",
+          "outputType": "z.array(z.object({\n  logicalId: z.string(),\n  title: z.string(),\n  description: z.string(),\n  keyword: z.string(),\n  category: z.string(),\n  sourceArtifacts: z.array(z.string()),\n  competitorInsights: z.array(z.object({\n    competitorLogicalId: z.string(),\n    competitorName: z.string(),\n    notes: z.string(),\n    differentiation: z.string()\n  })),\n  isNew: z.boolean(),\n  competitorLogicalId: z.string(),\n  competitorName: z.string(),\n  tags: z.string()\n}))"
+        }
+      },
+      {
+        "id": "each_enriched_feature",
+        "kind": "foreach",
+        "name": "each_enriched_feature",
+        "label": "Each Enriched Feature",
+        "definitionName": "Foreach",
+        "config": {
+          "mode": "canvas",
+          "executionType": "sync",
+          "items": "prepare_enriched",
+          "maxIterations": 50,
+          "concurrency": 1,
+          "stopOnError": false,
+          "outputMode": "result",
+          "timeoutMs": 600000
+        }
+      },
+      {
+        "id": "check_existing",
+        "kind": "artifact",
+        "name": "check_existing",
+        "label": "Check Existing Feature",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "get",
+          "logicalId": "{{each_enriched_feature.item.logicalId}}"
+        }
+      },
+      {
+        "id": "merge_feature",
+        "kind": "script",
+        "name": "merge_feature",
+        "label": "Merge Competitor Insights",
+        "definitionName": "Script",
+        "config": {
+          "input": "each_enriched_feature.item",
+          "code": "const parseBody = (value) => {\n  if (!value) return null;\n  if (typeof value === 'object') return value;\n  if (typeof value === 'string') {\n    try {\n      return JSON.parse(value);\n    } catch {\n      return null;\n    }\n  }\n  return null;\n};\n\nconst incoming = input && typeof input === 'object' ? input : {};\nconst existingDoc = context?.check_existing?.content ?? context?.check_existing?.artifact?.content;\nconst existing = parseBody(existingDoc) || {};\nconst latestInsight = Array.isArray(incoming.competitorInsights) ? incoming.competitorInsights[0] : null;\n\nconst entry = {\n  competitorLogicalId: incoming.competitorLogicalId || latestInsight?.competitorLogicalId || '',\n  competitorName: incoming.competitorName || latestInsight?.competitorName || '',\n  notes: latestInsight?.notes || incoming.competitiveNotes || '',\n  differentiation: latestInsight?.differentiation || incoming.differentiation || '',\n};\n\nconst insights = Array.isArray(existing.competitorInsights) ? [...existing.competitorInsights] : [];\nconst insightIndex = insights.findIndex((row) => row?.competitorLogicalId === entry.competitorLogicalId);\nif (insightIndex >= 0) insights[insightIndex] = entry;\nelse insights.push(entry);\n\nconst merged = {\n  logicalId: incoming.logicalId || existing.logicalId || '',\n  title: incoming.title || existing.title || '',\n  description: incoming.description || existing.description || '',\n  keyword: incoming.keyword || existing.keyword || '',\n  category: incoming.category || existing.category || '',\n  sourceArtifacts: Array.isArray(incoming.sourceArtifacts) && incoming.sourceArtifacts.length\n    ? incoming.sourceArtifacts\n    : (Array.isArray(existing.sourceArtifacts) ? existing.sourceArtifacts : []),\n  competitorInsights: insights,\n  tags: incoming.tags || existing.tags || '',\n};\n\nreturn merged;",
+          "outputType": "z.object({\n  logicalId: z.string(),\n  title: z.string(),\n  description: z.string(),\n  keyword: z.string(),\n  category: z.string(),\n  sourceArtifacts: z.array(z.string()),\n  competitorInsights: z.array(z.object({\n    competitorLogicalId: z.string(),\n    competitorName: z.string(),\n    notes: z.string(),\n    differentiation: z.string()\n  })),\n  tags: z.string()\n})"
+        }
+      },
+      {
+        "id": "save_feature_new",
+        "kind": "artifact",
+        "name": "save_feature_new",
+        "label": "Save New Feature",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "{{each_enriched_feature.item.logicalId}}",
+          "title": "{{each_enriched_feature.item.title}}",
+          "type": "prd",
+          "category": "{{each_enriched_feature.item.category}}",
+          "format": "json",
+          "content": {
+            "mode": "variable",
+            "value": "each_enriched_feature.item"
+          },
+          "tags": "{{each_enriched_feature.item.tags}}"
+        }
+      },
+      {
+        "id": "save_feature_merged",
+        "kind": "artifact",
+        "name": "save_feature_merged",
+        "label": "Save Merged Feature",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "{{merge_feature.result.logicalId}}",
+          "title": "{{merge_feature.result.title}}",
+          "type": "prd",
+          "category": "{{merge_feature.result.category}}",
+          "format": "json",
+          "content": {
+            "mode": "variable",
+            "value": "merge_feature.result"
+          },
+          "tags": "{{merge_feature.result.tags}}"
+        }
+      },
+      {
+        "id": "mark_competitor_done",
+        "kind": "artifact",
+        "name": "mark_competitor_done",
+        "label": "Mark Competitor Enriched",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "competitive-enrichment-{{each_competitor.item.logicalId}}",
+          "title": "Enriched: {{each_competitor.item.title}}",
+          "type": "document",
+          "category": "competitive-enrichment",
+          "format": "json",
+          "content": "{\n  \"competitorLogicalId\": \"{{each_competitor.item.logicalId}}\",\n  \"competitorTitle\": \"{{each_competitor.item.title}}\",\n  \"status\": \"completed\"\n}",
+          "tags": "competitive-enrichment,completed,competitors"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "trigger_to_features",
+        "from": "trigger_start",
+        "to": "list_our_features",
+        "output": "input",
+        "input": "in"
+      },
+      {
+        "id": "features_to_competitors",
+        "from": "list_our_features",
+        "to": "list_competitors",
+        "output": "onSuccess",
+        "input": "in"
+      },
+      {
+        "id": "competitors_to_collect",
+        "from": "list_competitors",
+        "to": "collect_context",
+        "output": "onSuccess",
+        "input": "in"
+      },
+      {
+        "id": "collect_to_foreach",
+        "from": "collect_context",
+        "to": "each_competitor",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "competitor_to_check",
+        "from": "each_competitor",
+        "to": "check_competitor_done",
+        "output": "item",
+        "input": "in"
+      },
+      {
+        "id": "check_competitor_not_found",
+        "from": "check_competitor_done",
+        "to": "prepare_competitor",
+        "output": "onNotFound",
+        "input": "in"
+      },
+      {
+        "id": "prepare_to_enrich",
+        "from": "prepare_competitor",
+        "to": "enrich_features",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "enrich_to_prepare_enriched",
+        "from": "enrich_features",
+        "to": "prepare_enriched",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "prepare_enriched_to_each",
+        "from": "prepare_enriched",
+        "to": "each_enriched_feature",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "each_to_check",
+        "from": "each_enriched_feature",
+        "to": "check_existing",
+        "output": "item",
+        "input": "in"
+      },
+      {
+        "id": "check_not_found",
+        "from": "check_existing",
+        "to": "save_feature_new",
+        "output": "onNotFound",
+        "input": "in"
+      },
+      {
+        "id": "check_found",
+        "from": "check_existing",
+        "to": "merge_feature",
+        "output": "onSuccess",
+        "input": "in"
+      },
+      {
+        "id": "merge_to_save",
+        "from": "merge_feature",
+        "to": "save_feature_merged",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "features_done_to_mark",
+        "from": "each_enriched_feature",
+        "to": "mark_competitor_done",
+        "output": "done",
+        "input": "in"
+      }
+    ]
+  }
+}

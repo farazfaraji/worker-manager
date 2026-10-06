@@ -37,16 +37,32 @@ const BRANCH_FIRST_KINDS = new Set([
   'artifact', 'condition', 'foreach', 'human-gate', 'loop', 'orchestrator', 'research-review', 'router', 'validator',
 ]);
 
-function defaultExposedEvents(block: Block, events: NonNullable<Block['events']>): string[] {
+/** Lifecycle handles stay hidden until connected or explicitly exposed in node config. */
+const LIFECYCLE_EVENT_NAMES = new Set([
+  'done', 'success', 'onsuccess', 'onload', 'completed', 'failed', 'onfailed', 'error', 'partial',
+]);
+
+function isBranchFirstBlock(block: Block): boolean {
   const kind = String(block.kind || '').toLowerCase();
   const operation = String(block.config?.operation || '').toLowerCase();
-  const branchFirst =
+  return (
     BRANCH_FIRST_KINDS.has(kind) ||
     (kind === 'file' && operation === 'exists') ||
     (kind === 'database' && operation === 'ping') ||
     (kind === 'secrets' && operation === 'exists') ||
-    (kind === 'log' && operation === 'assert' && String(block.config?.onFail || '').toLowerCase() === 'route');
-  return branchFirst ? events.map((event) => event.name) : [];
+    (kind === 'log' && operation === 'assert' && String(block.config?.onFail || '').toLowerCase() === 'route')
+  );
+}
+
+function defaultExposedEvents(block: Block, events: NonNullable<Block['events']>): string[] {
+  if (!isBranchFirstBlock(block)) return [];
+  return events
+    .filter((event) => !LIFECYCLE_EVENT_NAMES.has(event.name.toLowerCase()))
+    .map((event) => event.name);
+}
+
+function hasNonLifecycleBranch(groups: Map<string, string[]>): boolean {
+  return Array.from(groups.keys()).some((output) => !LIFECYCLE_EVENT_NAMES.has(output.toLowerCase()));
 }
 
 interface StepBranch {
@@ -140,7 +156,12 @@ function buildSteps(flow: GraphFlowData): Step[] {
       }
       const direct = Array.from(groups.values()).reduce<string[]>((all, ids) => all.concat(ids), []);
       const hasEmptyEvent = Array.from(groups.values()).some((targets) => targets.length === 0);
-      if (direct.length <= 1 && groups.size <= 1 && !hasEmptyEvent) {
+      const flattenAsLinear =
+        direct.length <= 1 &&
+        groups.size <= 1 &&
+        !hasEmptyEvent &&
+        (!isBranchFirstBlock(block) || !hasNonLifecycleBranch(groups));
+      if (flattenAsLinear) {
         steps.push({ block, branches: [] });
         const next = direct[0];
         ids = next && !halt.has(next) && !seen.has(next) ? [next] : [];
@@ -289,8 +310,9 @@ function StepCard({
   const { block } = step;
   const status = runStatuses[block.id];
   const eventCount = new Set(step.branches.map((branch) => branch.output)).size;
+  const hasNestedSteps = step.branches.some((branch) => branch.steps.length > 0);
   const [eventExpansion, setEventExpansion] = useState<boolean | null>(null);
-  const eventsExpanded = eventExpansion ?? eventCount <= 2;
+  const eventsExpanded = eventExpansion ?? (eventCount <= 2 || hasNestedSteps);
 
   return (
     <div style={{ width: '100%' }}>

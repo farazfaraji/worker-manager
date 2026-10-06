@@ -21,3 +21,13 @@ Reads and writes default to a 10 MB limit (`maxBytes`), matching the checkpoint 
 | `download` | Fetches `url` into `path`. The host must be in `allowedHosts`, unless `allowAnyHost` is set. A blocked host returns `{ blocked: true, dryRun: true }` instead of throwing. | same as `write` |
 
 Downstream nodes read `{{file_1.result.content}}` and `{{file_1.result.path}}`. Paths in the result are relative to the sandbox.
+
+### Feeding a list into Foreach
+
+After a `list` operation, pass the files array into Foreach:
+
+```
+{{file_1.result.files}}
+```
+
+Each entry is `{ path, size, modifiedAt, isDir }`. Inside the Foreach `item` branch, read a file with `{{foreach_1.item.path}}`.

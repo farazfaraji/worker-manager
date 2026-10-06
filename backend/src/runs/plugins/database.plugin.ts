@@ -40,7 +40,7 @@ export class DatabasePlugin implements ToolPlugin {
     registerResolvedSecret(runId, uri);
     const cacheKey = `${projectId}:${secretName}:${driver}`;
     const maxRows = clamp(Number(payload.maxRows ?? payload.limit ?? 1000), 1, 5000);
-    const timeoutMs = clamp(Number(payload.timeoutMs ?? 15000), 100, 120000);
+    const timeoutMs = clamp(Number(payload.timeoutMs ?? 15000), 100, 1200000);
 
     try {
       if (driver === 'postgres' || driver === 'postgresql') {

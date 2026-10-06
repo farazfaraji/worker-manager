@@ -24,6 +24,7 @@ import { EventsModule } from '../events/events.module';
 import { ArtifactsController } from './artifacts.controller';
 import { FileStorageService } from './file-storage.service';
 import { DatabaseConnectorService } from './database-connector.service';
+import { Project, ProjectSchema } from '../projects/schemas/project.schema';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { DatabaseConnectorService } from './database-connector.service';
       { name: Memory.name, schema: MemorySchema },
       { name: Trace.name, schema: TraceSchema },
       { name: VectorRecord.name, schema: VectorRecordSchema },
+      { name: Project.name, schema: ProjectSchema },
     ]),
     ModelsModule,
     SettingsModule,

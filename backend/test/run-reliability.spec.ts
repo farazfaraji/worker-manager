@@ -656,6 +656,27 @@ async function runTests() {
     assert.strictEqual(redacted.nested.publicVal, 42);
   });
 
+  await test('redactSecrets preserves Date fields in node records', () => {
+    const startedAt = new Date('2026-10-05T16:34:01.000Z');
+    const finishedAt = new Date('2026-10-05T16:34:02.000Z');
+    const nodeRecord = {
+      nodeId: 'trigger-1',
+      nodeName: 'Trigger',
+      nodeType: 'trigger',
+      status: 'completed',
+      startedAt,
+      finishedAt,
+      input: { apiKey: 'sk-123456789012345678901234567890' },
+    };
+
+    const redacted = redactSecrets([nodeRecord])[0];
+    assert.ok(redacted.startedAt instanceof Date, 'startedAt should remain a Date');
+    assert.ok(redacted.finishedAt instanceof Date, 'finishedAt should remain a Date');
+    assert.strictEqual(redacted.startedAt.toISOString(), startedAt.toISOString());
+    assert.strictEqual(redacted.finishedAt.toISOString(), finishedAt.toISOString());
+    assert.strictEqual(redacted.input.apiKey, '[REDACTED]');
+  });
+
   await test('sanitizeRunForPublic strips resumeTokenHash and leaseOwner', () => {
     const mockRun = {
       runId: 'run-123',

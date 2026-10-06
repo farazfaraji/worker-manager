@@ -1,274 +1,179 @@
 ---
 name: flow-board-composer
-description: Use when designing, selecting tools for, composing, or generating Flow Board graphs (workflows) in the LangGraph Flow Builder. Guides tool selection across 20+ specialized blocks, node wiring, variable referencing, and graph JSON generation.
+description: Use when designing, selecting tools for, composing, editing, or generating Flow Board workflows in the LangGraph Flow Builder. Covers the step-list board, canonical flow.blocks and flow.connections, event wiring, and variable references. Read before creating or changing a graph.
 ---
 
-# Flow Board Composer & Tool Selection Skill
+# Flow Board Composer
 
-This skill guides AI agents in selecting the right tools and generating complete, valid, and fully-wired **Flow Board graphs** for the LangGraph Flow Builder.
+Build the workflow's meaning. The board is a **step list**, not a React Flow canvas. Persist canonical `flow.blocks` and `flow.connections` only. The server owns layout. Do not generate `nodes`, `edges`, `position`, `viewport`, `layout`, `style`, or dimensions.
 
-All tools in the builder have dedicated reference documentation located in [`backend/doc/tools/`](backend/doc/tools/).
+Tool behavior lives in [`backend/doc/tools/`](backend/doc/tools/). Read the tool's `backend/src/tools/<kind>.json` before setting `config` keys or connection outputs. Do not invent keys.
 
----
-
-## 1. Tool Selection Decision Matrix
-
-Match user intents and task requirements to the appropriate node blocks:
-
-| Intent / Requirement | Primary Tools | Secondary / Supporting | Reference Documentation |
-| :--- | :--- | :--- | :--- |
-| **Workflow Entrypoint** | `trigger` | `subgraph` | [trigger.md](backend/doc/tools/trigger.md) |
-| **LLM Reasoning & Extraction** | `agent` | `json-parser`, `validator` | [agent.md](backend/doc/tools/agent.md) |
-| **Web Search & Discovery** | `web-search` | `browser`, `agent` | [web-search.md](backend/doc/tools/web-search.md) |
-| **Web Scraping & Browser Automation** | `browser` | `web-search`, `script` | [browser.md](backend/doc/tools/browser.md) |
-| **Boolean Branching & Checks** | `condition`, `validator`, `research-review` | `router` | [condition.md](backend/doc/tools/condition.md), [validator.md](backend/doc/tools/validator.md) |
-| **Multi-Path Intent Routing** | `router` | `condition` | [router.md](backend/doc/tools/router.md) |
-| **Custom Code & Math / Logic** | `script`, `transform` | `variable` | [script.md](backend/doc/tools/script.md), [transform.md](backend/doc/tools/transform.md) |
-| **Durable Document Storage & Diffs** | `artifact` | `trigger` (Event mode) | [artifact.md](backend/doc/tools/artifact.md) |
-| **Human Review / Approval Gate** | `human-gate` | `artifact`, `notification` | [human-gate.md](backend/doc/tools/human-gate.md) |
-| **Reusable Sub-Workflows** | `subgraph` | `trigger`, `foreach` | [subgraph.md](backend/doc/tools/subgraph.md) |
-| **Vector Search & RAG Knowledge** | `retrieval`, `embedding` | `memory` | [retrieval.md](backend/doc/tools/retrieval.md), [embedding.md](backend/doc/tools/embedding.md) |
-| **Conversation Memory (Key-Value)** | `memory` | `variable` | [memory.md](backend/doc/tools/memory.md) |
-| **Multi-Agent Coordination** | `orchestrator` | `agent` | [orchestrator.md](backend/doc/tools/orchestrator.md) |
-| **External REST APIs & Webhooks** | `action` | `notification` | [action.md](backend/doc/tools/action.md) |
-| **Terminal / CLI Command Execution**| `execution` | `script` | [execution.md](backend/doc/tools/execution.md) |
-| **Read-only Existing Repository Inspection** | `repo-inspect` | `artifact`, `subgraph` | [repo-inspect.md](backend/doc/tools/repo-inspect.md) |
-| **Slack / Email / Webhook Alerts** | `notification` | `action` | [notification.md](backend/doc/tools/notification.md) |
-| **Collection Loops & Batching** | `loop` | `variable` | [loop.md](backend/doc/tools/loop.md) |
-| **Child Graph Iteration (Fan-Out)** | `foreach` | `subgraph`, `aggregate` | [foreach.md](backend/doc/tools/foreach.md) |
-| **HTTP Webserver & REST Endpoints** | `webserver`, `route` | `http-response` | [webserver.md](backend/doc/tools/webserver.md) |
-| **Canvas Architecture & Layout** | `board` | — | [board.md](backend/doc/tools/board.md) |
-| **Workspace & Project Scoping** | `project` / `board` | `trigger`, `artifact` | [board/new-board.md](backend/doc/board/new-board.md) |
-
----
-
-## 2. Tool Reference & Configuration Cheatsheet
-
-### 1. `trigger` ([trigger.md](backend/doc/tools/trigger.md))
-- **Role**: Every standard batch flow begins with a trigger node (manual, event, webhook, schedule). For HTTP webserver services, use `webserver` and `route` instead.
-- **Trigger Modes (`triggerType`)**:
-  - `manual`: User clicks "Run Flow" in UI or submits JSON modal.
-  - `event`: Reactive trigger listening to domain events via Event Engine (e.g. `eventTopic: "artifact.update"`, `artifact.*`).
-  - `webhook`: Triggered via external POST request.
-  - `schedule`: Recurring cron or timer.
-- **Event Idempotency & Propagation Safety**:
-  - Automatically dedupes events using composite key `event.id + graph.id`.
-  - Propagates event context (`sourceEventId`, `sourceEventTopic`, `propagationDepth`, `visitedArtifactLogicalIds`, `rootRunId`).
-  - Enforces depth ceiling of **5**, visited entities ceiling of **100**, and halts cycles with `EVENT_PROPAGATION_LIMIT_REACHED`.
-- **Outputs**:
-  - `input` (for manual/webhook/schedule)
-  - `event`, `data`, `entityId`, `topic` (for `event` trigger mode)
-
-### 2. `agent` ([agent.md](backend/doc/tools/agent.md))
-- **Role**: Core LLM engine.
-- **Key Configs**: `model` (e.g. `gpt-4o-mini`, `gpt-4o`, `claude-3-5-sonnet-20241022`), `systemPrompt`, `userPrompt`, `outputFormat` (`"text"` or `"json"`), `outputType` (Zod schema for structured output).
-- **Outputs**: `result` (object if JSON format), `text` (raw markdown/string), `reasoning`.
-
-### 3. `artifact` ([artifact.md](backend/doc/tools/artifact.md))
-- **Role**: Durable document persistence in MongoDB, versioning, cross-document relations, diffing, and domain event emission.
-- **Operations (`operation`)**: `create`, `get`, `list`, `update`, `addRelation`, `diff`, `approve`, `archive`.
-- **Key Configs**: `title`, `content` (`valueOrVariable`), `linkedArtifactIds` (`valueOrVariable`, multiselect chips or variable array), `format` (`markdown`, `json`, `code`, `text`), `type` (`document`, `tech-spec`, `task`, `decision`).
-- **Events Emitted**: Automatically emits `artifact.create`, `artifact.update`, `artifact.delete`, `artifact.approve`.
-- **Canvas Outputs**: `onLoad` (triggers downstream flow upon successful operation), `onFailed` (error / failure branch).
-- **Variable Access**: Access document data downstream via state variables: `{{nodeName.content}}`, `{{nodeName.artifactId}}`, `{{nodeName.status}}`, `{{nodeName.version}}`, `{{nodeName.artifact}}`.
-- **Retry Rule**: Artifact mutation operations are never automatically retried to prevent phantom duplicated documents or split-brain state.
-
-### 4. `web-search` ([web-search.md](backend/doc/tools/web-search.md))
-- **Role**: Searches web via Tavily, scrapes website content, sanitizes HTML, resolves links, and reads articles.
-- **Operations (`mode`)**: `search`, `fetch_and_clean`, `extract_links`, `read_article`.
-- **Canvas Outputs**: `done` (triggers downstream flow on success), `onFailed` (failure / error branch).
-- **Variable Access**: Access search and scraping results downstream via variables: `{{nodeName.results}}`, `{{nodeName.answer}}`, `{{nodeName.query}}`, `{{nodeName.text}}`, `{{nodeName.url}}`, `{{nodeName.title}}`, `{{nodeName.html}}`.
-
-### 5. `browser` ([browser.md](backend/doc/tools/browser.md))
-- **Role**: Playwright headless browser control.
-- **Operations**: `navigate`, `click`, `fill`, `screenshot`, `scrape`, `evaluate`, `wait`.
-- **Canvas Outputs**: `done` (proceed on success), `onFailed` (browser execution failure).
-- **Variable Access**: `{{nodeName.screenshot}}`, `{{nodeName.text}}`, `{{nodeName.url}}`, `{{nodeName.title}}`, `{{nodeName.html}}`.
-
-### 5. `condition` ([condition.md](backend/doc/tools/condition.md)) & `validator` ([validator.md](backend/doc/tools/validator.md))
-- **Role**: Logic branching.
-- **Condition**: Compares two values (`left`, `operator`, `right`) or executes custom JS expression.
-- **Validator**: Tests data payload against a Zod schema.
-- **Handles**: Has two discrete output sockets: `"true"` (green) and `"false"` (red).
-
-### 6. `human-gate` ([human-gate.md](backend/doc/tools/human-gate.md))
-- **Role**: Pauses execution until a human reviews, edits, and approves.
-- **Key Configs**: `question`, `inputType`, `draft`, `allowDraftEdit`, and optional form fields.
-- **Security & Resume Tokens**:
-  - Generates opaque single-use token `rtk_<uuid>`.
-  - Persists cryptographic SHA-256 hash `resumeTokenHash` in MongoDB (raw token is never logged or stored).
-  - Single-use invalidation prevents replay attacks.
-- **Canvas Outputs**: `approved` (branch when reviewer approves), `rejected` (branch when reviewer rejects).
-- **Variable Access**: `{{nodeName.feedback}}`, `{{nodeName.draft}}`, `{{nodeName.value}}`, `{{nodeName.status}}`.
-
-### 7. `subgraph` ([subgraph.md](backend/doc/tools/subgraph.md))
-- **Role**: Executes a modular child flow with parameter mapping.
-- **Key Configs**: `graphId`, `input` (JSON payload or variable reference), `outputMode` (`"result"` or `"state"`).
-- **Parent/Child Recovery**:
-  - Subgraphs that encounter a `human-gate` pause the parent flow cleanly with `waitingChildRunId`.
-  - Resuming the parent delegates directly to the child run without restarting child execution from scratch.
-  - Bounded nesting depth of **10** (`MAX_SUBGRAPH_DEPTH_EXCEEDED`).
-
-### 8. `retrieval` ([retrieval.md](backend/doc/tools/retrieval.md)) & `embedding` ([embedding.md](backend/doc/tools/embedding.md))
-- **Role**: Vector database indexing and semantic cosine similarity search.
-- **Canvas Outputs**: `done`, `onFailed`.
-- **Variable Access**: `{{nodeName.results}}`, `{{nodeName.context}}`, `{{nodeName.count}}`, `{{nodeName.embeddings}}`.
-
-### 9. `action` ([action.md](backend/doc/tools/action.md)) & `notification` ([notification.md](backend/doc/tools/notification.md))
-- **Role**: External integrations.
-- **Action**: HTTP REST requests (`method`, `url`, `headers`, `body`, `allowedHosts`).
-- **Notification**: Alerts to Slack, Discord, Email, or Webhook.
-
-### 10. `foreach` ([foreach.md](backend/doc/tools/foreach.md))
-- **Role**: Executes a saved child graph once for each item in an input collection with bounded concurrency.
-- **Key Configs**:
-  - `items` (`valueOrVariable`, required): Array of items or object with `items` array.
-  - `graphId` (`select`, required in subgraph mode): ID of the saved child flow (`/api/graphs`).
-  - `baseInput` (`valueOrVariable`, optional): Base object payload merged into each child run.
-  - `concurrency` (`number`, 1–10, default: 1): Bounded parallel child execution; keep at 1 if child flow can pause for input.
-  - `maxIterations` (`number`, 1–100, default: 25): Hard cap on items processed.
-  - `stopOnError` (`checkbox`, default: false): Halts starting new child runs on failure.
-  - `outputMode` (`select`): `"result"` or `"state"`.
-- **Child Graph Contract**: Each child Trigger receives `{ ...baseInput, item: currentItem, index: 0, total: N }` (reserved `item`, `index`, `total` override `baseInput`). Preserves `parentRunId`.
-- **Outputs**: `result` containing `{ status, count, processed, truncated, items: [...], errors: [...] }`.
-
-### 11. `aggregate` ([aggregate.md](backend/doc/tools/aggregate.md))
-- **Role**: In-memory normalization, filtering, and summary metrics for `foreach` outputs or raw arrays.
-- **Key Configs**:
-  - `items` (`valueOrVariable`, required): Array of items or `foreach` result object.
-  - `includeSuccessful` (`checkbox`, default: true): Retain successful items.
-  - `includeFailed` (`checkbox`, default: true): Retain failed items.
-- **Outputs**: `result` containing `{ items: [...], errors: [...], count, successCount, failureCount, allSucceeded, truncated }`.
-
-### 12. `webserver` ([webserver.md](backend/doc/tools/webserver.md))
-- **Role**: Embedded HTTP server listening on a specified port and host, managing live routes.
-- **Key Configs**: `port` (e.g. `"3210"`), `host` (`"0.0.0.0"`), `cors` (`"enabled"`).
-- **Wiring**: Connects to connected `route` nodes using `output: "routes"`.
-- **Outputs**: `routes` (array of active route objects).
-
-### 13. `route` ([route.md](backend/doc/tools/route.md))
-- **Role**: Represents an HTTP endpoint attached to a webserver. Initiates a synchronous request-handling execution chain.
-- **Key Configs**: `endpoint` (e.g. `"/api/plans"`), `method` (`"POST"`, `"GET"`, `"PUT"`, `"DELETE"`, etc.), `responseMode` (`"sync"`), `type` (Zod body schema for POST/PUT), `querySchema` (Zod query schema for GET).
-- **Outputs**: `body` (parsed request body object), `query` (query parameters), `params` (URL path parameters), `headers` (request headers).
-
-### 14. `http-response` ([http-response.md](backend/doc/tools/http-response.md))
-- **Role**: Concludes a route pipeline and sends the HTTP response back to the client.
-- **Key Configs**: `statusCode` (e.g. `"200"`, `"201"`), `responseBody` (literal or `{ "mode": "variable", "value": "nodeName.result" }`), `headers` (JSON string).
-- **Outputs**: None (terminal sink node).
-
----
-
-## 3. Variable Referencing Rules
-
-Any input accepting string or mustache templating can read from upstream nodes using:
-
-```handlebars
-{{<node_name>.<output_property>}}
-```
-
-### Reference Conventions
-- **From Trigger**:
-  - Manual payload: `{{trigger.input.query}}` or `{{input.query}}`
-  - Event payload: `{{trigger.entityId}}`, `{{trigger.data.current.content}}`, `{{trigger.data.fileChanges.diff}}`
-- **From Route**:
-  - Body field: `{{post_plans.body.title}}`, `{{post_plans.body.content}}`
-  - Query param: `{{get_plans.query.q}}`, `{{get_plans.query.limit}}`
-- **From Agent**:
-  - Text output: `{{agent_1.text}}`
-  - Structured JSON: `{{agent_1.result.summary}}`, `{{agent_1.result.findings}}`
-- **From Artifact**:
-  - `{{artifact_1.artifactId}}`
-  - `{{artifact_1.content}}`
-  - `{{artifact_1.version}}`
-- **From Embedding**:
-  - `{{embed_1.artifactId}}`, `{{embed_1.result}}`
-- **From Retrieval**:
-  - `{{retrieval_1.context}}`, `{{retrieval_1.results}}`, `{{retrieval_1.result}}`
-- **From Script / Transform**:
-  - `{{script_1.result.field}}`
-- **From Browser**:
-  - `{{browser_1.url}}`
-  - `{{browser_1.screenshot}}`
-  - `{{browser_1.content}}`
-- **From Human Gate**:
-  - `{{human_gate_1.value}}`
-  - `{{human_gate_1.result.feedback}}`
-- **From Subgraph**:
-  - `{{subgraph_1.result.summary}}`
-- **From Foreach**:
-  - `{{foreach_1.result.items}}`
-  - `{{foreach_1.result.status}}`
-  - `{{foreach_1.result.count}}`
-  - `{{foreach_1.result.errors}}`
-- **From Aggregate**:
-  - `{{aggregate_1.result.items}}`
-  - `{{aggregate_1.result.allSucceeded}}`
-  - `{{aggregate_1.result.successCount}}`
-  - `{{aggregate_1.result.failureCount}}`
-
----
-
-## 4. Execution Policies & Reliability Controls
-
-Nodes can configure custom execution policies to control retry loops, backoff delays, and timeouts:
+## Board shape
 
 ```json
 {
-  "config": {
-    "timeoutMs": 60000,
-    "maxAttempts": 3,
-    "backoffMs": 1000
+  "name": "Flow name",
+  "projectId": "<project_id>",
+  "flow": {
+    "version": 1,
+    "blocks": [],
+    "connections": []
   }
 }
 ```
 
-- **Timeouts**: Clamped between 10ms and 900,000ms (15 minutes). Exceeding timeout halts with `EXECUTION_TIMEOUT`.
-- **Bounded Retries**: Maximum of 3 attempts with exponential backoff (`backoffMs * 2^(attempt - 1)`).
-- **Auto-Exclusion**: Human-gate nodes and Artifact mutation operations (`create`, `update`, `patch`, `archive`, `addRelation`) are never retried.
-- **Durable Checkpoints**: State is persisted to `run_checkpoints` collection after each node transition (up to 10 MB limit).
-- **Concurrency Protection**: Active runs hold a 60s lease with 15s heartbeats, preventing dual-worker execution conflicts.
+Each block:
 
----
+| Field | Rule |
+| :--- | :--- |
+| `id` | Stable unique id. Used by connections. |
+| `kind` | Tool type, matching a file in `backend/src/tools/` (`agent`, `trigger`, `file`, …). |
+| `name` | Unique variable namespace. Downstream templates use `{{name.field}}`. |
+| `label` | Human title shown in the step list. |
+| `definitionName` | Optional display name of the tool (for example `"Agent"`). |
+| `config` | Only keys defined on that tool. |
 
-## 5. Graph Composition & Connection Rules
+Each connection:
 
-When generating graph JSON for a Flow Board:
+```json
+{ "id": "trigger_to_agent", "from": "<block id>", "output": "done", "to": "<block id>", "input": "in" }
+```
 
-### 1. Canonical Schema (`flow.blocks` & `flow.connections`)
-- Always generate the canonical semantic workflow structure:
-  ```json
-  {
-    "name": "Flow Name",
-    "projectId": "<project_id>",
-    "flow": {
-      "version": 1,
-      "blocks": [ ... ],
-      "connections": [ ... ]
-    }
-  }
-  ```
-- **Do not manually generate React Flow presentation fields** (`nodes`, `edges`, `position`, `viewport`, `style`, `dimensions`). The server's graph-shape engine generates and maintains canvas layouts automatically.
+`from` / `to` are block **ids**. `output` is a **control-flow event**, never a data field.
 
-### 2. Connection Output & Routing Rules
-- Connections connect upstream block ID (`from`) to downstream block ID (`to`):
-  - **From `condition` / `validator`**: MUST specify `output: "true"` or `output: "false"`.
-  - **From `router`**: MUST specify configured route name or `default`.
-  - **From `webserver`**: Connects to `route` blocks using `output: "routes"`.
-  - **From Single / Multi-Output blocks**: Use the specific output name (e.g. `output: "body"`, `output: "query"`, `output: "result"`, `output: "artifactId"`) or `output: "flow"`.
-- **Full Pipeline Connectivity**: Every block in the execution path MUST be wired into `connections` without gaps (e.g., `route` ➔ `script` ➔ `artifact` ➔ `embedding` ➔ `http-response`). Even if downstream blocks reference upstream variables via `{{...}}`, the execution engine strictly relies on connections to establish execution order and topological dependencies.
-- **No Duplicate Connections**: Exactly ONE connection between any pair of blocks (unless condition or router branches to the same target).
-- **Acyclic Only**: Graphs must be strictly directed acyclic graphs (DAGs). Never create back-edges; use iteration blocks (`loop` / `foreach`) or node execution policies (`maxAttempts`, `backoffMs`) instead. A downstream join waits for all incoming branches to complete or become unreachable.
+## How to build
 
----
+1. Name the entry and the outcome.
+2. Pick the smallest set of tools, in execution order. Read each tool doc before configuring it.
+3. Give every block a unique `id` and `name`.
+4. Connect every step. A `{{name.field}}` reference does not create an execution edge.
+5. Add a branch only when the outcomes differ.
+6. Keep the graph a DAG. Retries use `timeoutMs`, `maxAttempts`, and `backoffMs` on the block. Iteration uses `loop` or `foreach`.
+7. Validate, then save. Do not send `layout`.
 
-## 6. Complete Graph Template (Canonical API Payload)
+New flow: return the full graph. Change to an existing flow: return operations, not a rewritten graph.
 
-Here is a full example of a valid, fully-wired canonical graph structure saved via `POST /api/graphs`:
+```json
+{ "op": "addBlock", "block": { "id": "", "kind": "", "name": "", "label": "", "config": {} }, "after": "<existing id>" }
+{ "op": "updateBlock", "blockId": "", "name": "", "configPatch": {} }
+{ "op": "removeBlock", "blockId": "" }
+{ "op": "addConnection", "from": "", "to": "", "output": "done", "input": "in" }
+{ "op": "removeConnection", "from": "", "to": "", "output": "done" }
+```
+
+## Events and data
+
+Two separate systems:
+
+- **Events** decide which step runs next. They are the only legal `connection.output` values.
+- **Data** is stored on the block name and read with `{{name.field}}` or `{ "mode": "variable", "value": "name.field" }`.
+
+Do not wire `text`, `result`, `content`, `body`, `artifactId`, `screenshot`, or `html` as connection outputs.
+
+| Source | Main path `output` | Other events |
+| :--- | :--- | :--- |
+| Most action blocks (`agent`, `browser`, `web-search`, `script`, `transform`, `action`, `notification`, `telegram`, `embedding`, `retrieval`, `memory`, `subgraph`, `execution`, `repo-inspect`, `json-parser`, `aggregate`, `file` except `exists`, `database` except `ping`, `secrets` except `exists`) | `done` | `failed` |
+| `trigger`, `route` | `done` (every outgoing edge runs; these blocks have no branch events) | — |
+| `webserver` | `routes` toward each `route` | — |
+| `condition`, `validator` | `true` or `false` | — |
+| `file` `exists`, `database` `ping`, `secrets` `exists`, `log` `assert` with `onFail: "route"` | `true` or `false` | — |
+| `router` | configured route name | `default` |
+| `human-gate` | `approved` or `rejected` | — |
+| `artifact` | `onSuccess` | `onUnchanged`, `onNotFound`, `onConflict`, `onFailed` |
+| `research-review` | `pass` | `needs_more_research`, `revise_findings`, `incomplete_needs_human_review` |
+| `loop` | `completed` | `incomplete`, `limitReached`, `failed` |
+| `foreach` | `done` after the loop | `partial`, `failed`; in-canvas item body uses `item` |
+| `orchestrator` | `agent_1` … per job | `done` runs after every job finishes |
+| `http-response` | none (terminal) | — |
+
+A connected `failed` path marks the run `partial`. With no failure path, the run fails.
+
+Rules:
+
+- One connection per pair of blocks, unless two branches of the same node target one join.
+- A join waits until every incoming branch has completed or become unreachable.
+- No cycles.
+- Variable references must come from an upstream block on a connected path.
+- Read the tool JSON when the table and the definition disagree. The JSON wins.
+
+## Tool selection
+
+Match the job, then open that tool's guide for config.
+
+| Intent | Tool | Guide |
+| :--- | :--- | :--- |
+| Manual, event, webhook, or schedule start | `trigger` | [trigger.md](backend/doc/tools/trigger.md) |
+| HTTP service | `webserver`, `route`, `http-response` | [webserver.md](backend/doc/tools/webserver.md) |
+| LLM step | `agent` | [agent.md](backend/doc/tools/agent.md) |
+| Web search | `web-search` | [web-search.md](backend/doc/tools/web-search.md) |
+| Browser | `browser` | [browser.md](backend/doc/tools/browser.md) |
+| Boolean check | `condition`, `validator` | [condition.md](backend/doc/tools/condition.md) |
+| Multi-way route | `router` | [router.md](backend/doc/tools/router.md) |
+| Code or reshape | `script`, `transform`, `json-parser` | [script.md](backend/doc/tools/script.md) |
+| Counters and scratch state | `variable` | [variable.md](backend/doc/tools/variable.md) |
+| Durable document | `artifact` | [artifact.md](backend/doc/tools/artifact.md) |
+| Project files | `file` | [file.md](backend/doc/tools/file.md) |
+| Human approval | `human-gate` | [human-gate.md](backend/doc/tools/human-gate.md) |
+| Saved child flow | `subgraph` | [subgraph.md](backend/doc/tools/subgraph.md) |
+| RAG | `embedding`, `retrieval` | [retrieval.md](backend/doc/tools/retrieval.md) |
+| Key-value memory | `memory` | [memory.md](backend/doc/tools/memory.md) |
+| Several agents | `orchestrator` | [orchestrator.md](backend/doc/tools/orchestrator.md) |
+| Research check | `research-review` | [research-review.md](backend/doc/tools/research-review.md) |
+| REST call | `action` | [action.md](backend/doc/tools/action.md) |
+| Shell | `execution` | [execution.md](backend/doc/tools/execution.md) |
+| Read a repo | `repo-inspect` | [repo-inspect.md](backend/doc/tools/repo-inspect.md) |
+| Slack, email, webhook | `notification` | [notification.md](backend/doc/tools/notification.md) |
+| Telegram | `telegram` | [telegram.md](backend/doc/tools/telegram.md) |
+| Database | `database` | [database.md](backend/doc/tools/database.md) |
+| Credentials | `secrets` | [secrets.md](backend/doc/tools/secrets.md) |
+| Per-item child graph or in-canvas body | `foreach` | [foreach.md](backend/doc/tools/foreach.md) |
+| Research rounds or bounded loop | `loop` | [loop.md](backend/doc/tools/loop.md) |
+| End of an in-canvas iteration | `output` | [output.md](backend/doc/tools/output.md) |
+| Summarize a collection | `aggregate` | [aggregate.md](backend/doc/tools/aggregate.md) |
+| Trace or assert | `log` | [log.md](backend/doc/tools/log.md) |
+
+Defaults that are easy to get wrong:
+
+- `agent`: `model`, `systemPrompt`, `userPrompt`, `outputFormat` (`text` or `json`). Read `{{name.text}}` or `{{name.result.field}}`.
+- `artifact`: `operation` is `create`, `get`, `list`, `update`, `addRelation`, `diff`, `approve`, or `archive`. Continue on `onSuccess`. Mutations are never retried. Read `{{name.content}}`, `{{name.artifactId}}`, `{{name.version}}`.
+- `foreach`: `items`, and either an in-canvas `item` branch or `graphId` for a child graph. `concurrency` 1–10. Keep it at 1 if a child can pause. Child trigger receives `{ ...baseInput, item, index, total }`.
+- `secrets`: reference `{{secrets.NAME}}`. The runner redacts them from logs and checkpoints.
+- Embeddings stay in the vector store. Node output keeps metadata (`dimensions`, `count`, `text`, `score`), not raw float arrays.
+
+## Variables
+
+```handlebars
+{{<block name>.<field>}}
+```
+
+| From | Examples |
+| :--- | :--- |
+| Trigger | `{{trigger.input.query}}`, `{{trigger.entityId}}`, `{{trigger.data.current.content}}` |
+| Route | `{{post_plans.body.title}}`, `{{get_plans.query.q}}` |
+| Agent | `{{spec_agent.text}}`, `{{spec_agent.result.summary}}` |
+| Artifact | `{{prd_artifact.artifactId}}`, `{{prd_artifact.content}}` |
+| Foreach | `{{each_ticket.result.items}}`, `{{each_ticket.result.errors}}` |
+| Aggregate | `{{summary.result.allSucceeded}}` |
+| Subgraph | `{{child.result.summary}}` or `{{child.summary}}` |
+| Secrets | `{{secrets.GITHUB_TOKEN}}` |
+
+Fallback chains are allowed: `{{query.limit || 5}}`.
+
+## Execution policy
+
+```json
+{ "timeoutMs": 60000, "maxAttempts": 3, "backoffMs": 1000 }
+```
+
+Timeouts clamp to 10–900000 ms. Attempts cap at 3. Human gates, artifact mutations, and database writes are not retried. Checkpoints land in `run_checkpoints` after each step (10 MB cap).
+
+## Example
 
 ```json
 {
   "name": "PRD Review and Approval Flow",
-  "projectId": "6a99bcfc636072bb867a0bad",
+  "projectId": "<project_id>",
   "flow": {
     "version": 1,
     "blocks": [
@@ -276,7 +181,7 @@ Here is a full example of a valid, fully-wired canonical graph structure saved v
         "id": "trigger_node",
         "kind": "trigger",
         "name": "trigger",
-        "label": "Start Trigger",
+        "label": "Start",
         "config": {
           "triggerType": "manual",
           "inputSchema": "z.object({\n  featureName: z.string(),\n  requirements: z.string()\n})"
@@ -289,8 +194,8 @@ Here is a full example of a valid, fully-wired canonical graph structure saved v
         "label": "Spec Generator",
         "config": {
           "model": "gpt-4o-mini",
-          "systemPrompt": "You are a senior product manager drafting comprehensive Markdown PRDs.",
-          "userPrompt": "Draft a detailed PRD for feature: {{trigger.input.featureName}}.\nRequirements: {{trigger.input.requirements}}",
+          "systemPrompt": "You are a senior product manager drafting Markdown PRDs.",
+          "userPrompt": "Draft a PRD for {{trigger.input.featureName}}.\nRequirements: {{trigger.input.requirements}}",
           "outputFormat": "text",
           "timeoutMs": 60000,
           "maxAttempts": 2
@@ -300,10 +205,9 @@ Here is a full example of a valid, fully-wired canonical graph structure saved v
         "id": "artifact_node",
         "kind": "artifact",
         "name": "prd_artifact",
-        "label": "Durable PRD Store",
+        "label": "Save PRD",
         "config": {
           "operation": "create",
-          "artifactId": "prd-{{uuid}}",
           "title": "PRD: {{trigger.input.featureName}}",
           "type": "prd",
           "format": "markdown",
@@ -312,69 +216,40 @@ Here is a full example of a valid, fully-wired canonical graph structure saved v
       }
     ],
     "connections": [
-      {
-        "id": "trigger_to_agent",
-        "from": "trigger_node",
-        "output": "input",
-        "to": "agent_node"
-      },
-      {
-        "id": "agent_to_artifact",
-        "from": "agent_node",
-        "output": "text",
-        "to": "artifact_node"
-      }
+      { "id": "trigger_to_agent", "from": "trigger_node", "output": "done", "to": "agent_node", "input": "in" },
+      { "id": "agent_to_artifact", "from": "agent_node", "output": "done", "to": "artifact_node", "input": "in" }
     ]
   }
 }
 ```
 
----
+## Save, validate, run
 
-## 7. How to Persist, Run, Resume, and Inspect Flows via API
+Backend is `http://localhost:6300`. The step list is `http://localhost:6301/flow/<graph_id>`.
 
-1. **Save New Graph**:
-   ```bash
-   curl -X POST http://localhost:6300/api/graphs \
-     -H "Content-Type: application/json" \
-     -d '<graph_json>'
-   ```
+```bash
+curl -X POST http://localhost:6300/api/graphs -H "Content-Type: application/json" -d '<graph_json>'
+curl -X POST http://localhost:6300/api/graphs/<graph_id>/validate
+curl -X POST http://localhost:6300/api/graphs/<graph_id>/run -H "Content-Type: application/json" -d '{"input":{}}'
+curl -X GET http://localhost:6300/api/runs/<run_id>/state
+curl -X POST http://localhost:6300/api/runs/<run_id>/resume -H "Content-Type: application/json" -d '{"token":"<resume_token>","decision":"Approve","feedback":""}'
+curl -X POST http://localhost:6300/api/runs/<run_id>/cancel
+```
 
-2. **Validate Variables & Connections**:
-   ```bash
-   curl -X POST http://localhost:6300/api/graphs/<graph_id>/validate
-   ```
+HTTP services start with `POST /api/webservers/<graph_id>/start`. A `route` runs only from an HTTP request or an explicit `startNodeId`. It is not a batch root.
 
-3. **Execute Graph**:
-   ```bash
-   curl -X POST http://localhost:6300/api/graphs/<graph_id>/run \
-     -H "Content-Type: application/json" \
-     -d '{"input": {"featureName": "Real-Time Notifications", "requirements": "WebSocket alerts with audio chime"}}'
-   ```
+## Before saving
 
-4. **Inspect Execution State & Durable Checkpoint**:
-   ```bash
-   curl -X GET http://localhost:6300/api/runs/<run_id>/state
-   ```
+- One entry: a `trigger`, or a `webserver` wired to `route` blocks.
+- Unique block ids and names.
+- Every connection references real blocks and a real event for that tool.
+- Every execution step is connected.
+- Variables point at upstream block names.
+- No cycles, no duplicate edges, no layout fields.
 
-5. **Resume Waiting Flow (e.g. Human-Gate)**:
-   ```bash
-   curl -X POST http://localhost:6300/api/runs/<run_id>/resume \
-     -H "Content-Type: application/json" \
-     -d '{"token": "<resume_token>", "decision": "Approve", "feedback": "Looks good"}'
-   ```
+## Research flows
 
-6. **Cancel Active or Waiting Flow**:
-   ```bash
-   curl -X POST http://localhost:6300/api/runs/<run_id>/cancel
-   ```
-
-7. **Open in UI**:
-   Navigate to `http://localhost:6301/runs/<run_id>` or `http://localhost:6301/?flow=<graph_id>` to view and edit the board.
-
-## Research workflow contracts
-
-- Use `orchestrator` with `requireResearchOutput: true` for delegated researchers, and set `maxToolStepsPerAgent` to bound web calls. Each finding must include a claim, source-specific evidence, source URL, access date, confidence, limitations, research area, and question IDs.
-- Use `research-review` with `verifySources: true` to fetch source pages and flag evidence that cannot be matched. This is a retrieval check, not a semantic proof of the claim.
-- In research mode, `loop` runs a saved child graph. The child output must expose the configured `completionPath` (default `decision`) and an array at `gapPath` (default `gaps`). When the limit is reached, the loop returns `decision: incomplete_needs_human_review`.
-- Waiting gates can be used in research-round child graphs and synchronous `foreach` child graphs with concurrency 1. Keep gates outside asynchronous or in-canvas `foreach` item branches.
+- `orchestrator` with `requireResearchOutput: true`, and `maxToolStepsPerAgent` set. Each finding needs a claim, evidence, source URL, access date, confidence, limitations, research area, and question ids.
+- `research-review` with `verifySources: true` checks that evidence text appears on the source page.
+- In research mode, `loop` runs a child graph. The child must expose `completionPath` (default `decision`) and `gapPath` (default `gaps`). At the limit the loop returns `decision: incomplete_needs_human_review`.
+- A waiting gate may sit in a research-round child or a synchronous `foreach` child with concurrency 1. Keep gates off asynchronous and in-canvas `foreach` item branches.

@@ -624,9 +624,32 @@ export async function executeFlowAssistant(data: FlowAssistantRequest): Promise<
   return res.json();
 }
 
+export async function fetchArtifactTypes(projectId?: string): Promise<Array<{ label: string; value: string }>> {
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/artifacts/types${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch artifact types: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchArtifactCategories(projectId?: string): Promise<Array<{ label: string; value: string }>> {
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/artifacts/categories${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch artifact categories: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function fetchArtifacts(query?: {
   projectId?: string;
   type?: string;
+  category?: string;
   status?: string;
   search?: string;
   artifactId?: string;
@@ -637,6 +660,7 @@ export async function fetchArtifacts(query?: {
   const params = new URLSearchParams();
   if (query?.projectId) params.set('projectId', query.projectId);
   if (query?.type) params.set('type', query.type);
+  if (query?.category) params.set('category', query.category);
   if (query?.status) params.set('status', query.status);
   if (query?.search) params.set('search', query.search);
   if (query?.artifactId) params.set('artifactId', query.artifactId);
@@ -767,8 +791,14 @@ export async function approveArtifact(id: string): Promise<ArtifactItem> {
   return res.json();
 }
 
-export async function deleteArtifact(id: string): Promise<{ success: boolean; artifactId: string }> {
-  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}`, {
+export async function deleteArtifact(
+  id: string,
+  projectId?: string,
+): Promise<{ success: boolean; artifactId: string }> {
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/artifacts/${encodeURIComponent(id)}${qs ? `?${qs}` : ''}`, {
     method: 'DELETE',
   });
   if (!res.ok) {

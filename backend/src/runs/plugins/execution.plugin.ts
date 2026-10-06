@@ -35,7 +35,7 @@ export class ExecutionPlugin implements ToolPlugin {
     try {
       const result: any = await execFileAsync(command, args, {
         cwd: config.cwd,
-        timeout: Number(config.timeoutMs || 120000),
+        timeout: Number(config.timeoutMs || 1200000),
         maxBuffer: Number(config.maxBuffer || 5_000_000),
         env: config.env ? { ...process.env, ...config.env } : process.env,
       });

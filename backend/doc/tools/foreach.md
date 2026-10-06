@@ -151,6 +151,79 @@ Status meanings:
 3. **Combine with Aggregate**: Connect the `done` output of `Foreach` to an **Aggregate** node to filter, count, and summarize item results.
 4. **Choose Sync vs. Async Deliberately**: Use `sync` when downstream nodes need the data; use `async` when downstream steps should proceed immediately.
 
+---
+
+## 8. Example: Process Each File From a File List
+
+Use a **File** node to list files, then a **Foreach** node to process each entry.
+
+```mermaid
+graph LR
+    Trigger --> FileList[File: list *.png]
+    FileList --> Foreach[Foreach]
+    Foreach -- item --> FileRead[File: read]
+    FileRead --> Agent[Agent]
+    Agent --> Output[Output]
+    Foreach -- done --> Downstream[Downstream]
+```
+
+### 1. File node (`list`)
+
+| Field | Value |
+| :--- | :--- |
+| `operation` | `list` |
+| `folder` | `/absolute/path/to/screenshots` |
+| `path` | `.` |
+| `glob` | `*.png` |
+
+Result shape:
+
+```json
+{
+  "files": [
+    { "path": "1.png", "size": 12345, "modifiedAt": "...", "isDir": false }
+  ]
+}
+```
+
+### 2. Foreach node
+
+| Field | Value |
+| :--- | :--- |
+| `mode` | `canvas` |
+| `executionType` | `sync` |
+| `items` | `{{file_1.result.files}}` |
+
+`items` accepts:
+
+- a plain array (`[...]`)
+- `{ items: [...] }` (foreach / aggregate results)
+- `{ files: [...] }` (file list results)
+- `{ result: { files: [...] } }` (whole File node result)
+
+### 3. Inside the `item` branch
+
+Wire the orange **`item`** socket to your worker nodes. On that branch you can reference:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `{{foreach_1.item}}` | Current file entry object |
+| `{{foreach_1.item.path}}` | Sandbox-relative file path (`1.png`) |
+| `{{foreach_1.index}}` | Zero-based index |
+| `{{foreach_1.total}}` | Total files in the collection |
+
+Example File read inside the loop:
+
+| Field | Value |
+| :--- | :--- |
+| `operation` | `read` |
+| `folder` | same folder as the list node |
+| `path` | `{{foreach_1.item.path}}` |
+
+Terminate the branch with an **Output** node so each iteration returns a payload. After all items finish, `{{foreach_1.result.items}}` on the **`done`** branch contains the collected per-item results.
+
+---
+
 ## Human gates in foreach
 
 A human gate or Telegram question may run inside a saved child graph when Foreach is synchronous with concurrency 1. The parent run pauses, exposes the child waiting form, and resumes the child before continuing the remaining items. Asynchronous or concurrent child graphs with human gates are rejected during validation. In-canvas item branches still do not support waiting gates; place their gate after Foreach.

@@ -33,6 +33,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   const [description, setDescription] = useState('');
   const [repositoryPath, setRepositoryPath] = useState('');
   const [allowedRepositoryRoots, setAllowedRepositoryRoots] = useState('');
+  const [fileStoragePath, setFileStoragePath] = useState('');
+  const [allowedFileRoots, setAllowedFileRoots] = useState('');
   const [color, setColor] = useState('#4f46e5');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,12 +49,18 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         setAllowedRepositoryRoots(Array.isArray(projectToEdit.metadata?.allowedRepositoryRoots)
           ? projectToEdit.metadata.allowedRepositoryRoots.join('\n')
           : '');
+        setFileStoragePath(String(projectToEdit.metadata?.fileStoragePath || ''));
+        setAllowedFileRoots(Array.isArray(projectToEdit.metadata?.allowedFileRoots)
+          ? projectToEdit.metadata.allowedFileRoots.join('\n')
+          : '');
         setColor(projectToEdit.color || '#4f46e5');
       } else {
         setName('');
         setDescription('');
         setRepositoryPath('');
         setAllowedRepositoryRoots('');
+        setFileStoragePath('');
+        setAllowedFileRoots('');
         setColor('#4f46e5');
       }
       setError(null);
@@ -74,8 +82,20 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       .split(/\r?\n/)
       .map((path) => path.trim())
       .filter(Boolean);
+    const fileRoots = allowedFileRoots
+      .split(/\r?\n/)
+      .map((path) => path.trim())
+      .filter(Boolean);
     if (repositoryRoots.some((path) => !path.startsWith('/'))) {
       setError('Allowed repository roots must be absolute paths, one per line.');
+      return;
+    }
+    if (fileStoragePath.trim() && !fileStoragePath.trim().startsWith('/')) {
+      setError('File storage path must be an absolute path.');
+      return;
+    }
+    if (fileRoots.some((path) => !path.startsWith('/'))) {
+      setError('Allowed file roots must be absolute paths, one per line.');
       return;
     }
 
@@ -91,6 +111,12 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         metadata.allowedRepositoryRoots = repositoryRoots;
       } else {
         delete metadata.allowedRepositoryRoots;
+      }
+      metadata.fileStoragePath = fileStoragePath.trim();
+      if (fileRoots.length > 0) {
+        metadata.allowedFileRoots = fileRoots;
+      } else {
+        delete metadata.allowedFileRoots;
       }
 
       if (projectToEdit) {
@@ -217,6 +243,41 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               />
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
                 One absolute folder path per line. Repository Path is always allowed; these add folders and their subfolders. Leave blank to allow only Repository Path.
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-file-storage-input">
+                File Storage Path (Optional)
+              </label>
+              <input
+                id="project-file-storage-input"
+                type="text"
+                className="form-input"
+                value={fileStoragePath}
+                onChange={(e) => setFileStoragePath(e.target.value)}
+                placeholder="/absolute/path/to/your/files"
+              />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                Default folder for File nodes and agent attachments. Leave blank to use files/projects/&lt;projectId&gt;.
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="project-allowed-file-roots-input">
+                Allowed File Roots (Optional)
+              </label>
+              <textarea
+                id="project-allowed-file-roots-input"
+                className="form-textarea"
+                rows={3}
+                value={allowedFileRoots}
+                onChange={(e) => setAllowedFileRoots(e.target.value)}
+                placeholder="/absolute/path/to/folder"
+                style={{ resize: 'vertical', fontFamily: 'monospace' }}
+              />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                One absolute folder path per line. File Storage Path is always allowed; these add folders for per-node overrides. Leave blank to allow only the default folder.
               </div>
             </div>
 

@@ -1,0 +1,112 @@
+{
+  "name": "Screenshot Project Overview",
+  "projectId": "6ac2a2bd682346f4db2bef3c",
+  "flow": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "trigger_start",
+        "kind": "trigger",
+        "name": "trigger",
+        "label": "Start",
+        "definitionName": "Trigger",
+        "config": {
+          "triggerType": "manual"
+        }
+      },
+      {
+        "id": "list_analyses",
+        "kind": "artifact",
+        "name": "list_analyses",
+        "label": "List Screenshot Analyses",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "list",
+          "filterCategory": "screenshots",
+          "filterTags": "analysis",
+          "filterType": "document",
+          "includeContent": true,
+          "latestOnly": true,
+          "limit": 100,
+          "sortBy": "title",
+          "sortOrder": "asc"
+        }
+      },
+      {
+        "id": "collect_analyses",
+        "kind": "script",
+        "name": "collect_analyses",
+        "label": "Collect Analyses",
+        "definitionName": "Script",
+        "config": {
+          "input": "list_analyses.artifacts",
+          "code": "let artifacts = input;\nif (typeof artifacts === 'string') {\n  try {\n    artifacts = JSON.parse(artifacts);\n  } catch {\n    artifacts = [];\n  }\n}\nif (!Array.isArray(artifacts)) artifacts = [];\n\nconst screens = {};\n\nfor (const item of artifacts) {\n  let body = item?.content;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch {\n      body = null;\n    }\n  }\n\n  const fileName = body?.fileName || item?.logicalId || item?.title || 'unknown';\n  const analysis = body?.analysis;\n  if (analysis && typeof analysis === 'object') {\n    screens[fileName] = analysis;\n  }\n}\n\nconst fileNames = Object.keys(screens).sort();\n\nreturn {\n  screens,\n  screenCount: fileNames.length,\n  fileNames,\n  screensJson: JSON.stringify(screens, null, 2),\n};",
+          "outputType": "z.object({\n  screens: z.record(z.any()),\n  screenCount: z.number(),\n  fileNames: z.array(z.string()),\n  screensJson: z.string()\n})"
+        }
+      },
+      {
+        "id": "write_overview",
+        "kind": "agent",
+        "name": "write_overview",
+        "label": "Write Project Overview",
+        "definitionName": "Agent",
+        "config": {
+          "model": "openai/gpt-6-luna",
+          "systemPrompt": "You are an experienced product strategist writing for a non-technical audience (executives, stakeholders, and designers).\n\nSynthesize screen-by-screen product analysis into one cohesive high-level overview. Use clear Markdown with headings and short paragraphs. Do not include implementation details, APIs, databases, or technical architecture. Focus on what the product is, who it serves, what people can do, and how the screens fit together as journeys.",
+          "userPrompt": "Below is structured analysis from {{collect_analyses.result.screenCount}} app screens (file names: {{collect_analyses.result.fileNames}}).\n\n```json\n{{collect_analyses.result.screensJson}}\n```\n\nWrite a single high-level product overview document in Markdown that describes this application as a whole. Include:\n\n1. **Product summary** — what this app is and who it is for (2–3 short paragraphs)\n2. **Primary user goals** — bullet list\n3. **Major feature areas** — grouped by theme, not by individual screen\n4. **Key user journeys** — how users move across screens to accomplish tasks\n5. **Open questions** — gaps or ambiguities worth clarifying with the team\n\nKeep the tone accessible and non-technical.",
+          "outputFormat": "text",
+          "enableTools": false,
+          "cacheResult": true
+        }
+      },
+      {
+        "id": "save_overview",
+        "kind": "artifact",
+        "name": "save_overview",
+        "label": "Save Project Overview",
+        "definitionName": "Artifact",
+        "config": {
+          "operation": "create",
+          "ifExists": "update",
+          "logicalId": "screenshot-project-overview",
+          "title": "Screenshot Project Overview",
+          "type": "high-level",
+          "category": "project",
+          "format": "markdown",
+          "content": "{{write_overview.text}}",
+          "tags": "overview,screenshots,product"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "trigger_to_list",
+        "from": "trigger_start",
+        "to": "list_analyses",
+        "output": "input",
+        "input": "in"
+      },
+      {
+        "id": "list_to_collect",
+        "from": "list_analyses",
+        "to": "collect_analyses",
+        "output": "onSuccess",
+        "input": "in"
+      },
+      {
+        "id": "collect_to_agent",
+        "from": "collect_analyses",
+        "to": "write_overview",
+        "output": "done",
+        "input": "in"
+      },
+      {
+        "id": "agent_to_save",
+        "from": "write_overview",
+        "to": "save_overview",
+        "output": "done",
+        "input": "in"
+      }
+    ]
+  }
+}
