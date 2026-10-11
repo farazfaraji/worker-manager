@@ -77,6 +77,7 @@ export interface ArtifactCreateEventData {
   content: any;
   status: string;
   projectId?: string;
+  flowId?: string;
   parentArtifactId?: string;
   metadata?: Record<string, any>;
 }
@@ -92,6 +93,7 @@ export interface ArtifactUpdateEventData {
   parentArtifactId?: string;
   changedKeys: string[];
   changeSummary?: string;
+  flowId?: string;
   previous: {
     version: number;
     title: string;

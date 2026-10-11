@@ -60,6 +60,7 @@ export interface ArtifactVersion {
   logicalId: string;
   rootArtifactId: string;
   projectId?: string;
+  flowId?: string;
   type: ArtifactType;
   category: string;
   tags: string[];
@@ -100,6 +101,7 @@ export interface ArtifactRelation {
 export interface ArtifactCreateInput {
   logicalId?: string;
   projectId?: string;
+  flowId?: string;
   type?: ArtifactType;
   category?: string;
   tags?: string | string[];
@@ -124,6 +126,7 @@ export interface ArtifactCreateInput {
 export interface ArtifactUpdateInput {
   logicalId?: string;
   projectId?: string;
+  flowId?: string;
   type?: ArtifactType;
   category?: string;
   tags?: string | string[];
@@ -146,6 +149,8 @@ export interface ArtifactUpdateInput {
 
 export interface ArtifactListQuery {
   projectId?: string;
+  flowId?: string;
+  filterFlowId?: string;
   type?: string;
   filterType?: string;
   category?: string;

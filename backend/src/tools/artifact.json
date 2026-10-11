@@ -34,6 +34,25 @@
       "helpText": "Project that owns this artifact. When the flow runs inside a project, this defaults to that project."
     },
     {
+      "name": "flowId",
+      "label": "Flow",
+      "type": "valueOrVariable",
+      "placeholder": "Leave blank to use this flow",
+      "helpText": "Flow that wrote this version. Leave blank and the flow that is running is saved automatically.",
+      "dependsOn": {
+        "field": "operation",
+        "in": ["create", "update", "restore"]
+      }
+    },
+    {
+      "name": "filterFlowId",
+      "label": "Flow",
+      "type": "valueOrVariable",
+      "placeholder": "Flow ID",
+      "helpText": "Returns artifacts written by this flow. Leave blank for every flow.",
+      "dependsOn": { "field": "operation", "equals": "list" }
+    },
+    {
       "name": "logicalId",
       "label": "Logical ID",
       "type": "valueOrVariable",

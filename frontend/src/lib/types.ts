@@ -323,6 +323,7 @@ export interface ArtifactItem {
   schemaVersion?: number;
   changed?: boolean;
   projectId?: string;
+  flowId?: string;
   type: string;
   category?: string;
   tags?: string[];

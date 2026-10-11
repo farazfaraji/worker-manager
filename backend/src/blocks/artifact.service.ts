@@ -189,6 +189,7 @@ export class ArtifactService implements OnModuleInit {
     });
     await this.migrateLegacyDefaultProjectIds();
     await this.syncArtifactProjectIdsFromRuns();
+    await this.syncArtifactFlowIdsFromRuns();
   }
 
   private async resolveDefaultProjectId(): Promise<string> {
@@ -232,6 +233,67 @@ export class ArtifactService implements OnModuleInit {
     if (updated > 0) {
       this.logger.log(`Synced projectId on ${updated} artifact version(s) across ${logicalIdsToFix.size} logical artifact(s) from run metadata`);
     }
+  }
+
+  private async syncArtifactFlowIdsFromRuns(): Promise<void> {
+    const missing = await this.model
+      .find({
+        $and: [
+          { $or: [{ flowId: { $exists: false } }, { flowId: null }, { flowId: '' }] },
+          { 'metadata.sourceRunId': { $type: 'string', $ne: '' } },
+        ],
+      })
+      .select('artifactId metadata.sourceRunId')
+      .lean()
+      .exec();
+    if (missing.length === 0) return;
+
+    const runIds = [...new Set(
+      missing.map((artifact) => String(artifact.metadata?.sourceRunId || '').trim()).filter(Boolean),
+    )];
+    const runs = await this.model.db.collection('runs')
+      .find({ runId: { $in: runIds } }, { projection: { runId: 1, graphId: 1 } })
+      .toArray();
+    const flowByRun = new Map<string, string>();
+    for (const run of runs) {
+      if (run?.runId && run?.graphId) flowByRun.set(String(run.runId), String(run.graphId));
+    }
+
+    const artifactIdsByFlow = new Map<string, string[]>();
+    for (const artifact of missing) {
+      const flowId = flowByRun.get(String(artifact.metadata?.sourceRunId || '').trim());
+      if (!flowId || !artifact.artifactId) continue;
+      const ids = artifactIdsByFlow.get(flowId) || [];
+      ids.push(artifact.artifactId);
+      artifactIdsByFlow.set(flowId, ids);
+    }
+
+    let updated = 0;
+    for (const [flowId, artifactIds] of artifactIdsByFlow) {
+      const result = await this.model.updateMany(
+        { artifactId: { $in: artifactIds } },
+        { $set: { flowId } },
+      ).exec();
+      updated += result.modifiedCount;
+    }
+    if (updated > 0) {
+      this.logger.log(`Backfilled flowId on ${updated} artifact version(s) from their source runs`);
+    }
+  }
+
+  private async resolveFlowId(input: any, fallback?: string): Promise<string | undefined> {
+    const explicit = String(input?.flowId || '').trim();
+    if (explicit) return explicit;
+    const runId = String(input?.runId || '').trim();
+    if (runId) {
+      const run = await this.model.db.collection('runs').findOne(
+        { runId },
+        { projection: { graphId: 1 } },
+      );
+      if (run?.graphId) return String(run.graphId);
+    }
+    const existing = String(fallback || '').trim();
+    return existing || undefined;
   }
 
   private async migrateLegacyDefaultProjectIds(): Promise<void> {
@@ -321,6 +383,7 @@ export class ArtifactService implements OnModuleInit {
     const artifactId = randomUUID();
     const schemaVersion = Number(input.schemaVersion || 1);
     const contentHash = computeContentHash(format, content);
+    const flowId = await this.resolveFlowId(input);
     const metadata = parseMetadata(input.metadata);
     if (input.runId && !metadata.sourceRunId) metadata.sourceRunId = input.runId;
     if (input.nodeId && !metadata.sourceNodeId) metadata.sourceNodeId = input.nodeId;
@@ -334,6 +397,7 @@ export class ArtifactService implements OnModuleInit {
       logicalId,
       rootArtifactId: artifactId,
       projectId,
+      ...(flowId ? { flowId } : {}),
       type,
       category,
       tags,
@@ -388,6 +452,7 @@ export class ArtifactService implements OnModuleInit {
         content: result.content,
         status: result.status,
         projectId: result.projectId,
+        flowId: result.flowId,
         parentArtifactId: result.parentArtifactId,
         metadata: result.metadata,
       },
@@ -435,6 +500,7 @@ export class ArtifactService implements OnModuleInit {
     const nextTags = patch.tags !== undefined ? parseKeywords(patch.tags) : (current.tags || []);
     const author = patch.author !== undefined ? String(patch.author).trim() : current.author;
     const changeSummary = patch.changeSummary !== undefined ? String(patch.changeSummary).trim() : '';
+    const flowId = await this.resolveFlowId(patch, current.flowId);
 
     const newContentHash = computeContentHash(format, nextContent);
 
@@ -456,6 +522,7 @@ export class ArtifactService implements OnModuleInit {
     const isLanguageUnchanged = (language || '') === (current.language || '');
     const isSchemaVersionUnchanged = schemaVersion === current.schemaVersion;
     const areTagsUnchanged = JSON.stringify(nextTags) === JSON.stringify(current.tags || []);
+    const isFlowIdUnchanged = (flowId || '') === (current.flowId || '');
     const isMetadataUnchanged = shallowEqual(current.metadata || {}, nextMetadata);
 
     if (
@@ -467,6 +534,7 @@ export class ArtifactService implements OnModuleInit {
       isLanguageUnchanged &&
       isSchemaVersionUnchanged &&
       areTagsUnchanged &&
+      isFlowIdUnchanged &&
       isMetadataUnchanged
     ) {
       this.logger.log(`No-op update for artifact "${current.artifactId}" (${logicalId}): no material change detected`);
@@ -503,6 +571,7 @@ export class ArtifactService implements OnModuleInit {
             logicalId,
             rootArtifactId,
             projectId: patchProjectId ?? current.projectId,
+            ...(flowId ? { flowId } : {}),
             type,
             category,
             tags: nextTags,
@@ -569,6 +638,7 @@ export class ArtifactService implements OnModuleInit {
         parentArtifactId: current.artifactId || id,
         changedKeys: diff.changedKeys || [],
         changeSummary: result.changeSummary,
+        flowId: result.flowId,
         previous: {
           version: current.version,
           title: current.title,
@@ -729,6 +799,8 @@ export class ArtifactService implements OnModuleInit {
     if (targetCategory) clauses.push({ category: slugValue(targetCategory) });
     const targetStatus = query.filterStatus || query.status;
     if (targetStatus) clauses.push({ status: String(targetStatus).trim() });
+    const targetFlowId = String(query.filterFlowId || query.flowId || '').trim();
+    if (targetFlowId) clauses.push({ flowId: targetFlowId });
 
     if (query.latestOnly === true || query.latestOnly === 'true') {
       clauses.push({ isLatest: true });

@@ -7,6 +7,7 @@ The Artifact node stores versioned documents for a project: PRDs, specs, decisio
 | Field | Meaning | Example |
 | :--- | :--- | :--- |
 | Project | Who owns it. Every read and write stays inside this project. | `checkout` |
+| Flow | The flow that wrote this version. Leave it blank and the running flow is saved automatically. | `course-fixer` |
 | Logical ID | Stable name across all versions. The server generates the physical version ID. | `checkout-prd` |
 | Type | What the artifact is. | `prd`, `tech-spec`, `task`, `code` |
 | Category | The one subject it belongs to, like a folder. | `billing` |
@@ -21,7 +22,7 @@ A new version always starts as `draft`. Approve, reject, archive, and unarchive 
 | :--- | :--- |
 | `create` | Stores version 1. `ifExists` can fail, return the current artifact, or update it. |
 | `get` | Reads the latest version, or the version number you pass. |
-| `list` | Filters by type, category, tags, and status. Content is omitted unless Include content is on. |
+| `list` | Filters by flow, type, category, tags, and status. Content is omitted unless Include content is on. |
 | `listVersions` | Returns the version history for one logical ID. |
 | `update` | Writes a new version. Pass Expected version to reject a stale write. |
 | `diff` | Compares two version numbers. Format can be summary, line diff, or JSON. |
@@ -41,7 +42,7 @@ A new version always starts as `draft`. Approve, reject, archive, and unarchive 
 | On Conflict | The logical ID already exists, or Expected version does not match. |
 | On Failed | Anything else. |
 
-Useful variables: `logicalId`, `artifactId`, `version`, `category`, `tags`, `content`, `changed`, `diff`.
+Useful variables: `logicalId`, `artifactId`, `version`, `flowId`, `category`, `tags`, `content`, `changed`, `diff`.
 
 ## Relations
 
@@ -60,7 +61,7 @@ Useful variables: `logicalId`, `artifactId`, `version`, `category`, `tags`, `con
 
 | Endpoint | Method | Purpose |
 | :--- | :--- | :--- |
-| `/api/artifacts` | `GET` | List. Query: `projectId`, `type`, `category`, `tags`, `status`, `query`, `latestOnly`, `limit`, `offset` |
+| `/api/artifacts` | `GET` | List. Query: `projectId`, `flowId`, `type`, `category`, `tags`, `status`, `query`, `latestOnly`, `limit`, `offset` |
 | `/api/artifacts` | `POST` | Create |
 | `/api/artifacts/:id` | `GET` | Get by logical ID or version ID. Optional `version` |
 | `/api/artifacts/:id` | `PATCH` | New version |

@@ -648,6 +648,7 @@ export async function fetchArtifactCategories(projectId?: string): Promise<Array
 
 export async function fetchArtifacts(query?: {
   projectId?: string;
+  flowId?: string;
   type?: string;
   category?: string;
   status?: string;
@@ -659,6 +660,7 @@ export async function fetchArtifacts(query?: {
 }): Promise<ArtifactItem[]> {
   const params = new URLSearchParams();
   if (query?.projectId) params.set('projectId', query.projectId);
+  if (query?.flowId) params.set('flowId', query.flowId);
   if (query?.type) params.set('type', query.type);
   if (query?.category) params.set('category', query.category);
   if (query?.status) params.set('status', query.status);

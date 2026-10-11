@@ -13,6 +13,8 @@ export class Artifact {
   @Prop({ required: true, default: 1 }) schemaVersion: number;
 
   @Prop({ required: true, default: 'default', index: true }) projectId: string;
+  /** Graph that wrote this version. Empty when the artifact was created outside a flow. */
+  @Prop({ index: true }) flowId?: string;
   @Prop({ required: true, index: true }) type: string;
   @Prop({ required: true, default: 'general', index: true }) category: string;
   @Prop({ type: [String], default: [], index: true }) tags: string[];
@@ -45,6 +47,7 @@ ArtifactSchema.index({ projectId: 1, logicalId: 1, isLatest: 1 });
 ArtifactSchema.index({ projectId: 1, type: 1, isLatest: 1 });
 ArtifactSchema.index({ projectId: 1, category: 1, isLatest: 1 });
 ArtifactSchema.index({ projectId: 1, status: 1, isLatest: 1 });
+ArtifactSchema.index({ projectId: 1, flowId: 1, isLatest: 1 });
 ArtifactSchema.index(
   { projectId: 1, idempotencyKey: 1 },
   {

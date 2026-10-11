@@ -32,6 +32,7 @@ export class ArtifactsController {
   @Get()
   async list(
     @Query('projectId') projectId?: string,
+    @Query('flowId') flowId?: string,
     @Query('type') type?: string,
     @Query('category') category?: string,
     @Query('status') status?: string,
@@ -49,6 +50,7 @@ export class ArtifactsController {
     const isLatestOnly = latestOnly === true || latestOnly === 'true';
     const items = await this.artifactService.list({
       projectId,
+      flowId,
       type,
       category,
       status,

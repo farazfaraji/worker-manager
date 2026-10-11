@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import {
   fetchProjects,
+  fetchGraphs,
   fetchArtifacts,
   fetchArtifactTypes,
   fetchArtifactCategories,
@@ -43,7 +44,7 @@ import {
   createArtifactRelation,
   deleteArtifactRelation,
 } from '@/lib/api';
-import { ArtifactItem, ArtifactRelationItem, Project } from '@/lib/types';
+import { ArtifactItem, ArtifactRelationItem, GraphSummary, Project } from '@/lib/types';
 import { MarkdownViewer } from '@/components/artifacts/MarkdownViewer';
 import { CreateArtifactModal } from '@/components/artifacts/CreateArtifactModal';
 import { SuggestionCombobox } from '@/components/modal/SuggestionCombobox';
@@ -77,7 +78,9 @@ export function ArtifactsView() {
 
   // Filters
   const [projects, setProjects] = useState<Project[]>([]);
+  const [graphs, setGraphs] = useState<GraphSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedFlowId, setSelectedFlowId] = useState<string>('');
   const [projectReady, setProjectReady] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedType, setSelectedType] = useState<string>('');
@@ -116,19 +119,22 @@ export function ArtifactsView() {
     try {
       setLoading(true);
       setError(null);
-      const [items, projList, types, categories] = await Promise.all([
+      const [items, projList, graphList, types, categories] = await Promise.all([
         fetchArtifacts({
           latestOnly,
           projectId: selectedProjectId || undefined,
+          flowId: selectedFlowId || undefined,
           type: selectedType || undefined,
           status: selectedStatus || undefined,
         }),
         fetchProjects().catch(() => []),
+        fetchGraphs().catch(() => []),
         fetchArtifactTypes(selectedProjectId || undefined).catch(() => [{ label: 'All Document Types', value: '' }]),
         fetchArtifactCategories(selectedProjectId || undefined).catch(() => []),
       ]);
       setArtifacts(items);
       setProjects(projList);
+      setGraphs(graphList);
       setArtifactTypes(types);
       setArtifactCategories(categories);
       setSelectedIds(new Set());
@@ -152,7 +158,20 @@ export function ArtifactsView() {
   useEffect(() => {
     if (!projectReady) return;
     void loadData();
-  }, [latestOnly, selectedProjectId, selectedType, selectedStatus, projectReady]);
+  }, [latestOnly, selectedProjectId, selectedFlowId, selectedType, selectedStatus, projectReady]);
+
+  const flowOptions = useMemo(() => {
+    const list = selectedProjectId
+      ? graphs.filter((graph) => graph.projectId === selectedProjectId)
+      : graphs;
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [graphs, selectedProjectId]);
+
+  const flowNameById = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const graph of graphs) names.set(graph.id, graph.name);
+    return names;
+  }, [graphs]);
 
   const categoryOptions = useMemo(
     () => artifactCategories.filter((option) => option.value),
@@ -585,6 +604,7 @@ export function ArtifactsView() {
               onChange={(e) => {
                 const next = e.target.value;
                 setSelectedProjectId(next);
+                setSelectedFlowId('');
                 setSelectedType('');
                 setCategoryFilter('');
                 if (next) writeActiveProjectId(next);
@@ -600,6 +620,24 @@ export function ArtifactsView() {
             </select>
           </div>
         )}
+
+        {/* Flow Filter */}
+        <div className="artifacts-filter-group">
+          <GitBranch size={14} className="filter-icon" />
+          <select
+            className="artifacts-filter-select"
+            value={selectedFlowId}
+            onChange={(e) => setSelectedFlowId(e.target.value)}
+            aria-label="Filter by Flow"
+          >
+            <option value="">All Flows</option>
+            {flowOptions.map((graph) => (
+              <option key={graph.id} value={graph.id}>
+                {graph.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {/* Type Filter */}
         <div className="artifacts-filter-group">
@@ -647,7 +685,7 @@ export function ArtifactsView() {
         </div>
 
         {/* Quick Filter Reset */}
-        {(selectedType || categoryFilter || selectedStatus || searchQuery || !latestOnly || selectedProjectId) && (
+        {(selectedType || categoryFilter || selectedStatus || searchQuery || !latestOnly || selectedProjectId || selectedFlowId) && (
           <button
             type="button"
             className="btn btn-subtle"
@@ -658,6 +696,7 @@ export function ArtifactsView() {
               setSearchQuery('');
               setLatestOnly(true);
               setSelectedProjectId('');
+              setSelectedFlowId('');
               setSelectedIds(new Set());
             }}
           >
@@ -700,7 +739,7 @@ export function ArtifactsView() {
               <FileText size={32} strokeWidth={1.5} />
               <h4>No artifacts found</h4>
               <p>
-                {searchQuery || selectedType || categoryFilter || selectedStatus
+                {searchQuery || selectedType || categoryFilter || selectedStatus || selectedFlowId
                   ? 'No documents match the current filter criteria.'
                   : 'Flows using the Artifact tool will automatically register documents here.'}
               </p>
@@ -873,6 +912,11 @@ export function ArtifactsView() {
                     {currentArtifact.projectId && (
                       <span className="artifact-project-chip">
                         Project: {projects.find((p) => p._id === currentArtifact.projectId)?.name || currentArtifact.projectId}
+                      </span>
+                    )}
+                    {currentArtifact.flowId && (
+                      <span className="artifact-project-chip">
+                        Flow: {flowNameById.get(currentArtifact.flowId) || currentArtifact.flowId}
                       </span>
                     )}
                   </div>

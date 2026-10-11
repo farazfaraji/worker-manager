@@ -1859,6 +1859,7 @@ body {
 .artifacts-filter-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 12px 24px;
   background: #ffffff;
