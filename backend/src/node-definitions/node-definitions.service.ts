@@ -111,6 +111,8 @@ export class NodeDefinitionsService {
       case 'telegram':
       case 'secrets':
       case 'database':
+      case 'github':
+      case 'jira':
         return 'Integration';
       case 'orchestrator':
       case 'delegator':

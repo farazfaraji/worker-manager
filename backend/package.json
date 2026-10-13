@@ -20,6 +20,9 @@
     "test:research": "ts-node test/research.spec.ts",
     "test:iterative-research": "ts-node test/iterative-research.spec.ts",
     "test:agent-tools": "ts-node test/agent-tools.spec.ts",
+    "test:agent-hardening": "ts-node test/agent-hardening.spec.ts",
+    "test:agent-evaluation": "ts-node test/agent-evaluation.spec.ts",
+    "test:agent-memory": "ts-node test/agent-memory.spec.ts",
     "test:agent-attachment": "ts-node test/agent-attachment.spec.ts",
     "test:artifact": "ts-node test/artifact.spec.ts",
     "test:reliability": "ts-node test/run-reliability.spec.ts",
@@ -30,12 +33,14 @@
     "test:webserver": "ts-node test/webserver.spec.ts",
     "test:telegram": "ts-node test/telegram-flow.spec.ts",
     "test:cache": "ts-node test/node-cache.spec.ts",
+    "test:github": "ts-node test/github.spec.ts",
+    "test:jira": "ts-node test/jira.spec.ts",
     "test:langgraph": "ts-node test/graph-compiler.spec.ts",
     "test:log": "ts-node test/log.plugin.spec.ts",
     "test:secrets": "ts-node test/secrets.plugin.spec.ts",
     "test:file": "ts-node test/file.plugin.spec.ts",
     "test:database": "ts-node test/database.plugin.spec.ts",
-    "test:all": "ts-node test/control-blocks.spec.ts && ts-node test/agent-tools.spec.ts && ts-node test/agent-attachment.spec.ts && ts-node test/web-search.spec.ts && ts-node test/artifact.spec.ts && ts-node test/run-reliability.spec.ts && ts-node test/graph-shape.service.spec.ts && ts-node test/revise-prompt.spec.ts && ts-node test/set-variable.spec.ts && ts-node test/embedding-block.spec.ts && ts-node test/research.spec.ts && ts-node test/iterative-research.spec.ts && ts-node test/webserver.spec.ts && ts-node test/telegram-flow.spec.ts && ts-node test/node-cache.spec.ts && ts-node test/graph-compiler.spec.ts && ts-node test/log.plugin.spec.ts && ts-node test/secrets.plugin.spec.ts && ts-node test/file.plugin.spec.ts && ts-node test/database.plugin.spec.ts"
+    "test:all": "ts-node test/control-blocks.spec.ts && ts-node test/agent-tools.spec.ts && ts-node test/agent-hardening.spec.ts && ts-node test/agent-evaluation.spec.ts && ts-node test/agent-memory.spec.ts && ts-node test/agent-attachment.spec.ts && ts-node test/web-search.spec.ts && ts-node test/artifact.spec.ts && ts-node test/run-reliability.spec.ts && ts-node test/graph-shape.service.spec.ts && ts-node test/revise-prompt.spec.ts && ts-node test/set-variable.spec.ts && ts-node test/embedding-block.spec.ts && ts-node test/research.spec.ts && ts-node test/iterative-research.spec.ts && ts-node test/webserver.spec.ts && ts-node test/telegram-flow.spec.ts && ts-node test/node-cache.spec.ts && ts-node test/github.spec.ts && ts-node test/jira.spec.ts && ts-node test/graph-compiler.spec.ts && ts-node test/log.plugin.spec.ts && ts-node test/secrets.plugin.spec.ts && ts-node test/file.plugin.spec.ts && ts-node test/database.plugin.spec.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.13",

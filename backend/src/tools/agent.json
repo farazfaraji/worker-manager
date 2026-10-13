@@ -15,12 +15,30 @@
         "valueKey": "modelId"
       },
       "options": [
-        { "label": "GPT-4o (Vision & Audio)", "value": "gpt-4o" },
-        { "label": "GPT-4o Mini (Fast)", "value": "gpt-4o-mini" },
-        { "label": "o1-mini (Reasoning)", "value": "o1-mini" },
-        { "label": "Claude 3.5 Sonnet", "value": "claude-3-5-sonnet-20241022" },
-        { "label": "Local Ollama (Llama 3.2)", "value": "llama3.2" },
-        { "label": "Qwen3.8 27B (LM Studio)", "value": "qwen3.8-27b" }
+        {
+          "label": "GPT-4o (Vision & Audio)",
+          "value": "gpt-4o"
+        },
+        {
+          "label": "GPT-4o Mini (Fast)",
+          "value": "gpt-4o-mini"
+        },
+        {
+          "label": "o1-mini (Reasoning)",
+          "value": "o1-mini"
+        },
+        {
+          "label": "Claude 3.5 Sonnet",
+          "value": "claude-3-5-sonnet-20241022"
+        },
+        {
+          "label": "Local Ollama (Llama 3.2)",
+          "value": "llama3.2"
+        },
+        {
+          "label": "Qwen3.8 27B (LM Studio)",
+          "value": "qwen3.8-27b"
+        }
       ]
     },
     {
@@ -54,11 +72,26 @@
       "defaultValue": "model_default",
       "helpText": "Control reasoning effort. 'Disable Thinking' turns off chain-of-thought tokens on supported models (e.g. Groq Qwen).",
       "options": [
-        { "label": "Model Default", "value": "model_default" },
-        { "label": "Disable Thinking (none / fast)", "value": "none" },
-        { "label": "Low Effort", "value": "low" },
-        { "label": "Medium Effort", "value": "medium" },
-        { "label": "High Effort", "value": "high" }
+        {
+          "label": "Model Default",
+          "value": "model_default"
+        },
+        {
+          "label": "Disable Thinking (none / fast)",
+          "value": "none"
+        },
+        {
+          "label": "Low Effort",
+          "value": "low"
+        },
+        {
+          "label": "Medium Effort",
+          "value": "medium"
+        },
+        {
+          "label": "High Effort",
+          "value": "high"
+        }
       ]
     },
     {
@@ -68,9 +101,18 @@
       "defaultValue": "hidden",
       "helpText": "'Hidden' prevents <think> tokens from polluting downstream prompts and breaking JSON mode.",
       "options": [
-        { "label": "Hidden (Recommended)", "value": "hidden" },
-        { "label": "Parsed (Separate field)", "value": "parsed" },
-        { "label": "Raw (Keep <think> in text)", "value": "raw" }
+        {
+          "label": "Hidden (Recommended)",
+          "value": "hidden"
+        },
+        {
+          "label": "Parsed (Separate field)",
+          "value": "parsed"
+        },
+        {
+          "label": "Raw (Keep <think> in text)",
+          "value": "raw"
+        }
       ]
     },
     {
@@ -85,10 +127,19 @@
       "label": "Allowed Tools",
       "type": "valueOrVariable",
       "multiselect": true,
-      "defaultValue": ["search_web", "read_url"],
+      "defaultValue": [
+        "search_web",
+        "read_url"
+      ],
       "options": [
-        { "label": "Web Search (search_web)", "value": "search_web" },
-        { "label": "Read URL (read_url)", "value": "read_url" }
+        {
+          "label": "Web Search (search_web)",
+          "value": "search_web"
+        },
+        {
+          "label": "Read URL (read_url)",
+          "value": "read_url"
+        }
       ],
       "placeholder": "Choose allowed tools or bind variable...",
       "helpText": "Select registered tools this agent is authorized to call autonomously.",
@@ -139,7 +190,12 @@
       "type": "attachmentUpload",
       "placeholder": "Upload a file, paste a URL or path, or select a variable",
       "helpText": "Upload File stores the file inline as a data URL. Variable accepts browser screenshots, File block output, or any upstream variable holding a URL, path or base64 payload.",
-      "accepts": ["string", "image", "file", "audio"],
+      "accepts": [
+        "string",
+        "image",
+        "file",
+        "audio"
+      ],
       "dependsOn": {
         "field": "enableAttachment",
         "equals": true
@@ -163,10 +219,22 @@
       "defaultValue": "auto",
       "helpText": "Auto Detect reads the mime type of the source. Set it explicitly only when the source has no usable file extension.",
       "options": [
-        { "label": "Auto Detect", "value": "auto" },
-        { "label": "Image (Vision)", "value": "image" },
-        { "label": "Audio", "value": "audio" },
-        { "label": "Document / PDF", "value": "document" }
+        {
+          "label": "Auto Detect",
+          "value": "auto"
+        },
+        {
+          "label": "Image (Vision)",
+          "value": "image"
+        },
+        {
+          "label": "Audio",
+          "value": "audio"
+        },
+        {
+          "label": "Document / PDF",
+          "value": "document"
+        }
       ],
       "dependsOn": {
         "field": "enableAttachment",
@@ -179,8 +247,14 @@
       "type": "radio",
       "defaultValue": "text",
       "options": [
-        { "label": "Text", "value": "text" },
-        { "label": "JSON", "value": "json" }
+        {
+          "label": "Text",
+          "value": "text"
+        },
+        {
+          "label": "JSON",
+          "value": "json"
+        }
       ]
     },
     {
@@ -208,7 +282,10 @@
       "label": "Maximum Evidence Characters",
       "type": "number",
       "defaultValue": 2000,
-      "dependsOn": { "field": "researchOutput", "equals": true }
+      "dependsOn": {
+        "field": "researchOutput",
+        "equals": true
+      }
     },
     {
       "name": "cacheResult",
@@ -216,6 +293,236 @@
       "type": "checkbox",
       "defaultValue": true,
       "helpText": "Store the latest execution result in the database cache. When running in Debug mode with 'Use Cache' enabled, this cached result will be reused instead of calling the LLM."
+    },
+    {
+      "name": "memoryMode",
+      "label": "Project Memory",
+      "type": "radio",
+      "defaultValue": "off",
+      "helpText": "Off: no memory. Agent decides: the model chooses when to call search_memory (optional LLM relevance filter below). Always search first: runs memory search before the agent answers and injects results into the prompt (still allows follow-up search_memory calls when tools are supported).",
+      "options": [
+        {
+          "label": "Off",
+          "value": "off"
+        },
+        {
+          "label": "Agent decides (dynamic)",
+          "value": "agent"
+        },
+        {
+          "label": "Always search first (required)",
+          "value": "required"
+        }
+      ]
+    },
+    {
+      "name": "memorySearchQuery",
+      "label": "Required memory search query",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "Defaults to the user prompt when empty",
+      "helpText": "Used only when Project Memory is \"Always search first\". Supports {{variables}}. When empty, the resolved user prompt is used as the search query.",
+      "dependsOn": {
+        "field": "memoryMode",
+        "equals": "required"
+      }
+    },
+    {
+      "name": "memorySources",
+      "label": "Memory Sources",
+      "type": "select",
+      "defaultValue": "all",
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      },
+      "options": [
+        {
+          "label": "Artifacts + remembered facts",
+          "value": "all"
+        },
+        {
+          "label": "Artifacts only",
+          "value": "artifacts"
+        },
+        {
+          "label": "Remembered facts only",
+          "value": "memories"
+        }
+      ]
+    },
+    {
+      "name": "memoryEmbeddingModel",
+      "label": "Memory Embedding Model",
+      "type": "select",
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      },
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/embedding-models",
+        "labelKey": "label",
+        "valueKey": "modelId"
+      },
+      "placeholder": "Default embedding model",
+      "helpText": "Must be the same model the artifacts were indexed with (normally the default), otherwise similarity scores are 0. Falls back to keyword search if embeddings are unavailable."
+    },
+    {
+      "name": "memoryFilterModel",
+      "label": "Relevance Filter Model (Optional)",
+      "type": "select",
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      },
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/models",
+        "labelKey": "label",
+        "valueKey": "modelId"
+      },
+      "placeholder": "No filter (similarity threshold only)",
+      "helpText": "Optional LLM judge: scores each memory hit and drops low-relevance results. Applies to the required preload search and to each search_memory tool call. Adds one small LLM call per search."
+    },
+    {
+      "name": "memoryMinScore",
+      "label": "Minimum Similarity",
+      "type": "number",
+      "defaultValue": 0.35,
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      },
+      "helpText": "Artifact chunks below this cosine similarity (0-1) are dropped. Raise it if irrelevant results show up; lower it if nothing is found."
+    },
+    {
+      "name": "memoryMaxResults",
+      "label": "Max Results per Search",
+      "type": "number",
+      "defaultValue": 5,
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      }
+    },
+    {
+      "name": "memoryNamespace",
+      "label": "Memory Namespace",
+      "type": "text",
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      },
+      "placeholder": "default",
+      "helpText": "Namespace of the remembered facts to search (and save to). Artifacts are always searched within the current project."
+    },
+    {
+      "name": "memoryAllowWrite",
+      "label": "Allow Agent to Save Memories",
+      "type": "checkbox",
+      "defaultValue": false,
+      "dependsOn": {
+        "field": "memoryMode",
+        "in": ["agent", "required"]
+      },
+      "helpText": "Adds a remember_memory tool (max 5 saves per run). Saved keys are prefixed with 'agent:' so the agent can never overwrite memories saved by people or flows. Values that look like personal or payment data are refused."
+    },
+    {
+      "name": "validateOutput",
+      "label": "Validate Output Against Schema",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "Validate the JSON response against the Output Schema. On mismatch the field-level errors are sent back to the model to correct; the node fails if it still does not match after the retries."
+    },
+    {
+      "name": "outputRetries",
+      "label": "Correction Retries",
+      "type": "number",
+      "defaultValue": 2,
+      "helpText": "How many times the model may correct an invalid response (0-5).",
+      "dependsOn": {
+        "field": "validateOutput",
+        "equals": true
+      }
+    },
+    {
+      "name": "enableEvaluation",
+      "label": "Evaluate Response (LLM Judge)",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "An evaluator model grades the answer against your criteria. Below the threshold, its problems are sent back to the agent (same conversation, so the prompt is served from cache) to repair."
+    },
+    {
+      "name": "evaluatorModel",
+      "label": "Evaluator Model",
+      "type": "select",
+      "dependsOn": {
+        "field": "enableEvaluation",
+        "equals": true
+      },
+      "dataSource": {
+        "type": "endpoint",
+        "url": "/api/models",
+        "labelKey": "label",
+        "valueKey": "modelId"
+      },
+      "placeholder": "Same as agent model",
+      "helpText": "Prefer a different (or stronger) model than the agent: models grade their own answers too generously. Empty = same model."
+    },
+    {
+      "name": "evaluationCriteria",
+      "label": "Evaluation Criteria",
+      "type": "textarea",
+      "dependsOn": {
+        "field": "enableEvaluation",
+        "equals": true
+      },
+      "canGenerateCriteria": true,
+      "placeholder": "[must] Answers the user's actual question\n[must] Every factual claim cites a source URL\n[should] Under 200 words",
+      "helpText": "One criterion per line, prefixed [must] or [should]. Click 'Generate' to draft them from your prompts. Empty = the evaluator derives criteria from the task on every run."
+    },
+    {
+      "name": "evaluationThreshold",
+      "label": "Pass Threshold (%)",
+      "type": "number",
+      "defaultValue": 80,
+      "dependsOn": {
+        "field": "enableEvaluation",
+        "equals": true
+      },
+      "helpText": "Score needed to pass (0-100). Score = weighted share of passed criteria (must = 2, should = 1). All [must] criteria must also pass."
+    },
+    {
+      "name": "maxEvaluationRounds",
+      "label": "Max Repair Rounds",
+      "type": "number",
+      "defaultValue": 2,
+      "dependsOn": {
+        "field": "enableEvaluation",
+        "equals": true
+      },
+      "helpText": "How many times the agent may repair its answer (0-5). Stops early if a repair does not improve the score."
+    },
+    {
+      "name": "onEvaluationFail",
+      "label": "If Still Below Threshold",
+      "type": "select",
+      "defaultValue": "return_best",
+      "dependsOn": {
+        "field": "enableEvaluation",
+        "equals": true
+      },
+      "options": [
+        {
+          "label": "Return best attempt (flagged)",
+          "value": "return_best"
+        },
+        {
+          "label": "Fail the node",
+          "value": "fail"
+        }
+      ]
     }
   ],
   "outputs": [
@@ -244,6 +551,43 @@
       "name": "toolCalls",
       "label": "Tool Calls Trace",
       "type": "array"
+    },
+    {
+      "name": "usage",
+      "label": "Token Usage",
+      "type": "object",
+      "schema": {
+        "inputTokens": "number",
+        "outputTokens": "number",
+        "cachedInputTokens": "number",
+        "cacheWriteInputTokens": "number",
+        "reasoningTokens": "number",
+        "llmCalls": "number"
+      }
+    },
+    {
+      "name": "stopReason",
+      "label": "Stop Reason",
+      "type": "string"
+    },
+    {
+      "name": "evaluation",
+      "label": "Evaluation",
+      "type": "object",
+      "schema": {
+        "passed": "boolean",
+        "score": "number",
+        "threshold": "number",
+        "repairRounds": "number",
+        "selectedAttempt": "number",
+        "evaluatorModel": "string",
+        "criteria": "array",
+        "issues": "array",
+        "summary": "string",
+        "history": "array",
+        "skipped": "boolean",
+        "error": "string"
+      }
     }
   ]
 }

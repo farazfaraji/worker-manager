@@ -111,6 +111,21 @@ export class RunTopologyService {
       for (const edge of nodeEdges) {
         if (String(edge.sourceHandle || '').toLowerCase() === branch) nextTargets.add(edge.target);
       }
+    } else if (nodeType === 'github') {
+      const branch = lastNodeOutput?.success === false ? 'onfailed' : 'done';
+      for (const edge of nodeEdges) {
+        const handle = String(edge.sourceHandle || '').toLowerCase();
+        if (handle === branch || ((!handle || handle === 'flow') && branch === 'done')) {
+          nextTargets.add(edge.target);
+        }
+      }
+    } else if (nodeType === 'jira') {
+      const ok = lastNodeOutput?.ok ?? lastNodeOutput?.result?.ok;
+      const branch = ok === false ? 'onfailed' : 'done';
+      for (const edge of nodeEdges) {
+        const handle = String(edge.sourceHandle || '').toLowerCase().trim();
+        if (handle === branch || (!handle && branch === 'done')) nextTargets.add(edge.target);
+      }
     } else if (nodeType === 'human-gate' || nodeType === 'humangate') {
       const branch = lastNodeOutput?.result?.approved ?? lastNodeOutput?.approved
         ? 'approved'

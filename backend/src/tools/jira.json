@@ -1,0 +1,271 @@
+{
+  "name": "Jira",
+  "type": "jira",
+  "description": "Run jira-cli actions (list, view, create, edit, move, assign, comment, link, sprints, epics) with configurable arguments.",
+  "inputs": [
+    {
+      "name": "action",
+      "label": "Action",
+      "type": "select",
+      "required": true,
+      "defaultValue": "issue-list",
+      "options": [
+        { "label": "List Issues (jira issue list)", "value": "issue-list" },
+        { "label": "View Issue (jira issue view)", "value": "issue-view" },
+        { "label": "Create Issue (jira issue create)", "value": "issue-create" },
+        { "label": "Edit Issue (jira issue edit)", "value": "issue-edit" },
+        { "label": "Transition Issue (jira issue move)", "value": "issue-move" },
+        { "label": "Assign Issue (jira issue assign)", "value": "issue-assign" },
+        { "label": "Add Comment (jira issue comment add)", "value": "issue-comment" },
+        { "label": "Link Issues (jira issue link)", "value": "issue-link" },
+        { "label": "List Sprints / Sprint Issues (jira sprint list)", "value": "sprint-list" },
+        { "label": "List Epics / Epic Issues (jira epic list)", "value": "epic-list" },
+        { "label": "Current User (jira me)", "value": "me" },
+        { "label": "Custom Command (raw arguments)", "value": "custom" }
+      ],
+      "helpText": "The jira-cli command to run. Fields below change based on the selected action."
+    },
+    {
+      "name": "project",
+      "label": "Project Key",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "e.g. PAY (leave blank to use jira-cli default project)",
+      "helpText": "Passed as --project. Defaults to the project in your jira-cli config.",
+      "dependsOn": { "field": "action", "notEquals": "me" }
+    },
+    {
+      "name": "issueKey",
+      "label": "Issue Key",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "required": true,
+      "placeholder": "e.g. PAY-123 or {{jira.issueKey}}",
+      "dependsOn": { "field": "action", "in": ["issue-view", "issue-edit", "issue-move", "issue-assign", "issue-comment"] }
+    },
+    {
+      "name": "query",
+      "label": "Search Text",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "Free-text search, e.g. login timeout",
+      "dependsOn": { "field": "action", "equals": "issue-list" }
+    },
+    {
+      "name": "jql",
+      "label": "JQL",
+      "type": "textarea",
+      "placeholder": "status = \"In Progress\" AND labels = backend",
+      "helpText": "Raw JQL evaluated in the project context (--jql). Supports {{variables}}.",
+      "dependsOn": { "field": "action", "in": ["issue-list", "sprint-list", "epic-list"] }
+    },
+    {
+      "name": "status",
+      "label": "Status Filter",
+      "type": "text",
+      "placeholder": "e.g. In Progress, To Do (comma separated)",
+      "dependsOn": { "field": "action", "in": ["issue-list", "epic-list"] }
+    },
+    {
+      "name": "issueType",
+      "label": "Issue Type",
+      "type": "text",
+      "placeholder": "e.g. Bug, Story, Task",
+      "helpText": "Filter by type (list) or the type to create (required for create).",
+      "dependsOn": { "field": "action", "in": ["issue-list", "issue-create"] }
+    },
+    {
+      "name": "summary",
+      "label": "Summary",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "Issue title",
+      "helpText": "Required when creating an issue.",
+      "dependsOn": { "field": "action", "in": ["issue-create", "issue-edit"] }
+    },
+    {
+      "name": "body",
+      "label": "Description / Comment",
+      "type": "textarea",
+      "placeholder": "Markdown body. Supports {{variables}}.",
+      "helpText": "Issue description (create/edit) or comment body (comment).",
+      "dependsOn": { "field": "action", "in": ["issue-create", "issue-edit", "issue-comment"] }
+    },
+    {
+      "name": "assignee",
+      "label": "Assignee",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "email, display name, 'x' to unassign, or 'default'",
+      "helpText": "Required for assign. Optional filter for list/epic list; optional value for create/edit/move.",
+      "dependsOn": { "field": "action", "in": ["issue-list", "issue-create", "issue-edit", "issue-move", "issue-assign", "epic-list"] }
+    },
+    {
+      "name": "priority",
+      "label": "Priority",
+      "type": "text",
+      "placeholder": "e.g. High",
+      "dependsOn": { "field": "action", "in": ["issue-list", "issue-create", "issue-edit", "epic-list"] }
+    },
+    {
+      "name": "labels",
+      "label": "Labels",
+      "type": "text",
+      "placeholder": "backend, urgent (comma separated)",
+      "dependsOn": { "field": "action", "in": ["issue-list", "issue-create", "issue-edit", "epic-list"] }
+    },
+    {
+      "name": "components",
+      "label": "Components",
+      "type": "text",
+      "placeholder": "comma separated",
+      "dependsOn": { "field": "action", "in": ["issue-create", "issue-edit"] }
+    },
+    {
+      "name": "parent",
+      "label": "Parent / Epic Key",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "e.g. PAY-100",
+      "helpText": "Parent issue or epic. Required when creating a sub-task.",
+      "dependsOn": { "field": "action", "in": ["issue-list", "issue-create", "issue-edit"] }
+    },
+    {
+      "name": "state",
+      "label": "Target State",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "required": true,
+      "placeholder": "e.g. In Progress, Done",
+      "dependsOn": { "field": "action", "equals": "issue-move" }
+    },
+    {
+      "name": "comment",
+      "label": "Transition Comment",
+      "type": "textarea",
+      "placeholder": "Optional comment to add with the transition",
+      "dependsOn": { "field": "action", "equals": "issue-move" }
+    },
+    {
+      "name": "resolution",
+      "label": "Resolution",
+      "type": "text",
+      "placeholder": "e.g. Fixed",
+      "dependsOn": { "field": "action", "equals": "issue-move" }
+    },
+    {
+      "name": "inwardKey",
+      "label": "Inward Issue Key",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "required": true,
+      "placeholder": "e.g. PAY-1",
+      "dependsOn": { "field": "action", "equals": "issue-link" }
+    },
+    {
+      "name": "outwardKey",
+      "label": "Outward Issue Key",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "required": true,
+      "placeholder": "e.g. PAY-2",
+      "dependsOn": { "field": "action", "equals": "issue-link" }
+    },
+    {
+      "name": "linkType",
+      "label": "Link Type",
+      "type": "text",
+      "required": true,
+      "defaultValue": "Relates",
+      "placeholder": "e.g. Blocks, Relates, Duplicate",
+      "dependsOn": { "field": "action", "equals": "issue-link" }
+    },
+    {
+      "name": "sprintScope",
+      "label": "Sprint Scope",
+      "type": "select",
+      "defaultValue": "current",
+      "options": [
+        { "label": "Issues in current sprint", "value": "current" },
+        { "label": "Issues in previous sprint", "value": "prev" },
+        { "label": "Issues in next sprint", "value": "next" },
+        { "label": "Issues in sprint by ID", "value": "id" },
+        { "label": "List sprints", "value": "sprints" }
+      ],
+      "dependsOn": { "field": "action", "equals": "sprint-list" }
+    },
+    {
+      "name": "sprintId",
+      "label": "Sprint ID",
+      "type": "valueOrVariable",
+      "accepts": ["string", "number"],
+      "placeholder": "e.g. 42",
+      "dependsOn": { "field": "sprintScope", "equals": "id" }
+    },
+    {
+      "name": "sprintState",
+      "label": "Sprint State",
+      "type": "text",
+      "placeholder": "future, active, closed (comma separated)",
+      "dependsOn": { "field": "sprintScope", "equals": "sprints" }
+    },
+    {
+      "name": "epicKey",
+      "label": "Epic Key",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "Leave blank to list epics; set to list the epic's issues",
+      "dependsOn": { "field": "action", "equals": "epic-list" }
+    },
+    {
+      "name": "limit",
+      "label": "Max Results",
+      "type": "number",
+      "defaultValue": 50,
+      "helpText": "Passed as --paginate 0:<limit> (1-100).",
+      "dependsOn": { "field": "action", "in": ["issue-list", "sprint-list", "epic-list"] }
+    },
+    {
+      "name": "commentsCount",
+      "label": "Comments to Include",
+      "type": "number",
+      "defaultValue": 5,
+      "dependsOn": { "field": "action", "equals": "issue-view" }
+    },
+    {
+      "name": "args",
+      "label": "Arguments",
+      "type": "json",
+      "required": true,
+      "defaultValue": "[\"issue\", \"list\", \"--plain\", \"--no-headers\"]",
+      "placeholder": "[\"issue\", \"list\", \"--plain\"]",
+      "helpText": "Raw jira-cli argument array (without the leading 'jira'). Each element may contain {{variables}}. Never run through a shell.",
+      "dependsOn": { "field": "action", "equals": "custom" }
+    },
+    {
+      "name": "extraArgs",
+      "label": "Extra Arguments",
+      "type": "json",
+      "placeholder": "[\"--custom\", \"story-points=3\"]",
+      "helpText": "Optional additional flags appended to the generated command.",
+      "dependsOn": { "field": "action", "notEquals": "custom" }
+    },
+    {
+      "name": "configFile",
+      "label": "jira-cli Config File",
+      "type": "text",
+      "placeholder": "Leave blank to use ~/.config/.jira/.config.yml",
+      "helpText": "Passed as --config. Authentication uses the JIRA_API_TOKEN environment variable of the backend process."
+    },
+    {
+      "name": "timeoutMs",
+      "label": "Timeout (ms)",
+      "type": "number",
+      "defaultValue": 60000
+    }
+  ],
+  "outputs": [
+    { "name": "done", "label": "Done", "type": "branch" },
+    { "name": "onFailed", "label": "On Failed", "type": "branch" }
+  ]
+}

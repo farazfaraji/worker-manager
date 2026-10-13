@@ -14,6 +14,7 @@ import {
   NormalizedSearchResponse,
   NormalizedSearchResultItem,
 } from './tavily-search.service';
+import { assertPublicHttpUrl, safeFetch } from './url-safety.util';
 
 export interface WebSearchResult {
   status: number;
@@ -213,6 +214,12 @@ export class WebSearchRunnerService {
       rawUrl = `https://${rawUrl}`;
     }
 
+    // Set by the Agent read_url tool: block private/internal addresses on every hop (SSRF guard)
+    const blockPrivateNetwork = config.blockPrivateNetwork === true;
+    if (blockPrivateNetwork) {
+      await assertPublicHttpUrl(rawUrl);
+    }
+
     const engine = String(config.engine || 'fetch').toLowerCase();
     const maxContentLength = Number(config.maxContentLength) || 25000;
 
@@ -244,7 +251,7 @@ export class WebSearchRunnerService {
 
     if (engine === 'playwright') {
       try {
-        const pwRes = await this.playwrightFetch(rawUrl);
+        const pwRes = await this.playwrightFetch(rawUrl, blockPrivateNetwork);
         rawHtml = pwRes.html;
         pageTitle = pwRes.title;
         httpStatus = pwRes.status;
@@ -253,13 +260,13 @@ export class WebSearchRunnerService {
         this.logger.warn(
           `   ⚠️ Playwright fetch failed: ${err.message}. Falling back to HTTP fetch.`,
         );
-        const res = await this.httpFetch(rawUrl);
+        const res = await this.httpFetch(rawUrl, blockPrivateNetwork);
         rawHtml = res.html;
         httpStatus = res.status;
         finalUrl = res.finalUrl;
       }
     } else {
-      const res = await this.httpFetch(rawUrl);
+      const res = await this.httpFetch(rawUrl, blockPrivateNetwork);
       rawHtml = res.html;
       httpStatus = res.status;
       finalUrl = res.finalUrl;
@@ -270,7 +277,7 @@ export class WebSearchRunnerService {
           `   🛡️ Cloudflare / WAF challenge detected on "${rawUrl}". Auto-upgrading to Playwright stealth browser...`,
         );
         try {
-          const pwRes = await this.playwrightFetch(rawUrl);
+          const pwRes = await this.playwrightFetch(rawUrl, blockPrivateNetwork);
           if (!isCloudflareChallenge(pwRes.status, pwRes.html, pwRes.title)) {
             this.logger.log(
               `   ✨ Cloudflare challenge successfully bypassed via Playwright stealth!`,
@@ -329,8 +336,10 @@ export class WebSearchRunnerService {
 
   private async httpFetch(
     targetUrl: string,
+    blockPrivateNetwork = false,
   ): Promise<{ html: string; status: number; finalUrl: string }> {
-    const response = await fetch(targetUrl, {
+    const doFetch = blockPrivateNetwork ? safeFetch : fetch;
+    const response = await doFetch(targetUrl, {
       method: 'GET',
       headers: {
         'User-Agent':
@@ -353,6 +362,7 @@ export class WebSearchRunnerService {
 
   private async playwrightFetch(
     targetUrl: string,
+    blockPrivateNetwork = false,
   ): Promise<{ html: string; status: number; title: string; finalUrl: string }> {
     let playwright: any;
     try {
@@ -380,6 +390,28 @@ export class WebSearchRunnerService {
         viewport: { width: 1280, height: 800 },
         locale: 'en-US',
       });
+
+      if (blockPrivateNetwork) {
+        // Check every request (navigation, redirects, sub-resources) against the SSRF guard
+        const hostChecks = new Map<string, Promise<boolean>>();
+        await context.route('**/*', async (route: any) => {
+          const requestUrl = route.request().url();
+          let parsed: URL;
+          try {
+            parsed = new URL(requestUrl);
+          } catch {
+            return route.abort('blockedbyclient');
+          }
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return route.continue();
+          if (!hostChecks.has(parsed.host)) {
+            hostChecks.set(
+              parsed.host,
+              assertPublicHttpUrl(requestUrl).then(() => true, () => false),
+            );
+          }
+          return (await hostChecks.get(parsed.host)) ? route.continue() : route.abort('blockedbyclient');
+        });
+      }
 
       const page = await context.newPage();
 

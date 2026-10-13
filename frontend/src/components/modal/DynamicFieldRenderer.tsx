@@ -7,6 +7,7 @@ import { CodeEditor } from './CodeEditor';
 import { RevisePromptModal } from './RevisePromptModal';
 import { SchemaAiGenerator } from './SchemaAiGenerator';
 import { SuggestionCombobox } from './SuggestionCombobox';
+import { generateEvaluationCriteria } from '@/lib/api';
 import { Code, Code2, AlignLeft, Sliders, ToggleLeft, ToggleRight, Check, AlertCircle, Sparkles, Wand2, Variable, Upload, Paperclip, FileText, X } from 'lucide-react';
 
 interface DynamicFieldRendererProps {
@@ -26,6 +27,8 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
 }) => {
   const [dynamicOptions, setDynamicOptions] = useState<{ label: string; value: any }[]>([]);
   const [isReviseModalOpen, setIsReviseModalOpen] = useState(false);
+  const [isGeneratingCriteria, setIsGeneratingCriteria] = useState(false);
+  const [criteriaError, setCriteriaError] = useState('');
   const [schemaTab, setSchemaTab] = useState<'code' | 'ai'>('code');
   const [isVarDropdownOpen, setIsVarDropdownOpen] = useState(false);
   const [varSearch, setVarSearch] = useState('');
@@ -1062,6 +1065,29 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
     (input.type === 'textarea' && input.name.toLowerCase().includes('prompt'))
   );
 
+  const handleGenerateCriteria = async () => {
+    const current = typeof effectiveValue === 'string' ? effectiveValue.trim() : '';
+    if (current && !window.confirm('Replace the current criteria with newly generated ones?')) return;
+    setIsGeneratingCriteria(true);
+    setCriteriaError('');
+    try {
+      const res = await generateEvaluationCriteria({
+        systemPrompt: typeof formValues.systemPrompt === 'string' ? formValues.systemPrompt : '',
+        userPrompt:
+          typeof formValues.userPrompt === 'string'
+            ? formValues.userPrompt
+            : JSON.stringify(formValues.userPrompt ?? ''),
+        outputType: typeof formValues.outputType === 'string' ? formValues.outputType : '',
+        modelId: formValues.evaluatorModel || undefined,
+      });
+      onChange(res.criteria);
+    } catch (err: any) {
+      setCriteriaError(err?.message || 'Failed to generate criteria');
+    } finally {
+      setIsGeneratingCriteria(false);
+    }
+  };
+
   return (
     <div className="form-group" style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1092,6 +1118,32 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
             >
               <Sparkles size={11} color="#6366f1" />
               Revise
+            </button>
+          )}
+          {input.canGenerateCriteria && (
+            <button
+              type="button"
+              onClick={handleGenerateCriteria}
+              disabled={isGeneratingCriteria}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 8px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                borderRadius: 5,
+                background: 'rgba(99, 102, 241, 0.08)',
+                color: '#4f46e5',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                cursor: isGeneratingCriteria ? 'wait' : 'pointer',
+                opacity: isGeneratingCriteria ? 0.6 : 1,
+                transition: 'all 0.15s ease',
+              }}
+              title="Draft criteria from the system prompt, user prompt and output schema"
+            >
+              <Wand2 size={11} color="#6366f1" />
+              {isGeneratingCriteria ? 'Generating...' : 'Generate'}
             </button>
           )}
           {input.type === 'textarea' && availableVariables && availableVariables.length > 0 && (
@@ -1219,6 +1271,12 @@ export const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({
       </div>
 
       {renderFieldControl()}
+
+      {criteriaError && (
+        <span style={{ fontSize: 11.5, color: 'var(--danger, #dc2626)', lineHeight: 1.3 }}>
+          {criteriaError}
+        </span>
+      )}
 
       {input.helpText && (
         <span style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.3 }}>

@@ -25,6 +25,9 @@ import {
 } from './services/schema-generator.service';
 import { FlowAssistantService } from './services/flow-assistant.service';
 import { validateEndpointUrl, isMaskedKey, maskApiKey } from './utils/llm-endpoint.util';
+import { GenerateEvaluationCriteriaDto } from './dto/generate-evaluation-criteria.dto';
+import { CliLlmService, isCliProvider } from './cli-llm.service';
+import { postLlmJson } from '../runs/services/llm-http.util';
 
 export interface ResolvedModelContext {
   modelId: string;
@@ -41,6 +44,7 @@ export class ModelsService implements OnModuleInit {
   private readonly promptReviser: PromptReviserService;
   private readonly schemaGenerator: SchemaGeneratorService;
   private readonly flowAssistant: FlowAssistantService;
+  private readonly cliLlm: CliLlmService;
 
   constructor(
     @InjectModel(LLMModel.name)
@@ -54,12 +58,15 @@ export class ModelsService implements OnModuleInit {
     flowAssistant?: FlowAssistantService,
     @Optional()
     private readonly nodeDefinitionsService?: NodeDefinitionsService,
+    @Optional()
+    cliLlm?: CliLlmService,
   ) {
     const defaultLlmClient = new LlmClientService();
     this.promptReviser = promptReviser || new PromptReviserService(defaultLlmClient);
     this.schemaGenerator = schemaGenerator || new SchemaGeneratorService(defaultLlmClient);
     this.flowAssistant =
       flowAssistant || new FlowAssistantService(defaultLlmClient, this.nodeDefinitionsService);
+    this.cliLlm = cliLlm || new CliLlmService();
   }
 
   async onModuleInit(): Promise<void> {
@@ -428,11 +435,206 @@ export class ModelsService implements OnModuleInit {
     const p = provider.toLowerCase();
     const e = endpoint.toLowerCase();
     return (
+      isCliProvider(p) ||
       p === 'lmstudio' ||
       p === 'ollama' ||
       e.includes('localhost') ||
       e.includes('127.0.0.1') ||
       e.includes('0.0.0.0')
     );
+  }
+
+  async testCliModel(data: Partial<LLMModel>): Promise<{
+    ok: boolean;
+    reply?: string;
+    binary?: string;
+    durationMs?: number;
+    error?: string;
+  }> {
+    const provider = String(data.provider || '');
+    if (!isCliProvider(provider)) {
+      throw new BadRequestException(`Provider "${provider}" is not a subscription CLI provider.`);
+    }
+    try {
+      const result = await this.cliLlm.complete({
+        provider,
+        modelId: String(data.modelId || '').trim(),
+        prompt: 'Reply with exactly the word OK and nothing else.',
+        reasoningEffort: data.reasoningEffort,
+        cliPath: data.cliPath,
+        signal: AbortSignal.timeout(120000),
+      });
+      return {
+        ok: true,
+        reply: result.text.trim().slice(0, 200),
+        binary: result.binary,
+        durationMs: result.durationMs,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        error:
+          err?.name === 'TimeoutError'
+            ? 'The CLI did not answer within 120 seconds.'
+            : err?.message || String(err),
+      };
+    }
+  }
+
+  async generateEvaluationCriteria(dto: GenerateEvaluationCriteriaDto): Promise<{
+    criteria: string;
+    model: string;
+    modelId: string;
+    provider: string;
+  }> {
+    const ctx = await this.resolveModelContext({
+      explicitModelId: dto.modelId,
+      projectId: dto.projectId,
+      settingsKey: 'flowHelperModel',
+    });
+
+    if (!dto.systemPrompt?.trim() && !dto.userPrompt?.trim()) {
+      throw new BadRequestException(
+        'Write the System Prompt or User Prompt first; criteria are generated from them.',
+      );
+    }
+
+    const systemInstruction = `You write evaluation checklists used by an independent AI reviewer to grade another AI agent's answers.
+
+Rules:
+1. Write 3 to 7 criteria, one per line, each starting with "[must]" (essential; failing it makes the answer unacceptable) or "[should]" (quality improvement).
+2. Each criterion must be objectively checkable from the answer alone (or from the agent's tool evidence), e.g. "[must] Every factual claim cites a source URL".
+3. Derive criteria from the agent's instructions and expected output. Do not invent requirements the task does not imply.
+4. Template variables like {{node.field}} are filled at runtime; refer to them generically.
+5. Output ONLY the criteria lines. No numbering, headings, markdown fences or commentary.`;
+
+    const userContent = [
+      dto.instruction?.trim() ? `Extra guidance from the user:\n${dto.instruction.trim()}\n` : '',
+      `Agent system prompt:\n"""\n${dto.systemPrompt?.trim() || '(none)'}\n"""`,
+      `Agent user prompt template:\n"""\n${dto.userPrompt?.trim() || '(none)'}\n"""`,
+      dto.outputType?.trim() ? `Required output schema:\n"""\n${dto.outputType.trim()}\n"""` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const signal = AbortSignal.timeout(60000);
+    let text = '';
+    try {
+      text = await this.completeHelperText(ctx, systemInstruction, userContent, signal);
+    } catch (err: any) {
+      this.logger.error(
+        `Evaluation criteria generation failed with model ${ctx.modelId} (${ctx.provider}): ${err.message}`,
+      );
+      throw new BadRequestException(
+        `Failed to generate evaluation criteria with model "${ctx.label}": ${err.message}`,
+      );
+    }
+
+    const criteria = text
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/^```[a-z]*\n?|```$/gim, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^(?:[-*•]|\d+[.)])\s*/, ''))
+      .filter((line) => /^\[(must|should)\]/i.test(line))
+      .join('\n');
+    if (!criteria) {
+      throw new BadRequestException(
+        `Model "${ctx.label}" did not return usable criteria. Try again or pick another model.`,
+      );
+    }
+
+    return { criteria, model: ctx.label, modelId: ctx.modelId, provider: ctx.provider };
+  }
+
+  private async completeHelperText(
+    ctx: ResolvedModelContext,
+    system: string,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const { modelId, provider, endpoint: rawEndpoint, apiKey, document: modelRecord } = ctx;
+    if (isCliProvider(provider)) {
+      const result = await this.cliLlm.complete({
+        provider,
+        modelId,
+        system,
+        prompt,
+        reasoningEffort: modelRecord?.reasoningEffort,
+        cliPath: modelRecord?.cliPath,
+        signal,
+      });
+      return result.text;
+    }
+
+    if (provider === 'anthropic') {
+      const url = rawEndpoint.endsWith('/messages')
+        ? rawEndpoint
+        : rawEndpoint.endsWith('/v1')
+          ? `${rawEndpoint}/messages`
+          : `${rawEndpoint}/v1/messages`;
+      const json = await postLlmJson(
+        url,
+        {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        {
+          model: modelId,
+          max_tokens: 1024,
+          system,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.2,
+        },
+        { signal, label: 'Anthropic', logger: this.logger },
+      );
+      return (json.content || [])
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => b.text)
+        .join('\n');
+    }
+
+    if (provider === 'lmstudio' && rawEndpoint.includes('/api/v1/chat')) {
+      const json = await postLlmJson(
+        rawEndpoint,
+        {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        { model: modelId, system_prompt: system, input: prompt, temperature: 0.2 },
+        { signal, label: 'LM Studio', logger: this.logger },
+      );
+      return Array.isArray(json.output)
+        ? json.output.find((p: any) => p.type === 'message')?.content || ''
+        : typeof json.output === 'string'
+          ? json.output
+          : '';
+    }
+
+    let url = rawEndpoint;
+    if (rawEndpoint.endsWith('/chat')) url = `${rawEndpoint}/completions`;
+    else if (!rawEndpoint.endsWith('/completions')) {
+      url =
+        rawEndpoint === 'https://api.openai.com'
+          ? `${rawEndpoint}/v1/chat/completions`
+          : `${rawEndpoint}/chat/completions`;
+    }
+    const json = await postLlmJson(
+      url,
+      {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      {
+        model: modelId,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+        ...(/^o[13]/i.test(modelId) ? {} : { temperature: 0.2 }),
+      },
+      { signal, label: 'LLM API', logger: this.logger },
+    );
+    return json.choices?.[0]?.message?.content || '';
   }
 }

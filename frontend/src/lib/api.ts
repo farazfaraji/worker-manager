@@ -609,6 +609,52 @@ export async function generateSchema(data: {
   return res.json();
 }
 
+export async function testCliModel(model: any): Promise<{
+  ok: boolean;
+  reply?: string;
+  binary?: string;
+  durationMs?: number;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/models/test-cli`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(model),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(errorData, `Failed to test CLI: ${res.statusText}`));
+  }
+  return res.json();
+}
+
+export async function generateEvaluationCriteria(data: {
+  systemPrompt?: string;
+  userPrompt?: string;
+  outputType?: string;
+  instruction?: string;
+  modelId?: string;
+  projectId?: string;
+}): Promise<{
+  criteria: string;
+  model: string;
+  modelId: string;
+  provider: string;
+}> {
+  const res = await fetch(`${API_BASE}/models/generate-evaluation-criteria`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData?.message || `Failed to generate evaluation criteria: ${res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 export async function executeFlowAssistant(data: FlowAssistantRequest): Promise<FlowAssistantResult> {
   const res = await fetch(`${API_BASE}/models/flow-assistant`, {
     method: 'POST',

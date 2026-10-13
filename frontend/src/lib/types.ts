@@ -44,6 +44,7 @@ export interface LLMModel {
   provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'custom' | string;
   endpoint: string;
   apiKey?: string;
+  cliPath?: string;
   capabilities: ModelCapabilities;
   defaultTemperature: number;
   isDefault: boolean;
@@ -92,6 +93,7 @@ export interface ToolInput {
   rows?: number;
   supportsUuid?: boolean;
   canRevise?: boolean;
+  canGenerateCriteria?: boolean;
   supportsAiGenerator?: boolean;
   prefixField?: string;
   dependsOn?: {

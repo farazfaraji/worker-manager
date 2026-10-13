@@ -7,6 +7,7 @@ import { LlmClientService } from './services/llm-client.service';
 import { PromptReviserService } from './services/prompt-reviser.service';
 import { SchemaGeneratorService } from './services/schema-generator.service';
 import { FlowAssistantService } from './services/flow-assistant.service';
+import { CliLlmService } from './cli-llm.service';
 
 import { SettingsModule } from '../settings/settings.module';
 import { NodeDefinitionsModule } from '../node-definitions/node-definitions.module';
@@ -24,6 +25,7 @@ import { NodeDefinitionsModule } from '../node-definitions/node-definitions.modu
     PromptReviserService,
     SchemaGeneratorService,
     FlowAssistantService,
+    CliLlmService,
   ],
   exports: [
     ModelsService,
@@ -31,6 +33,7 @@ import { NodeDefinitionsModule } from '../node-definitions/node-definitions.modu
     PromptReviserService,
     SchemaGeneratorService,
     FlowAssistantService,
+    CliLlmService,
     MongooseModule,
   ],
 })

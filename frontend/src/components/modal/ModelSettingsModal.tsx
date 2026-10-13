@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LLMModel } from '@/lib/types';
-import { fetchModels, createModel, updateModel, deleteModel, fetchSettings, updateSettings } from '@/lib/api';
+import { fetchModels, createModel, updateModel, deleteModel, fetchSettings, updateSettings, testCliModel } from '@/lib/api';
 import { EmbeddingModelsPanel } from './EmbeddingModelsPanel';
 import {
   Settings,
@@ -30,6 +30,7 @@ import {
   Send,
   CheckCircle2,
   Compass,
+  Terminal,
 } from 'lucide-react';
 
 interface ModelSettingsModalProps {
@@ -39,7 +40,10 @@ interface ModelSettingsModalProps {
   activeProjectId?: string | null;
 }
 
-const PROVIDER_PRESETS: Record<string, { endpoint: string; defaultModel: string; label: string }> = {
+const PROVIDER_PRESETS: Record<
+  string,
+  { endpoint: string; defaultModel: string; label: string; subscription?: boolean; cliBinary?: string; modelHint?: string }
+> = {
   openai: {
     endpoint: 'https://api.openai.com/v1/chat/completions',
     defaultModel: 'gpt-4o',
@@ -75,7 +79,43 @@ const PROVIDER_PRESETS: Record<string, { endpoint: string; defaultModel: string;
     defaultModel: 'openai/gpt-6-luna',
     label: 'OpenRouter',
   },
+  // Subscription providers: prompts go through the vendor CLI using this machine's saved login (no API key).
+  // The Model ID is passed to the CLI exactly as entered.
+  codex: {
+    endpoint: '',
+    defaultModel: '',
+    label: 'Codex',
+    subscription: true,
+    cliBinary: 'codex',
+    modelHint: 'Exactly as Codex names it, e.g. the value you pass to `codex -m`',
+  },
+  'claude-code': {
+    endpoint: '',
+    defaultModel: '',
+    label: 'Claude Code',
+    subscription: true,
+    cliBinary: 'claude',
+    modelHint: 'e.g. sonnet, opus, haiku, or a full model name (`claude --model`)',
+  },
+  cursor: {
+    endpoint: '',
+    defaultModel: '',
+    label: 'Cursor',
+    subscription: true,
+    cliBinary: 'cursor-agent',
+    modelHint: 'As listed by `cursor-agent --list-models`',
+  },
+  antigravity: {
+    endpoint: '',
+    defaultModel: '',
+    label: 'Antigravity (experimental)',
+    subscription: true,
+    cliBinary: 'agy',
+    modelHint: 'Leave as configured in Antigravity; effort is not supported by its CLI',
+  },
 };
+
+const isSubscriptionProvider = (provider?: string) => Boolean(provider && PROVIDER_PRESETS[provider]?.subscription);
 
 const APP_SETTINGS_STORAGE_KEY = 'flow_studio_app_settings';
 
@@ -114,6 +154,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   const [formProvider, setFormProvider] = useState<string>('openai');
   const [formEndpoint, setFormEndpoint] = useState('https://api.openai.com/v1');
   const [formApiKey, setFormApiKey] = useState('');
+  const [formCliPath, setFormCliPath] = useState('');
+  const [isTestingCli, setIsTestingCli] = useState(false);
+  const [cliTestResult, setCliTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [formSupportsVision, setFormSupportsVision] = useState(true);
   const [formSupportsAudio, setFormSupportsAudio] = useState(false);
   const [formSupportsDocuments, setFormSupportsDocuments] = useState(true);
@@ -269,13 +312,6 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
           const defaultModel = list.find((m) => m.isDefault);
           return defaultModel?.modelId || list[0]?.modelId || 'gpt-4o';
         });
-        setFlowAssistantModel((prev) => {
-          if (prev && list.some((m) => m.modelId === prev || m._id === prev)) {
-            return prev;
-          }
-          const defaultModel = list.find((m) => m.isDefault);
-          return defaultModel?.modelId || list[0]?.modelId || 'gpt-4o';
-        });
       }
     } catch {
       // Backend error or offline
@@ -306,6 +342,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     setFormProvider(model.provider || 'openai');
     setFormEndpoint(model.endpoint || 'https://api.openai.com/v1');
     setFormApiKey(model.apiKey || '');
+    setFormCliPath(model.cliPath || '');
+    setCliTestResult(null);
     setFormSupportsVision(model.capabilities?.supportsVision ?? true);
     setFormSupportsAudio(model.capabilities?.supportsAudio ?? false);
     setFormSupportsDocuments(model.capabilities?.supportsDocuments ?? true);
@@ -326,6 +364,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     setFormProvider('openai');
     setFormEndpoint('https://api.openai.com/v1');
     setFormApiKey('');
+    setFormCliPath('');
+    setCliTestResult(null);
     setFormSupportsVision(true);
     setFormSupportsAudio(false);
     setFormSupportsDocuments(true);
@@ -340,6 +380,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 
   const handleProviderChange = (newProvider: string) => {
     setFormProvider(newProvider);
+    setCliTestResult(null);
     const preset = PROVIDER_PRESETS[newProvider];
     if (preset) {
       setFormEndpoint(preset.endpoint);
@@ -349,10 +390,39 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     }
   };
 
+  const isCliForm = isSubscriptionProvider(formProvider);
+
+  const handleTestCli = async () => {
+    try {
+      setIsTestingCli(true);
+      setCliTestResult(null);
+      const result = await testCliModel({
+        provider: formProvider,
+        modelId: formModelId.trim(),
+        cliPath: formCliPath.trim(),
+        reasoningEffort: formReasoningEffort,
+      });
+      setCliTestResult(
+        result.ok
+          ? { ok: true, text: `Connected via ${result.binary} in ${((result.durationMs || 0) / 1000).toFixed(1)}s — replied: "${result.reply}"` }
+          : { ok: false, text: result.error || 'CLI test failed' },
+      );
+    } catch (err: any) {
+      setCliTestResult({ ok: false, text: err.message || 'CLI test failed' });
+    } finally {
+      setIsTestingCli(false);
+    }
+  };
+
   const handleSaveModel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formLabel.trim() || !formModelId.trim() || !formEndpoint.trim()) {
-      setStatusMessage({ text: 'Please fill out required fields (Label, Model ID, Endpoint)', type: 'error' });
+    if (!formLabel.trim() || !formModelId.trim() || (!isCliForm && !formEndpoint.trim())) {
+      setStatusMessage({
+        text: isCliForm
+          ? 'Please fill out required fields (Label, Model ID)'
+          : 'Please fill out required fields (Label, Model ID, Endpoint)',
+        type: 'error',
+      });
       return;
     }
 
@@ -362,8 +432,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
         label: formLabel.trim(),
         modelId: formModelId.trim(),
         provider: formProvider,
-        endpoint: formEndpoint.trim(),
-        apiKey: formApiKey.trim(),
+        endpoint: isCliForm ? '' : formEndpoint.trim(),
+        apiKey: isCliForm ? '' : formApiKey.trim(),
+        cliPath: isCliForm ? formCliPath.trim() : '',
         capabilities: {
           supportsVision: formSupportsVision,
           supportsAudio: formSupportsAudio,
@@ -416,7 +487,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 
   const currentTypeModel = models.find((m) => m.modelId === typeGeneratorModel || m._id === typeGeneratorModel);
   const currentFlowHelperModel = models.find((m) => m.modelId === flowHelperModel || m._id === flowHelperModel);
-  const currentFlowAssistantModel = models.find((m) => m.modelId === flowAssistantModel || m._id === flowAssistantModel);
+  const currentFlowAssistantModel = models.find(
+    (m) => m.modelId === flowAssistantModel || m._id === flowAssistantModel,
+  );
 
   if (!isOpen) return null;
 
@@ -765,7 +838,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                           </span>
                         </div>
                         <p style={{ fontSize: 11.5, color: '#64748b', margin: 0, marginTop: 3 }}>
-                          Endpoint: {currentFlowHelperModel.endpoint}
+                          {isSubscriptionProvider(currentFlowHelperModel.provider)
+                            ? 'Via subscription CLI (local login)'
+                            : `Endpoint: ${currentFlowHelperModel.endpoint}`}
                         </p>
                       </div>
 
@@ -782,7 +857,6 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                     </div>
                   )}
 
-                  {/* Dropdown for Flow Assistant Chatbot Model */}
                   <div style={{ marginTop: 12, borderTop: '1px dashed #e2e8f0', paddingTop: 16 }}>
                     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>
                       Default Flow Assistant Chatbot Model <span style={{ color: '#ef4444' }}>*</span>
@@ -825,7 +899,6 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                     )}
                   </div>
 
-                  {/* Selected Flow Assistant Model Preview Card */}
                   {currentFlowAssistantModel && (
                     <div
                       style={{
@@ -857,19 +930,13 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                           </span>
                         </div>
                         <p style={{ fontSize: 11.5, color: '#64748b', margin: 0, marginTop: 3 }}>
-                          Endpoint: {currentFlowAssistantModel.endpoint}
+                          Endpoint: {currentFlowAssistantModel.endpoint || '(subscription CLI)'}
                         </p>
                       </div>
-
                       <div style={{ display: 'flex', gap: 6 }}>
                         <span style={{ fontSize: 10.5, background: '#ede9fe', color: '#6d28d9', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
                           {currentFlowAssistantModel.provider.toUpperCase()}
                         </span>
-                        {currentFlowAssistantModel.capabilities?.supportsVision && (
-                          <span style={{ fontSize: 10.5, background: '#e0e7ff', color: '#4338ca', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
-                            Vision
-                          </span>
-                        )}
                       </div>
                     </div>
                   )}
@@ -1010,7 +1077,9 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                           </span>
                         </div>
                         <p style={{ fontSize: 11.5, color: '#64748b', margin: 0, marginTop: 3 }}>
-                          Endpoint: {currentTypeModel.endpoint}
+                          {isSubscriptionProvider(currentTypeModel.provider)
+                            ? 'Via subscription CLI (local login)'
+                            : `Endpoint: ${currentTypeModel.endpoint}`}
                         </p>
                       </div>
 
@@ -1826,8 +1895,16 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                           </span>
                           <span style={{ fontSize: 11, color: '#94a3b8' }}>•</span>
                           <span style={{ fontSize: 11, color: '#64748b', textTransform: 'capitalize' }}>
-                            {m.provider}
+                            {PROVIDER_PRESETS[m.provider]?.label || m.provider}
                           </span>
+                          {isSubscriptionProvider(m.provider) && (
+                            <span
+                              title="Uses the CLI subscription login on this machine"
+                              style={{ fontSize: 10, background: '#ecfeff', color: '#0e7490', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}
+                            >
+                              CLI
+                            </span>
+                          )}
                         </div>
 
                         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
@@ -1915,31 +1992,47 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                   <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
                     Provider / Schema Format
                   </label>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {Object.entries(PROVIDER_PRESETS).map(([key, preset]) => {
-                      const isSelected = formProvider === key;
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleProviderChange(key)}
-                          style={{
-                            padding: '7px 14px',
-                            borderRadius: 8,
-                            fontSize: 12.5,
-                            fontWeight: isSelected ? 700 : 500,
-                            cursor: 'pointer',
-                            border: `1.5px solid ${isSelected ? '#4f46e5' : '#e2e8f0'}`,
-                            background: isSelected ? '#eef2ff' : '#ffffff',
-                            color: isSelected ? '#4f46e5' : '#475569',
-                            transition: 'all 0.15s ease',
-                          }}
-                        >
-                          {preset.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {[
+                    { title: 'API (token)', subscription: false },
+                    { title: 'Subscription (CLI login on this machine)', subscription: true },
+                  ].map((group) => (
+                    <div key={group.title} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {group.title}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {Object.entries(PROVIDER_PRESETS)
+                          .filter(([, preset]) => Boolean(preset.subscription) === group.subscription)
+                          .map(([key, preset]) => {
+                            const isSelected = formProvider === key;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => handleProviderChange(key)}
+                                style={{
+                                  padding: '7px 14px',
+                                  borderRadius: 8,
+                                  fontSize: 12.5,
+                                  fontWeight: isSelected ? 700 : 500,
+                                  cursor: 'pointer',
+                                  border: `1.5px solid ${isSelected ? '#4f46e5' : '#e2e8f0'}`,
+                                  background: isSelected ? '#eef2ff' : '#ffffff',
+                                  color: isSelected ? '#4f46e5' : '#475569',
+                                  transition: 'all 0.15s ease',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                {preset.subscription && <Terminal size={13} />}
+                                {preset.label}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Label and Model ID */}
@@ -1972,7 +2065,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                       type="text"
                       value={formModelId}
                       onChange={(e) => setFormModelId(e.target.value)}
-                      placeholder="e.g. gpt-4o, claude-3-5-sonnet-20241022, llama3.2"
+                      placeholder={
+                        isCliForm
+                          ? PROVIDER_PRESETS[formProvider]?.modelHint || 'Model name as the CLI expects it'
+                          : 'e.g. gpt-4o, claude-3-5-sonnet-20241022, llama3.2'
+                      }
                       required
                       style={{
                         width: '100%',
@@ -1986,7 +2083,81 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Endpoint & API Key */}
+                {/* Endpoint & API Key (API providers) or CLI settings (subscription providers) */}
+                {isCliForm ? (
+                  <div style={{ padding: '12px 14px', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#134e4a', marginBottom: 4 }}>
+                      <Terminal size={14} />
+                      Runs through the {PROVIDER_PRESETS[formProvider]?.label} CLI
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#475569', marginBottom: 10, lineHeight: 1.5 }}>
+                      No API key needed: prompts are sent with{' '}
+                      <code style={{ fontFamily: 'monospace' }}>{PROVIDER_PRESETS[formProvider]?.cliBinary}</code> in headless,
+                      read-only mode using the login saved on the machine running the backend. Text prompts only; the
+                      flow&apos;s autonomous tools and attachments are not available for these models.
+                    </div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                      CLI Path (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={formCliPath}
+                      onChange={(e) => setFormCliPath(e.target.value)}
+                      placeholder={`Default: ${PROVIDER_PRESETS[formProvider]?.cliBinary} (looked up on PATH)`}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #cbd5e1',
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        background: '#fff',
+                      }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={handleTestCli}
+                        disabled={isTestingCli}
+                        style={{
+                          background: '#ffffff',
+                          color: '#0f766e',
+                          border: '1px solid #5eead4',
+                          borderRadius: 6,
+                          padding: '6px 12px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: isTestingCli ? 'wait' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        {isTestingCli ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                        {isTestingCli ? 'Testing…' : 'Test CLI Connection'}
+                      </button>
+                      <span style={{ fontSize: 11, color: '#64748b' }}>Sends a one-word prompt with the model &amp; effort above.</span>
+                    </div>
+                    {cliTestResult && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          background: cliTestResult.ok ? '#ecfdf5' : '#fef2f2',
+                          color: cliTestResult.ok ? '#065f46' : '#991b1b',
+                          border: `1px solid ${cliTestResult.ok ? '#a7f3d0' : '#fecaca'}`,
+                        }}
+                      >
+                        {cliTestResult.text}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
                 <div>
                   <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
                     API Endpoint / Full URL <span style={{ color: '#ef4444' }}>*</span>
@@ -2040,6 +2211,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                     }}
                   />
                 </div>
+                  </>
+                )}
 
                 {/* Capabilities Checkboxes */}
                 <div>
@@ -2163,10 +2336,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                 {/* Reasoning & Thinking Configuration (Groq / Qwen / DeepSeek / o1) */}
                 <div style={{ padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 2 }}>
-                    🧠 Reasoning &amp; Thinking Settings (Groq / Qwen / o1 / DeepSeek)
+                    🧠 Reasoning &amp; Thinking Settings
                   </div>
                   <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 12 }}>
-                    Control reasoning tokens and output formatting to prevent prompt pollution and JSON validation errors.
+                    Control reasoning effort and output formatting. Unsupported levels map to the closest one the provider
+                    accepts (e.g. Claude Code: minimal → low; Codex: max → xhigh; OpenRouter sends reasoning.effort).
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                     <div>
@@ -2187,9 +2361,12 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                       >
                         <option value="default">Default (Model standard)</option>
                         <option value="none">Disable Thinking (none - ultra fast)</option>
+                        <option value="minimal">Minimal Effort</option>
                         <option value="low">Low Effort</option>
                         <option value="medium">Medium Effort</option>
                         <option value="high">High Effort</option>
+                        <option value="xhigh">Extra High Effort (xhigh)</option>
+                        <option value="max">Max Effort</option>
                       </select>
                       <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
                         Use &quot;Disable Thinking&quot; for fast responses without &lt;think&gt; tokens.

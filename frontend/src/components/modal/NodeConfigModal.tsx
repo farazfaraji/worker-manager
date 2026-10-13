@@ -113,6 +113,11 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
       if (initialConfig.operation === undefined && node.data?.definitionType === 'artifact') {
         initialConfig.operation = 'create';
       }
+      if (String(node.data?.definitionType || '').toLowerCase() === 'agent') {
+        if (!initialConfig.memoryMode && initialConfig.enableMemory === true) {
+          initialConfig.memoryMode = 'agent';
+        }
+      }
 
       setFormConfig(initialConfig);
 
@@ -142,6 +147,11 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
               });
               if (updated.operation === undefined && node.data?.definitionType === 'artifact') {
                 updated.operation = 'create';
+              }
+              if (String(node.data?.definitionType || '').toLowerCase() === 'agent') {
+                if (!updated.memoryMode && updated.enableMemory === true) {
+                  updated.memoryMode = 'agent';
+                }
               }
               return updated;
             });

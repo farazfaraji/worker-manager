@@ -77,7 +77,11 @@ import {
   SecretsPlugin,
   FilePlugin,
   DatabasePlugin,
+  GithubPlugin,
+  JiraPlugin,
 } from '../runs/plugins';
+import { GithubCliService } from '../runs/services/github-cli.service';
+import { JiraCliService } from '../runs/services/jira-cli.service';
 import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
 
 @Module({
@@ -160,6 +164,10 @@ import { GraphCompilerService, MongoCheckpointSaver } from '../runs/compiler';
     SecretsPlugin,
     FilePlugin,
     DatabasePlugin,
+    GithubCliService,
+    JiraCliService,
+    GithubPlugin,
+    JiraPlugin,
     ToolPluginRegistry,
 
     // LangGraph Compiler & Checkpointing

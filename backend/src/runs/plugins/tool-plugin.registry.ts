@@ -38,6 +38,8 @@ import { LogPlugin } from './log.plugin';
 import { SecretsPlugin } from './secrets.plugin';
 import { FilePlugin } from './file.plugin';
 import { DatabasePlugin } from './database.plugin';
+import { GithubPlugin } from './github.plugin';
+import { JiraPlugin } from './jira.plugin';
 import { FileStorageService } from '../../blocks/file-storage.service';
 
 @Injectable()
@@ -84,6 +86,8 @@ export class ToolPluginRegistry {
     private readonly secretsPlugin: SecretsPlugin = new SecretsPlugin(),
     private readonly filePlugin: FilePlugin = new FilePlugin(new FileStorageService()),
     private readonly databasePlugin: DatabasePlugin = new DatabasePlugin(),
+    private readonly githubPlugin: GithubPlugin,
+    private readonly jiraPlugin: JiraPlugin,
   ) {
     this.registerAll([
       this.triggerPlugin,
@@ -123,6 +127,8 @@ export class ToolPluginRegistry {
       this.secretsPlugin,
       this.filePlugin,
       this.databasePlugin,
+      this.githubPlugin,
+      this.jiraPlugin,
     ]);
   }
 

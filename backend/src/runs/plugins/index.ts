@@ -37,3 +37,5 @@ export * from './log.plugin';
 export * from './secrets.plugin';
 export * from './file.plugin';
 export * from './database.plugin';
+export * from './github.plugin';
+export * from './jira.plugin';

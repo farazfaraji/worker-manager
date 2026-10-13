@@ -15,6 +15,7 @@ import { LLMModel } from './schemas/llm-model.schema';
 import { RevisePromptDto } from './dto/revise-prompt.dto';
 import { GenerateSchemaDto } from './dto/generate-schema.dto';
 import { FlowAssistantChatDto } from './dto/flow-assistant.dto';
+import { GenerateEvaluationCriteriaDto } from './dto/generate-evaluation-criteria.dto';
 
 @Controller('models')
 export class ModelsController {
@@ -36,6 +37,18 @@ export class ModelsController {
   @HttpCode(HttpStatus.OK)
   async generateSchema(@Body() body: GenerateSchemaDto) {
     return this.modelsService.generateSchema(body);
+  }
+
+  @Post('generate-evaluation-criteria')
+  @HttpCode(HttpStatus.OK)
+  async generateEvaluationCriteria(@Body() body: GenerateEvaluationCriteriaDto) {
+    return this.modelsService.generateEvaluationCriteria(body);
+  }
+
+  @Post('test-cli')
+  @HttpCode(HttpStatus.OK)
+  async testCliModel(@Body() body: Partial<LLMModel>) {
+    return this.modelsService.testCliModel(body);
   }
 
   @Get()

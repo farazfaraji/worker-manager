@@ -1,0 +1,310 @@
+{
+  "name": "GitHub CLI",
+  "type": "github",
+  "description": "Run GitHub CLI (gh) actions: create, read, review, and merge pull requests, clone repositories, manage issues, inspect workflow runs, or call the GitHub API.",
+  "inputs": [
+    {
+      "name": "action",
+      "label": "Action",
+      "type": "select",
+      "required": true,
+      "defaultValue": "pr-view",
+      "options": [
+        { "label": "PR: Create pull request", "value": "pr-create" },
+        { "label": "PR: View / read pull request", "value": "pr-view" },
+        { "label": "PR: List pull requests", "value": "pr-list" },
+        { "label": "PR: Get diff", "value": "pr-diff" },
+        { "label": "PR: Get checks status", "value": "pr-checks" },
+        { "label": "PR: Add comment", "value": "pr-comment" },
+        { "label": "PR: Submit review", "value": "pr-review" },
+        { "label": "PR: Merge", "value": "pr-merge" },
+        { "label": "PR: Checkout branch locally", "value": "pr-checkout" },
+        { "label": "PR: Close", "value": "pr-close" },
+        { "label": "Repo: Clone repository", "value": "repo-clone" },
+        { "label": "Repo: View repository", "value": "repo-view" },
+        { "label": "Issue: Create issue", "value": "issue-create" },
+        { "label": "Issue: View issue", "value": "issue-view" },
+        { "label": "Issue: List issues", "value": "issue-list" },
+        { "label": "Issue: Add comment", "value": "issue-comment" },
+        { "label": "Actions: List workflow runs", "value": "run-list" },
+        { "label": "Actions: View workflow run", "value": "run-view" },
+        { "label": "API: Call GitHub REST API", "value": "api" },
+        { "label": "Custom gh command", "value": "custom" }
+      ],
+      "helpText": "The gh subcommand to run. Only the fields relevant to the selected action are shown."
+    },
+    {
+      "name": "repo",
+      "label": "Repository (OWNER/REPO)",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "octocat/hello-world",
+      "helpText": "Target repository, passed as --repo (or as the clone source). Leave empty to use the Git remote of the working directory.",
+      "dependsOn": {
+        "field": "action",
+        "in": ["pr-create", "pr-view", "pr-list", "pr-diff", "pr-checks", "pr-comment", "pr-review", "pr-merge", "pr-checkout", "pr-close", "repo-clone", "repo-view", "issue-create", "issue-view", "issue-list", "issue-comment", "run-list", "run-view"]
+      }
+    },
+    {
+      "name": "workingDirectory",
+      "label": "Working Directory Override",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "/absolute/path/to/repo",
+      "helpText": "Directory gh runs in. Defaults to the project's repositoryPath. Must be inside the project's allowed repository roots."
+    },
+    {
+      "name": "number",
+      "label": "PR / Issue Number, URL or Branch",
+      "type": "valueOrVariable",
+      "accepts": ["string", "number"],
+      "placeholder": "42 or {{create_pr.number}}",
+      "helpText": "Identifies the pull request or issue. For PR actions, leave empty to use the PR of the current branch.",
+      "dependsOn": {
+        "field": "action",
+        "in": ["pr-view", "pr-diff", "pr-checks", "pr-comment", "pr-review", "pr-merge", "pr-checkout", "pr-close", "issue-view", "issue-comment"]
+      }
+    },
+    {
+      "name": "runId",
+      "label": "Workflow Run ID",
+      "type": "valueOrVariable",
+      "accepts": ["string", "number"],
+      "required": true,
+      "placeholder": "1234567890",
+      "dependsOn": { "field": "action", "equals": "run-view" }
+    },
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "text",
+      "required": true,
+      "placeholder": "feat: add GitHub CLI node",
+      "helpText": "Supports variables like {{agent.title}}.",
+      "dependsOn": { "field": "action", "in": ["pr-create", "issue-create"] }
+    },
+    {
+      "name": "body",
+      "label": "Body",
+      "type": "textarea",
+      "placeholder": "Describe the change... Supports {{variables}}.",
+      "helpText": "Markdown body for the pull request, issue, comment, or review.",
+      "dependsOn": { "field": "action", "in": ["pr-create", "issue-create", "pr-comment", "issue-comment", "pr-review", "pr-close"] }
+    },
+    {
+      "name": "base",
+      "label": "Base Branch",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "main",
+      "helpText": "Branch to merge into. Defaults to the repository's default branch.",
+      "dependsOn": { "field": "action", "in": ["pr-create", "pr-list"] }
+    },
+    {
+      "name": "head",
+      "label": "Head Branch",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "feature/my-change",
+      "helpText": "Branch containing the changes. Defaults to the current branch of the working directory.",
+      "dependsOn": { "field": "action", "in": ["pr-create", "pr-list"] }
+    },
+    {
+      "name": "draft",
+      "label": "Create as Draft",
+      "type": "checkbox",
+      "defaultValue": false,
+      "dependsOn": { "field": "action", "equals": "pr-create" }
+    },
+    {
+      "name": "labels",
+      "label": "Labels",
+      "type": "text",
+      "placeholder": "bug, enhancement",
+      "helpText": "Comma-separated labels. For list actions, filters by label.",
+      "dependsOn": { "field": "action", "in": ["pr-create", "issue-create", "pr-list", "issue-list"] }
+    },
+    {
+      "name": "reviewers",
+      "label": "Reviewers",
+      "type": "text",
+      "placeholder": "octocat, my-org/team",
+      "helpText": "Comma-separated GitHub users or teams.",
+      "dependsOn": { "field": "action", "equals": "pr-create" }
+    },
+    {
+      "name": "assignees",
+      "label": "Assignees",
+      "type": "text",
+      "placeholder": "@me, octocat",
+      "helpText": "Comma-separated GitHub users. For list actions, filters by assignee.",
+      "dependsOn": { "field": "action", "in": ["pr-create", "issue-create", "pr-list", "issue-list"] }
+    },
+    {
+      "name": "state",
+      "label": "State Filter",
+      "type": "select",
+      "defaultValue": "open",
+      "options": [
+        { "label": "Open", "value": "open" },
+        { "label": "Closed", "value": "closed" },
+        { "label": "Merged (PRs only)", "value": "merged" },
+        { "label": "All", "value": "all" }
+      ],
+      "dependsOn": { "field": "action", "in": ["pr-list", "issue-list"] }
+    },
+    {
+      "name": "search",
+      "label": "Search Query",
+      "type": "text",
+      "placeholder": "is:pr author:@me review:required",
+      "helpText": "Optional GitHub search syntax filter.",
+      "dependsOn": { "field": "action", "in": ["pr-list", "issue-list"] }
+    },
+    {
+      "name": "branch",
+      "label": "Branch Filter",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "main",
+      "dependsOn": { "field": "action", "equals": "run-list" }
+    },
+    {
+      "name": "workflow",
+      "label": "Workflow Filter",
+      "type": "text",
+      "placeholder": "ci.yml",
+      "dependsOn": { "field": "action", "equals": "run-list" }
+    },
+    {
+      "name": "limit",
+      "label": "Limit",
+      "type": "number",
+      "defaultValue": 30,
+      "helpText": "Maximum number of items to return (1-200).",
+      "dependsOn": { "field": "action", "in": ["pr-list", "issue-list", "run-list"] }
+    },
+    {
+      "name": "reviewType",
+      "label": "Review Type",
+      "type": "select",
+      "defaultValue": "comment",
+      "options": [
+        { "label": "Comment", "value": "comment" },
+        { "label": "Approve", "value": "approve" },
+        { "label": "Request changes", "value": "request-changes" }
+      ],
+      "dependsOn": { "field": "action", "equals": "pr-review" }
+    },
+    {
+      "name": "mergeMethod",
+      "label": "Merge Method",
+      "type": "select",
+      "defaultValue": "squash",
+      "options": [
+        { "label": "Squash", "value": "squash" },
+        { "label": "Merge commit", "value": "merge" },
+        { "label": "Rebase", "value": "rebase" }
+      ],
+      "dependsOn": { "field": "action", "equals": "pr-merge" }
+    },
+    {
+      "name": "autoMerge",
+      "label": "Enable Auto-merge",
+      "type": "checkbox",
+      "defaultValue": false,
+      "helpText": "Merge automatically once required checks pass instead of merging now.",
+      "dependsOn": { "field": "action", "equals": "pr-merge" }
+    },
+    {
+      "name": "deleteBranch",
+      "label": "Delete Branch After Merge / Close",
+      "type": "checkbox",
+      "defaultValue": false,
+      "dependsOn": { "field": "action", "in": ["pr-merge", "pr-close"] }
+    },
+    {
+      "name": "cloneDirectory",
+      "label": "Clone Into Directory",
+      "type": "valueOrVariable",
+      "accepts": ["string"],
+      "placeholder": "hello-world",
+      "helpText": "Target directory, relative to the working directory or absolute. Must stay inside the allowed repository roots. Defaults to the repository name.",
+      "dependsOn": { "field": "action", "equals": "repo-clone" }
+    },
+    {
+      "name": "cloneDepth",
+      "label": "Clone Depth",
+      "type": "number",
+      "placeholder": "1",
+      "helpText": "Optional shallow clone depth. Leave empty for a full clone.",
+      "dependsOn": { "field": "action", "equals": "repo-clone" }
+    },
+    {
+      "name": "apiEndpoint",
+      "label": "API Endpoint",
+      "type": "text",
+      "required": true,
+      "placeholder": "repos/{owner}/{repo}/pulls/42/comments",
+      "helpText": "REST path passed to gh api. {owner} and {repo} are filled from the working directory's repository.",
+      "dependsOn": { "field": "action", "equals": "api" }
+    },
+    {
+      "name": "apiMethod",
+      "label": "HTTP Method",
+      "type": "select",
+      "defaultValue": "GET",
+      "options": [
+        { "label": "GET", "value": "GET" },
+        { "label": "POST", "value": "POST" },
+        { "label": "PATCH", "value": "PATCH" },
+        { "label": "PUT", "value": "PUT" },
+        { "label": "DELETE", "value": "DELETE" }
+      ],
+      "dependsOn": { "field": "action", "equals": "api" }
+    },
+    {
+      "name": "apiBody",
+      "label": "Request Body (JSON)",
+      "type": "json",
+      "placeholder": "{\n  \"body\": \"Looks good!\"\n}",
+      "helpText": "Optional JSON body sent to the endpoint.",
+      "dependsOn": { "field": "action", "in": ["api"] }
+    },
+    {
+      "name": "args",
+      "label": "gh Arguments",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "release list --limit 5 --json tagName,publishedAt",
+      "helpText": "Arguments after `gh`. Quoted values are respected; no shell is used. `gh auth` subcommands other than `auth status` are blocked.",
+      "dependsOn": { "field": "action", "equals": "custom" }
+    },
+    {
+      "name": "extraArgs",
+      "label": "Extra Arguments",
+      "type": "text",
+      "placeholder": "--fill --no-maintainer-edit",
+      "helpText": "Optional additional flags appended to the generated gh command.",
+      "dependsOn": { "field": "action", "notEquals": "custom" }
+    },
+    {
+      "name": "timeoutMs",
+      "label": "Timeout (ms)",
+      "type": "number",
+      "defaultValue": 120000,
+      "helpText": "Maximum run time for the gh command (max 15 minutes)."
+    },
+    {
+      "name": "failOnError",
+      "label": "Fail Run on Error",
+      "type": "checkbox",
+      "defaultValue": true,
+      "helpText": "When enabled, a failing gh command fails the node. When disabled, the node routes to the On Failed branch with error details."
+    }
+  ],
+  "outputs": [
+    { "name": "done", "label": "Done", "type": "branch" },
+    { "name": "onFailed", "label": "On Failed", "type": "branch" }
+  ]
+}

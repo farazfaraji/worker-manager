@@ -30,7 +30,19 @@ export class LLMModel {
 
   @Prop({
     required: true,
-    enum: ['openai', 'anthropic', 'gemini', 'ollama', 'lmstudio', 'custom', 'openrouter'],
+    enum: [
+      'openai',
+      'anthropic',
+      'gemini',
+      'ollama',
+      'lmstudio',
+      'custom',
+      'openrouter',
+      'codex',
+      'claude-code',
+      'cursor',
+      'antigravity',
+    ],
     default: 'openai',
   })
   provider: string;
@@ -41,6 +53,9 @@ export class LLMModel {
   @Prop({ default: '', trim: true })
   apiKey: string;
 
+  @Prop({ default: '', trim: true })
+  cliPath?: string;
+
   @Prop({ type: ModelCapabilitiesSchema, default: () => ({}) })
   capabilities: ModelCapabilities;
 
@@ -50,7 +65,10 @@ export class LLMModel {
   @Prop({ type: Boolean, default: false })
   isDefault: boolean;
 
-  @Prop({ default: 'default', enum: ['default', 'none', 'low', 'medium', 'high'] })
+  @Prop({
+    default: 'default',
+    enum: ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  })
   reasoningEffort?: string;
 
   @Prop({ default: 'hidden', enum: ['hidden', 'parsed', 'raw'] })
